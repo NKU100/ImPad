@@ -164,7 +164,7 @@ def prepare(repository, report_path, candidate_apk, directory):
     apks = [(report["identity"]["versionName"], f"work/apks/{candidate_filename}", candidate_digest)]
     for target in regression:
         identity = target["identity"]
-        cached = ensure_apk(target, repository / ".cache" / f"{policy.app_id}-apks")
+        cached = ensure_apk(target, repository / ".cache" / f"{policy.app_id}-apks", policy.app_id)
         digest = identity["apkSha256"].lower()
         destination = apk_dir / f"{identity['versionCode']}-{digest}.apk"
         os.link(cached, destination)
@@ -203,7 +203,7 @@ def validate(directory):
     candidate = state["report"]
     for version, apk, expected in state["apks"]:
         check_apk(worktree, Path(policy.targets_path), worktree / apk, expected,
-                  directory / f"check-{version}-{expected}.log", offline=True)
+                  directory / f"check-{version}-{expected}.log", offline=True, app_id=policy.app_id)
     run_bounded(["./gradlew", "--offline", "--no-daemon", ":app:testDebugUnitTest", ":compat-core:test", ":compat-checker:test", ":app:assembleDebug"],
                 worktree, dict(os.environ), directory / "build.log", timeout=600)
     for path in new_files:

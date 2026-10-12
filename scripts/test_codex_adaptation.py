@@ -68,6 +68,94 @@ class CodexAdaptationTest(unittest.TestCase):
             self.assertEqual(git(checkout, 'rev-parse', 'HEAD'), state['agent_base'])
             self.assertEqual(state['base'], state['agent_base'])
 
+    def test_preparation_uses_wecom_policy_for_regression_apk(self):
+        from scripts.ci.codex_adaptation import prepare
+        targets = json.loads(Path('compatibility/wecom/targets.json').read_text())
+        baseline = targets[0]
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            repository = root / 'repository'
+            repository.mkdir()
+            subprocess.run(['git', 'init', '-q', str(repository)], check=True)
+            targets_path = repository / 'compatibility/wecom/targets.json'
+            targets_path.parent.mkdir(parents=True)
+            targets_path.write_text(json.dumps(targets))
+            subprocess.run(['git', 'add', '.'], cwd=repository, check=True)
+            subprocess.run(['git', '-c', 'user.name=Test', '-c', 'user.email=test@localhost',
+                            'commit', '-qm', 'Add WeCom baseline'], cwd=repository, check=True)
+
+            candidate_apk = root / 'candidate.apk'
+            candidate_apk.write_bytes(b'wecom candidate')
+            identity = dict(baseline['identity'], versionName='5.0.12', versionCode=83835,
+                            apkSha256=sha256(candidate_apk))
+            report = {'appId': 'wecom', 'identity': identity, 'status': 'NEEDS_HOOK_REVIEW',
+                      'sourceUrl': 'https://dldir1.qq.com/wework/work_weixin/WeCom_android_5.0.12.83835_arm64_100001.apk'}
+            report_path = root / 'report.json'
+            report_path.write_text(json.dumps(report))
+            cache = repository / '.cache/wecom-apks'
+            cache.mkdir(parents=True)
+            (cache / f"{baseline['identity']['apkSha256']}.apk").write_bytes(b'cached baseline')
+
+            with patch('scripts.ci.static_regression.file_sha256',
+                       return_value=baseline['identity']['apkSha256']):
+                prepare(repository, report_path, candidate_apk, root / 'task')
+
+            state = json.loads((root / 'task/state.json').read_text())
+            self.assertEqual(['5.0.12', '5.0.8'], [entry[0] for entry in state['apks']])
+
+    def test_validation_uses_wecom_policy_for_shared_checker(self):
+        from scripts.ci.codex_adaptation import validate
+        targets = json.loads(Path('compatibility/wecom/targets.json').read_text())
+        baseline = targets[0]
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            repository = root / 'repository'
+            repository.mkdir()
+            subprocess.run(['git', 'init', '-q', str(repository)], check=True)
+            (repository / '.gitignore').write_text('work/\n')
+            targets_path = repository / 'compatibility/wecom/targets.json'
+            targets_path.parent.mkdir(parents=True)
+            targets_path.write_text(json.dumps(targets))
+            subprocess.run(['git', 'add', '.'], cwd=repository, check=True)
+            subprocess.run(['git', '-c', 'user.name=Test', '-c', 'user.email=test@localhost',
+                            'commit', '-qm', 'Add WeCom baseline'], cwd=repository, check=True)
+            base = subprocess.check_output(['git', 'rev-parse', 'HEAD'], cwd=repository, text=True).strip()
+
+            apk = repository / 'work/apks/candidate.apk'
+            apk.parent.mkdir(parents=True)
+            apk.write_bytes(b'wecom candidate')
+            identity = dict(baseline['identity'], versionName='5.0.12', versionCode=83835,
+                            apkSha256=sha256(apk))
+            source_url = 'https://dldir1.qq.com/wework/work_weixin/WeCom_android_5.0.12.83835_arm64_100001.apk'
+            report = {'appId': 'wecom', 'identity': identity, 'status': 'NEEDS_HOOK_REVIEW',
+                      'sourceUrl': source_url}
+            profile = copy.deepcopy(baseline)
+            profile.update(identity=identity, sourceUrl=source_url, verificationStatus='static-verified')
+            for hook in profile['hooks']:
+                hook['stringAnchor'] = 'test anchor'
+            targets_path.write_text(json.dumps(targets + [profile]))
+
+            task = root / 'task'
+            task.mkdir()
+            (task / 'state.json').write_text(json.dumps({
+                'appId': 'wecom', 'targetsPath': 'compatibility/wecom/targets.json',
+                'worktree': str(repository), 'base': base, 'agent_base': base,
+                'before': targets, 'report': report,
+                'apks': [['5.0.12', 'work/apks/candidate.apk', identity['apkSha256']]],
+                'existing_tests': {},
+            }))
+
+            def check_with_policy(repository, targets_path, apk, digest, log,
+                                  offline=False, app_id='wechat'):
+                if app_id != 'wecom':
+                    raise ValueError('Shared checker was not given the WeCom application policy')
+
+            with patch('scripts.ci.codex_adaptation.run_bounded'), \
+                    patch('scripts.ci.codex_adaptation.check_apk', side_effect=check_with_policy) as checker_run:
+                validate(task)
+
+            checker_run.assert_called_once()
+
     def test_unknown_verified_candidate_can_run_even_when_static_inference_passed(self):
         self.assertTrue(eligible_candidate(self.report, self.targets))
         self.report['status'] = 'STATIC_VERIFIED_PENDING_RUNTIME'
