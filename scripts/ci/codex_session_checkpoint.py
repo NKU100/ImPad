@@ -2,6 +2,7 @@
 import io
 import argparse
 import json
+import os
 import subprocess
 import sqlite3
 import tarfile

@@ -1,12 +1,32 @@
+import io
 import json
 import os
 import subprocess
+import sys
 import tempfile
 import unittest
+from contextlib import redirect_stdout
 from pathlib import Path
 from unittest.mock import patch
 
 class SessionCheckpointTest(unittest.TestCase):
+    def test_save_cli_reads_checkpoint_identity_from_environment(self):
+        from scripts.ci.codex_session_checkpoint import main
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            directory, home = root / 'checkpoint', root / 'home'
+            output = io.StringIO()
+            env = {'CODEX_CHECKPOINT_RECIPIENT': 'age1' + 'a' * 58,
+                   'CODEX_CHECKPOINT_IDENTITY': 'private identity'}
+            argv = ['codex_session_checkpoint', 'save', '--directory', str(directory), '--home', str(home)]
+            with patch.dict(os.environ, env), patch.object(sys, 'argv', argv), \
+                    patch('scripts.ci.codex_session_checkpoint.save_session', return_value=True) as save, \
+                    redirect_stdout(output):
+                main()
+            self.assertEqual({'saved': True}, json.loads(output.getvalue()))
+            save.assert_called_once_with(directory, home, env['CODEX_CHECKPOINT_RECIPIENT'],
+                                         env['CODEX_CHECKPOINT_IDENTITY'])
+
     def test_encrypted_native_state_roundtrip_excludes_auth(self):
         from scripts.ci.codex_session_checkpoint import save_session, restore_session
         with tempfile.TemporaryDirectory() as tmp:

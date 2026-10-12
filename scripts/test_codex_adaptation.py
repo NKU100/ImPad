@@ -139,8 +139,6 @@ class CodexAdaptationTest(unittest.TestCase):
                       'sourceUrl': source_url}
             profile = copy.deepcopy(baseline)
             profile.update(identity=identity, sourceUrl=source_url, verificationStatus='static-verified')
-            for hook in profile['hooks']:
-                hook['stringAnchor'] = 'test anchor'
             targets_path.write_text(json.dumps(targets + [profile]))
 
             task = root / 'task'
@@ -218,6 +216,35 @@ class CodexAdaptationTest(unittest.TestCase):
         self.profile['verificationStatus'] = 'runtime-verified-local'
         with self.assertRaisesRegex(ValueError, 'static-verified'):
             validate_profiles(self.targets, self.targets + [self.profile], self.report)
+
+    def test_wecom_profile_keeps_exact_descriptors_without_inventing_string_anchors(self):
+        before = json.loads(Path('compatibility/wecom/targets.json').read_text())
+        baseline = before[0]
+        identity = dict(baseline['identity'], versionName='5.0.12', versionCode=83835,
+                        apkSha256='b' * 64)
+        source = 'https://dldir1.qq.com/wework/work_weixin/WeCom_android_5.0.12.83835_arm64_100001.apk'
+        report = {'appId': 'wecom', 'identity': identity, 'status': 'NEEDS_HOOK_REVIEW', 'sourceUrl': source}
+        profile = copy.deepcopy(baseline)
+        profile.update(identity=identity, sourceUrl=source, verificationStatus='static-verified')
+
+        validate_profiles(before, before + [profile], report, 'wecom')
+
+        missing_descriptor = copy.deepcopy(profile)
+        missing_descriptor['hooks'][0]['expectedDescriptor'] = ''
+        with self.assertRaisesRegex(ValueError, 'descriptor or locator'):
+            validate_profiles(before, before + [missing_descriptor], report, 'wecom')
+        unsafe_anchor = copy.deepcopy(profile)
+        unsafe_anchor['hooks'][0]['stringAnchor'] = 'invented anchor'
+        with self.assertRaisesRegex(ValueError, 'descriptor or locator'):
+            validate_profiles(before, before + [unsafe_anchor], report, 'wecom')
+
+    def test_wecom_agent_can_add_focused_tests_without_touching_other_apps(self):
+        validate_paths([
+            'app/src/test/kotlin/io/github/nku100/impad/apps/wecom/WeComTargetProfileTest.kt',
+            'compat-core/src/test/kotlin/io/github/nku100/impad/compat/WeComProfileTest.kt',
+        ], 'wecom')
+        with self.assertRaisesRegex(ValueError, 'allowed'):
+            validate_paths(['app/src/test/kotlin/io/github/nku100/impad/apps/qq/OtherAppTest.kt'], 'wecom')
 
     def test_profile_validation_retains_every_variant_and_rejects_duplicate_full_key(self):
         old_variant = copy.deepcopy(self.targets[-1])

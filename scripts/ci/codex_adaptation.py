@@ -90,14 +90,30 @@ def validate_profiles(before, after, report, app_id=None):
     if len(hooks) != len(policy.required_hook_ids) or {h.get("id") for h in hooks} != set(policy.required_hook_ids):
         raise ValueError("Candidate hooks do not match the registered app policy")
     for hook in hooks:
-        if not hook.get("stringAnchor") or not hook.get("expectedDescriptor"):
-            raise ValueError("Candidate Hook anchors and descriptors must be explicit")
+        locator = hook.get("locator")
+        descriptor = hook.get("expectedDescriptor")
+        string_anchor = hook.get("stringAnchor")
+        descriptor_is_explicit = isinstance(descriptor, str) and bool(descriptor.strip())
+        anchor_is_explicit = isinstance(string_anchor, str) and bool(string_anchor.strip())
+        valid_locator = (
+            locator in (None, "STRING_ANCHOR") and anchor_is_explicit
+            or locator == "EXACT_DESCRIPTOR" and string_anchor is None
+            and not hook.get("safeForForwardInference", False)
+        )
+        if not descriptor_is_explicit or not valid_locator:
+            raise ValueError("Candidate Hook descriptor or locator is invalid")
 
 
 def validate_paths(paths, app_id="wechat"):
     policy = get_policy(app_id)
+    app_test_prefix = policy.app_source_prefix.replace("/src/main/kotlin/", "/src/test/kotlin/", 1)
+    shared_test_prefixes = [app_test_prefix]
+    for source in policy.shared_source_paths:
+        if source.startswith("compat-core/src/main/kotlin/"):
+            shared_test_prefixes.append(source.split("/src/main/kotlin/", 1)[0] + "/src/test/kotlin/")
     for path in paths:
-        if path != policy.targets_path and path not in policy.shared_source_paths and not path.startswith(policy.app_source_prefix):
+        if (path != policy.targets_path and path not in policy.shared_source_paths
+                and not path.startswith((policy.app_source_prefix, *shared_test_prefixes))):
             raise ValueError(f"Agent edit is outside the allowed adaptation paths: {path}")
 
 

@@ -2,8 +2,8 @@ Adapt the unknown WeCom APK described in `work/analysis/candidate-report.json`.
 The candidate APK is `work/apks/candidate-<apkSha256>.apk`. Older registered
 WeCom APKs, when available, are staged as `<versionCode>-<apkSha256>.apk` in
 `work/apks`. Use the managed `jadx` launcher for targeted inspection; it
-serializes invocations and caps each JVM heap at 4 GiB. Do not run the underlying
-jadx binary directly or bypass its resource limits.
+serializes invocations and caps each WeCom JVM heap at 2 GiB. Do not run the
+underlying jadx binary directly or bypass its resource limits.
 
 Inspect the candidate's actual device-type and Android-pad decision paths before
 registering Hook descriptors. Verify that each selected method is reached by the
@@ -18,6 +18,11 @@ existing profile unchanged. Prefer explicit exact descriptors. Change runtime
 Hook code or compat-core only when the inspected implementation requires it; do
 not weaken matching to make a candidate pass. Keep all existing regression tests
 unchanged and add focused tests for new behavior.
+
+Preserve the registered locator contract: `EXACT_DESCRIPTOR` requires a
+non-empty `expectedDescriptor` and a null `stringAnchor`; `STRING_ANCHOR`
+requires a non-empty `stringAnchor`. Never invent string anchors. The guarded
+candidate checker must confirm each exact descriptor against the candidate APK.
 
 When `work/analysis/runtime-device.json` exists, the disposable rooted AVD is
 ready with the candidate APK and official LSPosed. Use `adb wechat-launch` after
