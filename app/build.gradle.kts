@@ -222,7 +222,7 @@ tasks.register("verifyModuleMetadata") {
                 ?.readLines()
                 ?.map(String::trim)
                 ?.filter(String::isNotEmpty)
-                ?: listOf("com.tencent.mm")
+                ?: listOf("com.tencent.mm", "com.tencent.wework")
             check(scopePackages == expectedScopePackages) {
                 "Unexpected module scope: $scopePackages"
             }
