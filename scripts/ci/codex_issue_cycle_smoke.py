@@ -51,7 +51,7 @@ prompt = ("Implement comment_selector.py with select_comment(comments, cursor, o
           "from owner with id greater than cursor, or None. This staged integration "
           "test will add requirements via issue comments later. Implement only these "
           "current requirements. Do not access parent directories or authentication files. "
-          "Do not commit. Write actual Python code." if stage == 1 else current["body"])
+          "Do not commit. Write actual Python code." if stage == 1 else current["body"] + "\nPrevious independent verifier errors: " + json.dumps(state["results"][-1]["errors"]) + "\nThe inputs are Python dictionaries, not objects. Fix all reported failures.")
 home.joinpath("auth.json").write_text(os.environ["CODEX_AUTH_JSON"])
 home.joinpath("auth.json").chmod(0o600)
 env = {k: os.environ[k] for k in ("PATH", "LANG", "SSL_CERT_FILE") if k in os.environ}
