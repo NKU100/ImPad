@@ -54,9 +54,9 @@ env = {k: os.environ[k] for k in ("PATH", "LANG", "SSL_CERT_FILE") if k in os.en
 env.update(CODEX_HOME=str(home), HOME=str(root))
 cmd = ["codex", "exec"]
 if stage > 1:
-    cmd += ["resume", state["threadId"]]
+    cmd += ["resume", state["threadId"], "--dangerously-bypass-approvals-and-sandbox"]
 else:
-    cmd += ["--sandbox", "workspace-write"]
+    cmd += ["--dangerously-bypass-approvals-and-sandbox"]
 cmd += ["--json", "--skip-git-repo-check", "-m", "gpt-6-luna",
         "-c", 'model_reasoning_effort="low"', "-c", "features.multi_agent=false", prompt]
 try:
