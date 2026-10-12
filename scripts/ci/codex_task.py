@@ -95,17 +95,20 @@ def read_owner_comments(repo, issue):
 
 def pending(repo, app_id):
     issues = list_issues(repo)
-    actionable = [issue for issue in issues if trusted_attempt(issue)
-                  and issue.get('state') == 'open'
-                  and issue_candidate_key(issue).startswith(app_id + '-')
-                  and read_owner_comments(repo, issue)]
-    issue = pending_attempt(actionable, app_id)
+    active = [issue for issue in issues if trusted_attempt(issue)
+              and issue.get('state') == 'open'
+              and issue_candidate_key(issue).startswith(app_id + '-')]
+    comments_by_issue = {issue['number']: read_owner_comments(repo, issue) for issue in active}
+    issue = pending_attempt([issue for issue in active if comments_by_issue[issue['number']]], app_id)
+    has_owner_comments = issue is not None
+    if issue is None:
+        issue = pending_attempt(active, app_id)
     if issue is None:
         result = {"pending_adaptation": "false", "pending_issue": "", "pending_candidate_key": "",
                   "pending_checkpoint_run_id": "", "pending_checkpoint_artifact": ""}
     else:
         run_id, artifact = checkpoint_reference(issue.get("body") or "", repo, app_id)
-        result = {"pending_adaptation": "true", "pending_issue": str(issue["number"]),
+        result = {"pending_adaptation": str(has_owner_comments).lower(), "pending_issue": str(issue["number"]),
                   "pending_candidate_key": issue_candidate_key(issue),
                   "pending_checkpoint_run_id": run_id or "", "pending_checkpoint_artifact": artifact or ""}
     append_github_output(Path(os.environ["GITHUB_OUTPUT"]), result)
@@ -126,6 +129,12 @@ def select_candidate_report(current_report_path, checkpoint_directory, expected_
             Path(destination).write_text(json.dumps(report, indent=2) + "\n")
             return report
     raise ValueError("No verified candidate report matches the active adaptation checkpoint")
+
+
+def candidate_matches_checkpoint(report_path, expected_key):
+    if not expected_key:
+        return False
+    return candidate_key(json.loads(Path(report_path).read_text())) == expected_key
 
 
 def action_run_id_from_url(url, repo):

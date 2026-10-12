@@ -6,7 +6,8 @@ from dataclasses import replace
 from pathlib import Path
 from unittest.mock import patch
 from scripts.ci.codex_task import (existing_attempt, pending_attempt, select_candidate_report,
-                                   claim, checkpoint_reference, record_checkpoint)
+                                   claim, checkpoint_reference, record_checkpoint,
+                                   candidate_matches_checkpoint)
 from scripts.ci.codex_adaptation import candidate_key
 
 
@@ -24,6 +25,19 @@ def candidate_report():
 
 
 class CodexTaskTest(unittest.TestCase):
+    def test_checkpoint_is_reused_only_when_the_latest_candidate_is_the_same(self):
+        with tempfile.TemporaryDirectory() as root:
+            report_path = Path(root) / 'candidate-report.json'
+            report = dict(candidate_report(), appId='wecom', identity={
+                'packageName': 'com.tencent.wework', 'abi': 'arm64-v8a', 'versionName': '5.0.12',
+                'versionCode': 83835, 'apkSha256': 'b' * 64,
+            })
+            report_path.write_text(json.dumps(report))
+            key = candidate_key(report)
+
+            self.assertTrue(candidate_matches_checkpoint(report_path, key))
+            self.assertFalse(candidate_matches_checkpoint(report_path, 'wecom-other-candidate'))
+
     def test_checkpoint_reference_reads_valid_run_and_artifact_from_issue(self):
         body = ('Status: `ADAPTATION_RUNNING`\n'
                 'Checkpoint run: https://github.com/owner/repo/actions/runs/1234\n'

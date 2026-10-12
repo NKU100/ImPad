@@ -31,8 +31,10 @@ class AdaptationCheckpointTest(unittest.TestCase):
         self.assertNotIn('GOAL_TOKEN_BUDGET', shared)
         self.assertIn('continue-on-error: true', shared)
         self.assertIn('scripts.test_adaptation_checkpoint', shared)
-        self.assertIn("ram-size: ${{ inputs.app_id == 'wecom' && '3072M' || '4096M' }}", shared)
+        self.assertIn('ram-size: 4096M', shared)
         self.assertIn('checkpoint_interval_ms', (root / 'scripts/ci/codex_live.mjs').read_text())
+        self.assertIn('Match the latest APK to the unfinished adaptation', shared)
+        self.assertIn('steps.candidate-checkpoint.outputs.same_candidate', shared)
 
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory()

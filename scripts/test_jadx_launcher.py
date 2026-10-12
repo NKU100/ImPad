@@ -40,7 +40,7 @@ active.unlink()
                 self.assertEqual('-Xms256m -Xmx4g', event['heap'])
                 self.assertEqual('', event['extra'])
 
-    def test_wecom_jadx_heap_is_capped_below_the_default(self):
+    def test_wecom_jadx_heap_is_capped_to_reduce_peak_host_memory(self):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
             launcher = root / 'jadx'
@@ -52,7 +52,7 @@ active.unlink()
             environment = dict(os.environ, IMPAD_JADX_LOCK=str(root / 'lock'), APP_ID='wecom')
             result = subprocess.run([str(launcher), '--help'], cwd=root, env=environment,
                                     capture_output=True, text=True, check=True)
-            self.assertEqual('-Xms256m -Xmx3g\n', result.stdout)
+            self.assertEqual('-Xms256m -Xmx2g\n', result.stdout)
 
     def test_unconfigured_lock_fails_before_launch(self):
         environment = dict(os.environ)

@@ -560,8 +560,29 @@ jobs:
           cp "$ADAPTATION_PROMPT" "$CONTROLLER_ROOT/adapt-prompt.md"
           echo "ADAPTATION_PROMPT=$CONTROLLER_ROOT/adapt-prompt.md" >> "$GITHUB_ENV"
 
+      - name: Match the latest APK to the unfinished adaptation
+        id: candidate-checkpoint
+        if: needs.prepare.outputs.pending_adaptation != 'true' && needs.prepare.outputs.pending_candidate_key != '' && needs.latest.result == 'success'
+        env:
+          PENDING_CANDIDATE_KEY: ${{ needs.prepare.outputs.pending_candidate_key }}
+          CANDIDATE_REPORT: ${{ github.workspace }}/compatibility-report/candidate-report.json
+        run: |
+          python3 - <<'PY'
+          import os
+          from pathlib import Path
+          from scripts.ci.codex_task import candidate_matches_checkpoint
+
+          matches = candidate_matches_checkpoint(
+              os.environ['CANDIDATE_REPORT'], os.environ['PENDING_CANDIDATE_KEY'])
+          with Path(os.environ['GITHUB_OUTPUT']).open('a') as output:
+              output.write(f"same_candidate={str(matches).lower()}\n")
+          PY
+
       - name: Download the active candidate checkpoint
-        if: needs.prepare.outputs.pending_adaptation == 'true' && needs.prepare.outputs.pending_checkpoint_run_id != ''
+        if: >-
+          needs.prepare.outputs.pending_checkpoint_run_id != '' &&
+          ((needs.prepare.outputs.pending_adaptation == 'true') ||
+           (steps.candidate-checkpoint.outputs.same_candidate == 'true'))
         uses: actions/download-artifact@v8
         continue-on-error: true
         with:
@@ -574,10 +595,11 @@ jobs:
         env:
           PENDING_ADAPTATION: ${{ needs.prepare.outputs.pending_adaptation }}
           PENDING_CANDIDATE_KEY: ${{ needs.prepare.outputs.pending_candidate_key }}
+          SAME_CANDIDATE: ${{ steps.candidate-checkpoint.outputs.same_candidate }}
         run: |
           cd "$CONTROLLER_ROOT"
           candidate_key=""
-          if [[ "$PENDING_ADAPTATION" == 'true' ]]; then candidate_key="$PENDING_CANDIDATE_KEY"; fi
+          if [[ "$PENDING_ADAPTATION" == 'true' || "$SAME_CANDIDATE" == 'true' ]]; then candidate_key="$PENDING_CANDIDATE_KEY"; fi
           python3 -m scripts.ci.codex_task select-report --app-id "$APP_ID" \
             --report "$GITHUB_WORKSPACE/compatibility-report/candidate-report.json" \
             --checkpoint-directory "$RUNNER_TEMP/impad-checkpoint" \
@@ -768,7 +790,7 @@ jobs:
           arch: x86_64
           profile: pixel_5
           cores: 2
-          ram-size: ${{ inputs.app_id == 'wecom' && '3072M' || '4096M' }}
+          ram-size: 4096M
           disk-size: 6144M
           emulator-options: -no-window -gpu swiftshader_indirect -feature GLDirectMem,HasSharedSlotsHostMemoryAllocator -noaudio -no-boot-anim -camera-back none -camera-front none -no-snapshot
           pre-emulator-launch-script: bash scripts/ci/prepare_avd_ramdisk.sh
