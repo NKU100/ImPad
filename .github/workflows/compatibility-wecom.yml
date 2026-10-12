@@ -12,7 +12,7 @@ on:
       goal_token_budget:
         description: Maximum token budget for one Codex adaptation goal
         type: string
-        default: '100000'
+        default: '500000'
       retry_adaptation:
         description: Start a new adaptation attempt even when an earlier draft PR exists
         type: boolean
@@ -40,7 +40,7 @@ jobs:
     with:
       app_id: wecom
       force_recheck: ${{ inputs.force_recheck || false }}
-      goal_token_budget: ${{ inputs.goal_token_budget || '100000' }}
+      goal_token_budget: ${{ inputs.goal_token_budget || '500000' }}
       retry_adaptation: ${{ inputs.retry_adaptation || false }}
       run_codex: ${{ github.event_name == 'schedule' || inputs.run_codex }}
       baseline_apk_sha256: ${{ inputs.baseline_apk_sha256 || '' }}
