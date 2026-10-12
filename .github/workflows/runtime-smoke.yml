@@ -1,4 +1,4 @@
-name: Run WeChat runtime smoke
+name: Run ImPad runtime smoke
 
 on:
   workflow_dispatch:

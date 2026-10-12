@@ -1,5 +1,7 @@
 import unittest
 from dataclasses import replace
+import json
+from pathlib import Path
 from unittest.mock import patch
 
 from scripts.ci.app_policy import POLICIES, get_policy, policy_for_report, validate_targets
@@ -23,6 +25,28 @@ class AppPolicyTest(unittest.TestCase):
             get_policy("qq")
         with self.assertRaisesRegex(ValueError, "Unknown or unregistered appId"):
             policy_for_report({"identity": {"packageName": "com.tencent.mm"}}, "qq")
+
+    def test_wecom_runtime_policy_is_separate_from_wechat(self):
+        wechat = get_policy("wechat")
+        wecom = get_policy("wecom")
+        self.assertEqual(wecom.package_name, "com.tencent.wework")
+        self.assertEqual(wecom.required_hook_ids, ("device_type", "app_pad", "service_pad"))
+        self.assertEqual(wecom.runtime_baseline, "NO_TABLET_ENTRY")
+        self.assertEqual(wecom.runtime_qr_page, "LoginQrCodeForAndroidPad")
+        self.assertNotEqual(wecom.runtime_ui_strategy, wechat.runtime_ui_strategy)
+        with self.assertRaisesRegex(ValueError, "package"):
+            policy_for_report({"appId": "wecom", "identity": {"packageName": "com.tencent.mm"}}, "wecom")
+
+    def test_wecom_policy_points_to_a_valid_target_manifest(self):
+        policy = get_policy("wecom")
+        targets_path = Path(policy.targets_path)
+        self.assertTrue(targets_path.is_file(), policy.targets_path)
+        self.assertTrue(Path(policy.adaptation_prompt).is_file(), policy.adaptation_prompt)
+        targets = json.loads(targets_path.read_text(encoding="utf-8"))
+        validate_targets(targets, "wecom")
+        self.assertEqual(targets[0]["identity"]["versionName"], "5.0.8")
+        self.assertEqual(targets[0]["identity"]["versionCode"], 70675)
+        self.assertTrue(targets[0]["sourceUrl"].startswith(policy.official_apk_prefix))
 
     def test_test_only_second_policy_is_confined_to_its_own_paths(self):
         test_policy = replace(

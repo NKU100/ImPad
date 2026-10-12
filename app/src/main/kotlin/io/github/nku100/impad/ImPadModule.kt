@@ -8,6 +8,7 @@ import io.github.libxposed.api.XposedModuleInterface.PackageLoadedParam
 import io.github.nku100.impad.compat.CompatibilityStatus
 import io.github.nku100.impad.compat.CompatibilityTarget
 import io.github.nku100.impad.apps.wechat.WeChatAppAdapter
+import io.github.nku100.impad.apps.wecom.WeComAppAdapter
 import io.github.nku100.impad.runtime.AppAdapter
 import io.github.nku100.impad.runtime.AppAdapterRegistry
 import io.github.nku100.impad.runtime.InstalledBuildIdentityReader
@@ -23,7 +24,9 @@ import kotlinx.serialization.json.Json
 class ImPadModule : XposedModule() {
     private var currentProcessName: String? = null
     private val handledPackages = mutableSetOf<String>()
-    private val adapters = AppAdapterRegistry(listOf(WeChatAppAdapter()))
+    private val adapters = AppAdapterRegistry(
+        listOfNotNull(WeChatAppAdapter(), WeComAppAdapter().takeIf { BuildConfig.DEBUG }),
+    )
 
     override fun onModuleLoaded(param: ModuleLoadedParam) {
         super.onModuleLoaded(param)
@@ -51,12 +54,19 @@ class ImPadModule : XposedModule() {
 
     private fun initialize(adapter: AppAdapter, applicationInfo: ApplicationInfo, defaultClassLoader: ClassLoader) {
         val build = InstalledBuildIdentityReader().read(applicationInfo)
-        val targets = readTargets(adapter.targetsAssetPath)
+        val localOnlyTargetsPath = "assets/compatibility-local/${adapter.compatibilityPolicy.appId}/targets.json"
+        val useLocalOnlyTargets = BuildConfig.DEBUG && hasTargetAsset(localOnlyTargetsPath)
+        val targets = readTargets(if (useLocalOnlyTargets) localOnlyTargetsPath else adapter.targetsAssetPath)
         val cacheDirectory = File(build.dataDirectory, "files/impad/compatibility")
         val resolution = RuntimeCompatibilityResolver(
             targets = targets,
             policy = adapter.compatibilityPolicy,
             cache = RuntimeResolutionCache(cacheDirectory),
+            targetValidator = if (useLocalOnlyTargets) {
+                adapter.compatibilityPolicy::validateLocalTargets
+            } else {
+                adapter.compatibilityPolicy::validateTargets
+            },
         ).resolve(build)
 
         val target = resolution.target
@@ -91,6 +101,13 @@ class ImPadModule : XposedModule() {
             val json = apk.getInputStream(profile).bufferedReader(StandardCharsets.UTF_8).use { it.readText() }
             Json.decodeFromString<List<CompatibilityTarget>>(json)
         }
+    }
+
+    private fun hasTargetAsset(assetPath: String): Boolean {
+        val moduleApk = checkNotNull(getModuleApplicationInfo().sourceDir) {
+            "Module APK path was null"
+        }
+        return ZipFile(moduleApk).use { it.getEntry(assetPath) != null }
     }
 
     private fun log(priority: Int, message: String) {

@@ -70,6 +70,9 @@ abstract class GenerateCompatibilityTargets : DefaultTask() {
 
 android {
     namespace = "io.github.nku100.impad"
+    buildFeatures {
+        buildConfig = true
+    }
     compileSdk = 37
     compileSdkMinor = 2
     buildToolsVersion = "37.0.0"
@@ -118,6 +121,17 @@ android {
             merges += "META-INF/xposed/*"
         }
     }
+}
+
+val runtimeLocalAssetsRoot = providers.gradleProperty("runtimeLocalAssets").orNull?.let { path ->
+    File(rootProject.projectDir, path)
+}
+runtimeLocalAssetsRoot?.let { localAssetsRoot ->
+    require(localAssetsRoot.resolve("assets").isDirectory && localAssetsRoot.resolve("resources").isDirectory) {
+        "Runtime-local asset directory must contain assets/ and resources/"
+    }
+    android.sourceSets.getByName("debug").assets.srcDir(File(localAssetsRoot, "assets"))
+    android.sourceSets.getByName("debug").resources.srcDir(File(localAssetsRoot, "resources"))
 }
 
 androidComponents {
@@ -203,7 +217,13 @@ tasks.register("verifyModuleMetadata") {
             val scopePackages = archive.getInputStream(scope).bufferedReader().use { reader ->
                 reader.readLines().map(String::trim).filter(String::isNotEmpty)
             }
-            check(scopePackages == listOf("com.tencent.mm")) {
+            val expectedScopePackages = runtimeLocalAssetsRoot?.resolve("resources/META-INF/xposed/scope.list")
+                ?.takeIf(File::isFile)
+                ?.readLines()
+                ?.map(String::trim)
+                ?.filter(String::isNotEmpty)
+                ?: listOf("com.tencent.mm")
+            check(scopePackages == expectedScopePackages) {
                 "Unexpected module scope: $scopePackages"
             }
 

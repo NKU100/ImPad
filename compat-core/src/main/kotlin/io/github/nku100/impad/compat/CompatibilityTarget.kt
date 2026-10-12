@@ -6,12 +6,19 @@ import kotlinx.serialization.Serializable
 @Serializable
 data class HookRule(
     val id: String,
-    val stringAnchor: String,
+    val stringAnchor: String? = null,
     val parameterDescriptors: List<String>,
     val returnDescriptor: String,
     val expectedDescriptor: String,
     val safeForForwardInference: Boolean = false,
+    val locator: HookLocator = HookLocator.STRING_ANCHOR,
 )
+
+@Serializable
+enum class HookLocator {
+    STRING_ANCHOR,
+    EXACT_DESCRIPTOR,
+}
 
 @Serializable
 data class CompatibilityTarget(

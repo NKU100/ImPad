@@ -38,6 +38,20 @@ def replay_report(targets, url, digest, app_id="wechat", selection_mode="latest"
     }
 
 
+def write_local_runtime_assets(profile, app_id, directory):
+    policy = get_policy(app_id)
+    if profile.get('identity', {}).get('packageName') != policy.package_name:
+        raise ValueError('Runtime profile package does not match the registered application policy')
+    local_profile = copy.deepcopy(profile)
+    local_profile['sourceUrl'] = None
+    target_path = Path(directory) / 'assets/compatibility-local' / policy.app_id / 'targets.json'
+    target_path.parent.mkdir(parents=True, exist_ok=True)
+    target_path.write_text(json.dumps([local_profile], indent=2) + '\n')
+    scope_path = Path(directory) / 'resources/META-INF/xposed/scope.list'
+    scope_path.parent.mkdir(parents=True, exist_ok=True)
+    scope_path.write_text(policy.package_name + '\n')
+
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('--app-id', default='wechat')
@@ -89,6 +103,7 @@ def main():
     report = replay_report(targets, url, digest, policy.app_id, args.mode)
     shutil.copy2(apk, args.directory / f'{policy.app_id}-{digest}.apk')
     (args.directory / 'candidate-report.json').write_text(json.dumps(report, indent=2) + '\n')
+    write_local_runtime_assets(report['suggestedProfile'], policy.app_id, args.directory)
 
 
 if __name__ == '__main__':

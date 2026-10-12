@@ -1,4 +1,4 @@
-name: Validate WeChat runtime
+name: Validate ImPad runtime
 
 on:
   workflow_dispatch:
@@ -53,7 +53,7 @@ jobs:
           packages: ''
       - name: Install module SDK
         run: sdkmanager 'platforms;android-37.2' 'build-tools;37.0.0'
-      - name: Prepare registered replay candidate
+      - name: Prepare registered replay candidate and app-scoped module assets
         run: |
           selector_args=()
           if [[ -n "$APK_SHA256" ]]; then
@@ -73,7 +73,7 @@ jobs:
         run: |
           expected_sha256="$(jq -r .identity.apkSha256 runtime-inputs/candidate-report.json)"
           ./gradlew --no-daemon :compat-checker:run --args="check --app-id $APP_ID --targets $TARGETS_PATH --apk runtime-inputs/$APP_ID-$expected_sha256.apk"
-          ./gradlew --no-daemon :app:assembleDebug
+          ./gradlew --no-daemon -PruntimeLocalAssets=runtime-inputs :app:assembleDebug :app:verifyModuleMetadata
           cp app/build/outputs/apk/debug/app-debug.apk runtime-inputs/app-debug.apk
       - uses: actions/upload-artifact@v7
         with:

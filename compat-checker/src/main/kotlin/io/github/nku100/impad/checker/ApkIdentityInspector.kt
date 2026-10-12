@@ -10,8 +10,9 @@ class ApkIdentityInspector(
     private val sdkRoot: File = defaultAndroidSdkRoot(),
     private val commandRunner: (List<String>) -> String = ::runCommand,
 ) {
-    fun inspect(apk: File): BuildIdentity {
+    fun inspect(apk: File, abiSplitApks: List<File> = emptyList()): BuildIdentity {
         require(apk.isFile) { "APK does not exist: ${apk.absolutePath}" }
+        require(abiSplitApks.all(File::isFile)) { "An ABI split APK was missing" }
 
         val absoluteApk = apk.absoluteFile
         val apkanalyzer = executable(sdkRoot.resolve("cmdline-tools/latest/bin/apkanalyzer"))
@@ -25,7 +26,7 @@ class ApkIdentityInspector(
             packageName = packageName,
             versionName = versionName,
             versionCode = versionCode,
-            abi = readSingleAbi(absoluteApk),
+            abi = readSingleAbi(listOf(absoluteApk) + abiSplitApks.map(File::getAbsoluteFile)),
             apkSha256 = sha256(absoluteApk),
             signerSha256 = readSingleSignerSha256(apksigner, absoluteApk),
         )
@@ -42,16 +43,18 @@ class ApkIdentityInspector(
         return output
     }
 
-    private fun readSingleAbi(apk: File): String {
-        val abis = ZipFile(apk).use { zip ->
-            zip.entries().asSequence()
-                .filter { !it.isDirectory && it.name.endsWith(".so") }
-                .mapNotNull { entry ->
-                    val parts = entry.name.split('/')
-                    parts.getOrNull(1)?.takeIf { parts.firstOrNull() == "lib" }
-                }
-                .toSet()
-        }
+    private fun readSingleAbi(apks: List<File>): String {
+        val abis = apks.flatMap { apk ->
+            ZipFile(apk).use { zip ->
+                zip.entries().asSequence()
+                    .filter { !it.isDirectory && it.name.endsWith(".so") }
+                    .mapNotNull { entry ->
+                        val parts = entry.name.split('/')
+                        parts.getOrNull(1)?.takeIf { parts.firstOrNull() == "lib" }
+                    }
+                    .toList()
+            }
+        }.toSet()
         require(abis.size == 1) { "Expected one APK native ABI, found ${abis.sorted()}" }
         return abis.single()
     }
@@ -110,7 +113,7 @@ class ApkIdentityInspector(
 
     private companion object {
         val BUILD_TOOLS_VERSION = Regex("\\d+(?:\\.\\d+)*")
-        val SIGNER_SHA256 = Regex("certificate SHA-256 digest:\\s*([a-fA-F0-9:]+)")
+        val SIGNER_SHA256 = Regex("(?m)^(?!Source Stamp Signer:).*?certificate SHA-256 digest:\\s*([a-fA-F0-9:]+)$")
     }
 }
 

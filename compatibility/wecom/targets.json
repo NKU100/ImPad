@@ -1,0 +1,41 @@
+[
+  {
+    "identity": {
+      "packageName": "com.tencent.wework",
+      "versionName": "5.0.8",
+      "versionCode": 70675,
+      "abi": "arm64-v8a",
+      "apkSha256": "59b3e620a3cf1d1f8740ea320e05fd821bb811040b36f69aa307e7fc8a2ca26d",
+      "signerSha256": "66896ae0aae48b9e963a3e034fa2ca813ca2f661f53619a92263a8a5c2e3f388"
+    },
+    "sourceUrl": "https://dldir1.qq.com/wework/work_weixin/WeCom_android_5.0.8.70675_arm64_100001.apk",
+    "verificationStatus": "runtime-verified-local",
+    "featureRulesVersion": 1,
+    "hooks": [
+      {
+        "id": "device_type",
+        "stringAnchor": null,
+        "parameterDescriptors": [],
+        "returnDescriptor": "I",
+        "expectedDescriptor": "Lcom/tencent/wework/foundation/logic/Application;->getDeviceTypeFromLocal()I",
+        "locator": "EXACT_DESCRIPTOR"
+      },
+      {
+        "id": "app_pad",
+        "stringAnchor": null,
+        "parameterDescriptors": [],
+        "returnDescriptor": "Z",
+        "expectedDescriptor": "Lcom/tencent/wework/foundation/logic/Application;->isAndroidPad()Z",
+        "locator": "EXACT_DESCRIPTOR"
+      },
+      {
+        "id": "service_pad",
+        "stringAnchor": null,
+        "parameterDescriptors": [],
+        "returnDescriptor": "Z",
+        "expectedDescriptor": "Lcom/tencent/wework/foundation/impl/WeworkServiceImpl;->isAndroidPad()Z",
+        "locator": "EXACT_DESCRIPTOR"
+      }
+    ]
+  }
+]

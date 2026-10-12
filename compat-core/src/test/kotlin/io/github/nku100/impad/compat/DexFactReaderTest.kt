@@ -7,6 +7,25 @@ import kotlin.test.assertTrue
 
 class DexFactReaderTest {
     @Test
+    fun scansTheExactMethodDescriptorWithoutAnyStringAnchor() {
+        val rule = HookRule(
+            id = "device_type",
+            locator = HookLocator.EXACT_DESCRIPTOR,
+            parameterDescriptors = emptyList(),
+            returnDescriptor = "Ljava/lang/String;",
+            expectedDescriptor = "Lfixture/PrimaryDex;->tablet()Ljava/lang/String;",
+        )
+
+        val fact = DexFactReader.scan(
+            apkFiles = listOf(File("src/test/resources/multidex-fixture.apk")),
+            rules = listOf(rule),
+        ).single()
+
+        assertEquals(rule.expectedDescriptor, fact.descriptor)
+        assertTrue(fact.strings.isEmpty())
+    }
+
+    @Test
     fun scansMatchingMethodsAcrossEveryDexInTheApk() {
         val facts = DexFactReader.scan(
             apkFiles = listOf(File("src/test/resources/multidex-fixture.apk")),

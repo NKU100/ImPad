@@ -11,6 +11,7 @@ import io.github.nku100.impad.compat.CompatibilityTarget
 import io.github.nku100.impad.compat.DexFactReader
 import io.github.nku100.impad.compat.DexMethodFact
 import io.github.nku100.impad.compat.IdentityVerification
+import io.github.nku100.impad.compat.HookRule
 import io.github.nku100.impad.compat.ResolutionCacheKey
 import io.github.nku100.impad.compat.VerificationStatus
 
@@ -25,10 +26,11 @@ class RuntimeCompatibilityResolver(
     private val policy: AppCompatibilityPolicy,
     private val cache: RuntimeResolutionCache,
     private val hashApk: (File) -> String = InstalledBuildIdentityReader()::sha256,
-    private val readFacts: (List<File>, Set<String>) -> List<DexMethodFact> = DexFactReader::scan,
+    private val readFacts: (List<File>, List<HookRule>) -> List<DexMethodFact> = DexFactReader::scan,
+    targetValidator: (List<CompatibilityTarget>) -> Unit = policy::validateTargets,
 ) {
     init {
-        policy.validateTargets(targets)
+        targetValidator(targets)
     }
 
     private val targets = targets.filter {
@@ -64,7 +66,7 @@ class RuntimeCompatibilityResolver(
 
         val identity = target.identity.forInstalledBuild(build, apkSha256)
 
-        val facts = readFacts(build.apkFiles, target.hooks.mapTo(linkedSetOf()) { it.stringAnchor })
+        val facts = readFacts(build.apkFiles, target.hooks)
         val result = CompatibilityResolver.resolve(
             identity = identity,
             verification = IdentityVerification.INSTALLED_PACKAGE,

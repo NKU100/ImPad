@@ -78,6 +78,7 @@ enum class CandidateHookStatus {
     UNIQUE_MATCH,
     UNSAFE_ANCHOR,
     MISSING_ANCHOR,
+    MISSING_DESCRIPTOR,
     SIGNATURE_MISMATCH,
     AMBIGUOUS_MATCH,
     DESCRIPTOR_MISMATCH,
@@ -86,7 +87,7 @@ enum class CandidateHookStatus {
 @Serializable
 data class CandidateHookDiagnostic(
     val hookId: String,
-    val stringAnchor: String,
+    val stringAnchor: String?,
     val status: CandidateHookStatus,
     val candidateDescriptors: List<String> = emptyList(),
     val selectedDescriptor: String? = null,
@@ -305,6 +306,7 @@ object CandidateCompatibilityAnalyzer {
         if (match.status != HookMethodMatchStatus.UNIQUE_MATCH) {
             val status = when (match.status) {
                 HookMethodMatchStatus.MISSING_ANCHOR -> CandidateHookStatus.MISSING_ANCHOR
+                HookMethodMatchStatus.MISSING_DESCRIPTOR -> CandidateHookStatus.MISSING_DESCRIPTOR
                 HookMethodMatchStatus.SIGNATURE_MISMATCH -> CandidateHookStatus.SIGNATURE_MISMATCH
                 HookMethodMatchStatus.AMBIGUOUS_MATCH -> CandidateHookStatus.AMBIGUOUS_MATCH
                 HookMethodMatchStatus.UNIQUE_MATCH -> error("Unique match was handled above")
@@ -321,6 +323,7 @@ object CandidateCompatibilityAnalyzer {
                 candidateDescriptors = candidateMethods.map(DexMethodFact::descriptor).distinct().sorted(),
                 message = when (match.status) {
                     HookMethodMatchStatus.MISSING_ANCHOR -> "Anchor was not found in candidate DEX"
+                    HookMethodMatchStatus.MISSING_DESCRIPTOR -> "Exact descriptor was not found in candidate DEX"
                     HookMethodMatchStatus.SIGNATURE_MISMATCH ->
                         "Anchor exists, but no method has the registered parameter and return shape"
                     HookMethodMatchStatus.AMBIGUOUS_MATCH -> "Anchor and method shape matched multiple methods"
@@ -338,7 +341,7 @@ object CandidateCompatibilityAnalyzer {
                 status = CandidateHookStatus.UNSAFE_ANCHOR,
                 candidateDescriptors = descriptors,
                 selectedDescriptor = descriptor,
-                message = "Profile does not allow forward inference from this anchor",
+                message = "Profile does not allow forward inference from this locator",
             )
         }
 
@@ -360,6 +363,7 @@ object CandidateCompatibilityAnalyzer {
         val method = match.shapeMatchedMethods.singleOrNull()
         val status = when (match.status) {
             HookMethodMatchStatus.MISSING_ANCHOR -> CandidateHookStatus.MISSING_ANCHOR
+            HookMethodMatchStatus.MISSING_DESCRIPTOR -> CandidateHookStatus.MISSING_DESCRIPTOR
             HookMethodMatchStatus.SIGNATURE_MISMATCH -> CandidateHookStatus.SIGNATURE_MISMATCH
             HookMethodMatchStatus.AMBIGUOUS_MATCH -> CandidateHookStatus.AMBIGUOUS_MATCH
             HookMethodMatchStatus.UNIQUE_MATCH -> if (method?.descriptor == rule.expectedDescriptor) {
@@ -386,6 +390,7 @@ object CandidateCompatibilityAnalyzer {
             message = when (status) {
                 CandidateHookStatus.UNIQUE_MATCH -> "Registered anchor, shape, and descriptor matched uniquely"
                 CandidateHookStatus.MISSING_ANCHOR -> "Anchor was not found in candidate DEX"
+                CandidateHookStatus.MISSING_DESCRIPTOR -> "Exact descriptor was not found in candidate DEX"
                 CandidateHookStatus.SIGNATURE_MISMATCH -> "Anchor exists, but no method has the registered parameter and return shape"
                 CandidateHookStatus.AMBIGUOUS_MATCH -> "Anchor and method shape matched multiple methods"
                 CandidateHookStatus.DESCRIPTOR_MISMATCH -> "Unique anchored method descriptor differs from the registered profile"
@@ -415,8 +420,14 @@ object CandidateCompatibilityAnalyzer {
         ) {
             return "Baseline hooks do not match the registered app policy"
         }
-        if (baseline.hooks.any { it.stringAnchor.isBlank() || it.expectedDescriptor.isBlank() }) {
-            return "Baseline hook anchors and descriptors must be non-empty"
+        if (baseline.hooks.any { rule ->
+                rule.expectedDescriptor.isBlank() || when (rule.locator) {
+                    HookLocator.STRING_ANCHOR -> rule.stringAnchor.isNullOrBlank()
+                    HookLocator.EXACT_DESCRIPTOR -> rule.stringAnchor != null || rule.safeForForwardInference
+                }
+            }
+        ) {
+            return "Baseline hook locators and descriptors are invalid"
         }
         return null
     }

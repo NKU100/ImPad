@@ -64,6 +64,8 @@ object CompatibilityResolver {
             when (match.status) {
                 HookMethodMatchStatus.MISSING_ANCHOR ->
                     return rejected(CompatibilityStatus.MISSING_ANCHOR, "Hook '${rule.id}' anchor was not found")
+                HookMethodMatchStatus.MISSING_DESCRIPTOR ->
+                    return rejected(CompatibilityStatus.MISSING_METHOD, "Hook '${rule.id}' descriptor was not found")
                 HookMethodMatchStatus.SIGNATURE_MISMATCH ->
                     return rejected(CompatibilityStatus.SIGNATURE_MISMATCH, "Hook '${rule.id}' method shape changed")
                 HookMethodMatchStatus.AMBIGUOUS_MATCH ->

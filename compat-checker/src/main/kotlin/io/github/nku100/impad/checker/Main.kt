@@ -34,12 +34,15 @@ private fun checkCompatibility(arguments: CheckArguments) {
     val policy = AppCompatibilityPolicies.require(arguments.appId)
     require(arguments.targets.isFile) { "Target file does not exist: ${arguments.targets.absolutePath}" }
     val targets = Json.decodeFromString<List<CompatibilityTarget>>(arguments.targets.readText())
-    policy.validateTargets(targets)
+    if (arguments.localOnly) {
+        policy.validateLocalTargets(targets)
+    } else {
+        policy.validateTargets(targets)
+    }
 
-    val identity = ApkIdentityInspector().inspect(arguments.apk)
+    val identity = ApkIdentityInspector().inspect(arguments.apk, arguments.abiSplitApks)
     policy.validateIdentity(identity)
-    val anchors = targets.flatMap { target -> target.hooks.map { it.stringAnchor } }.toSet()
-    val facts = DexFactReader.scan(listOf(arguments.apk), anchors)
+    val facts = DexFactReader.scan(listOf(arguments.apk), targets.flatMap(CompatibilityTarget::hooks))
     val result = CompatibilityResolver.resolveStaticCandidate(
         identity = identity,
         targets = targets,
@@ -80,7 +83,7 @@ private fun analyzeCandidate(arguments: CandidateArguments) {
     require(matchingTargets.size <= 1) { "Multiple profiles register this app version" }
 
     val report = matchingTargets.singleOrNull()?.let { target ->
-        val facts = DexFactReader.scan(listOf(arguments.apk), target.hooks.map { it.stringAnchor }.toSet())
+        val facts = DexFactReader.scan(listOf(arguments.apk), target.hooks)
         CandidateCompatibilityAnalyzer.analyzeRegistered(
             identity = identity,
             target = target,
@@ -97,7 +100,7 @@ private fun analyzeCandidate(arguments: CandidateArguments) {
         if (baseline == null) {
             baselineMissingReport(identity, checkedVersions, arguments.sourceUrl, arguments.appId)
         } else {
-            val facts = DexFactReader.scan(listOf(arguments.apk), baseline.hooks.map { it.stringAnchor }.toSet())
+            val facts = DexFactReader.scan(listOf(arguments.apk), baseline.hooks)
             CandidateCompatibilityAnalyzer.analyze(
                 identity = identity,
                 baseline = baseline,
@@ -187,14 +190,23 @@ private fun parseArguments(args: Array<String>): CheckArguments {
         "Expected --targets <targets.json> and --apk <apk-path>"
     }
     val values = options.associate { it[0] to it[1] }
-    val allowed = setOf("--targets", "--apk", "--app-id")
+    val allowed = setOf("--targets", "--apk", "--app-id", "--local-only", "--abi-splits")
     require(values.keys.containsAll(setOf("--targets", "--apk")) && values.keys.all { it in allowed }) {
         "Expected --targets <targets.json>, --apk <apk-path>, and optional --app-id <id>"
     }
     return CheckArguments(
         targets = File(values.getValue("--targets")),
         apk = File(values.getValue("--apk")),
+        abiSplitApks = values["--abi-splits"]
+            ?.split(',')
+            ?.filter(String::isNotBlank)
+            ?.map(::File)
+            .orEmpty(),
         appId = values["--app-id"] ?: "wechat",
+        localOnly = values["--local-only"]?.toBooleanStrictOrNull()
+            ?: ("--local-only" in values).also { present ->
+                require(!present) { "--local-only must be true or false" }
+            },
     )
 }
 
@@ -239,7 +251,13 @@ private fun parseCandidateArguments(args: Array<String>): CandidateArguments {
     )
 }
 
-private data class CheckArguments(val targets: File, val apk: File, val appId: String)
+private data class CheckArguments(
+    val targets: File,
+    val apk: File,
+    val abiSplitApks: List<File>,
+    val appId: String,
+    val localOnly: Boolean,
+)
 
 private data class CandidateArguments(
     val targets: File,

@@ -57,6 +57,33 @@ POLICIES = {
         runtime_ui_strategy="scripts.ci.apps.wechat.runtime_policy",
         discovery_strategy="scripts.ci.apps.wechat.discovery_policy",
     ),
+    "wecom": AppPolicy(
+        app_id="wecom",
+        display_name="WeCom",
+        package_name="com.tencent.wework",
+        targets_path="compatibility/wecom/targets.json",
+        required_hook_ids=("device_type", "app_pad", "service_pad"),
+        official_apk_prefix="https://dldir1.qq.com/wework/work_weixin/",
+        artifact_prefix="impad",
+        adaptation_prompt=".github/codex/adapt-wecom.md",
+        app_source_prefix="app/src/main/kotlin/io/github/nku100/impad/apps/wecom/",
+        shared_source_paths=(
+            "app/src/main/kotlin/io/github/nku100/impad/ImPadModule.kt",
+            "app/src/main/kotlin/io/github/nku100/impad/runtime/AppAdapter.kt",
+            "app/src/main/kotlin/io/github/nku100/impad/runtime/AppAdapterRegistry.kt",
+            "app/src/main/kotlin/io/github/nku100/impad/runtime/HookInstaller.kt",
+            "app/src/main/kotlin/io/github/nku100/impad/runtime/RuntimeCompatibilityResolver.kt",
+            "compat-core/src/main/kotlin/io/github/nku100/impad/compat/CandidatePipeline.kt",
+            "compat-core/src/main/kotlin/io/github/nku100/impad/compat/CompatibilityResolver.kt",
+            "compat-checker/src/main/kotlin/io/github/nku100/impad/checker/Main.kt",
+        ),
+        supported_abis=("arm64-v8a",),
+        signer_sha256="66896ae0aae48b9e963a3e034fa2ca813ca2f661f53619a92263a8a5c2e3f388",
+        runtime_baseline="NO_TABLET_ENTRY",
+        runtime_qr_page="LoginQrCodeForAndroidPad",
+        runtime_ui_strategy="scripts.ci.apps.wecom.runtime_policy",
+        discovery_strategy="scripts.ci.apps.wecom.discovery_policy",
+    ),
 }
 
 

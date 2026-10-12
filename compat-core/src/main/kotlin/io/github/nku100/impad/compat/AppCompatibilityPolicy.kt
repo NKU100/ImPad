@@ -12,7 +12,11 @@ data class AppCompatibilityPolicy(
     val officialApkPrefix: String,
     val targetsPath: String,
 ) {
-    fun validateTargets(targets: List<CompatibilityTarget>) {
+    fun validateTargets(targets: List<CompatibilityTarget>) = validateTargets(targets, requireSourceUrl = true)
+
+    fun validateLocalTargets(targets: List<CompatibilityTarget>) = validateTargets(targets, requireSourceUrl = false)
+
+    private fun validateTargets(targets: List<CompatibilityTarget>, requireSourceUrl: Boolean) {
         require(targets.isNotEmpty()) { "Compatibility policy has no targets" }
         val identities = mutableSetOf<List<String>>()
         targets.forEach { target ->
@@ -27,8 +31,13 @@ data class AppCompatibilityPolicy(
                 target.hooks.size == requiredHookIds.size && target.hooks.none { it.id.isBlank() }) {
                 "Compatibility target hooks do not match the registered app policy"
             }
-            require(target.hooks.all { it.stringAnchor.isNotBlank() && it.expectedDescriptor.isNotBlank() }) {
-                "Compatibility target hook anchors and descriptors must be non-empty"
+            require(target.hooks.all { rule ->
+                rule.expectedDescriptor.isNotBlank() && when (rule.locator) {
+                    HookLocator.STRING_ANCHOR -> !rule.stringAnchor.isNullOrBlank()
+                    HookLocator.EXACT_DESCRIPTOR -> rule.stringAnchor == null && !rule.safeForForwardInference
+                }
+            }) {
+                "Compatibility target hook locator is invalid"
             }
             require(identities.add(listOf(
                 target.identity.packageName,
@@ -38,7 +47,11 @@ data class AppCompatibilityPolicy(
             ))) {
                 "Duplicate compatibility profile identity"
             }
-            validateSourceUrl(requireNotNull(target.sourceUrl) { "Compatibility target source URL is missing" })
+            if (requireSourceUrl) {
+                validateSourceUrl(requireNotNull(target.sourceUrl) { "Compatibility target source URL is missing" })
+            } else {
+                require(target.sourceUrl == null) { "Local-only compatibility targets must not declare a source URL" }
+            }
         }
     }
 
@@ -66,7 +79,10 @@ data class AppCompatibilityPolicy(
 }
 
 object AppCompatibilityPolicies {
-    private val policies = listOf(WeChatCompatibilityPolicy.policy).associateBy(AppCompatibilityPolicy::appId)
+    private val policies = listOf(
+        WeChatCompatibilityPolicy.policy,
+        io.github.nku100.impad.compat.apps.wecom.WeComCompatibilityPolicy.policy,
+    ).associateBy(AppCompatibilityPolicy::appId)
 
     fun require(appId: String): AppCompatibilityPolicy =
         policies[appId] ?: throw IllegalArgumentException("Unknown or unregistered appId: $appId")

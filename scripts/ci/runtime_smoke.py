@@ -157,7 +157,11 @@ def enable_page_size_backcompat():
 def mobile_input(label):
     enable_page_size_backcompat()
     adb('shell', 'am', 'force-stop', APP_PACKAGE)
-    adb('shell', 'monkey', '-p', APP_PACKAGE, '-c', 'android.intent.category.LAUNCHER', '1')
+    launcher_component = getattr(UI_STRATEGY, 'launcher_component', None)
+    if launcher_component:
+        adb('shell', 'am', 'start', '-n', launcher_component)
+    else:
+        adb('shell', 'monkey', '-p', APP_PACKAGE, '-c', 'android.intent.category.LAUNCHER', '1')
     ready = 0
     for attempt in range(30):
         activity, ui = snapshot(label + '-current')
@@ -331,6 +335,10 @@ def probe_environment(report):
             activity, ui = snapshot('qr')
             if qr_page_ready(activity, ui):
                 break
+        elif APP_ID == 'wecom':
+            agreement = unique_node(ui, lambda n: UI_STRATEGY.is_login_navigation_label(n.get('text', '')))
+            if agreement is not None:
+                tap(agreement)
         time.sleep(2)
     else:
         raise RuntimeError('Tablet login did not reach a stable rendered QR page')

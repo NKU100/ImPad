@@ -2,6 +2,7 @@ package io.github.nku100.impad.compat
 
 enum class HookMethodMatchStatus {
     MISSING_ANCHOR,
+    MISSING_DESCRIPTOR,
     SIGNATURE_MISMATCH,
     AMBIGUOUS_MATCH,
     UNIQUE_MATCH,
@@ -15,9 +16,16 @@ data class HookMethodMatch(
 
 object HookMethodMatcher {
     fun match(rule: HookRule, facts: List<DexMethodFact>): HookMethodMatch {
-        val anchoredMethods = facts.filter { rule.stringAnchor in it.strings }
+        val anchoredMethods = when (rule.locator) {
+            HookLocator.STRING_ANCHOR -> facts.filter { rule.stringAnchor in it.strings }
+            HookLocator.EXACT_DESCRIPTOR -> facts.filter { it.descriptor == rule.expectedDescriptor }
+        }
         if (anchoredMethods.isEmpty()) {
-            return HookMethodMatch(HookMethodMatchStatus.MISSING_ANCHOR, anchoredMethods, emptyList())
+            val status = when (rule.locator) {
+                HookLocator.STRING_ANCHOR -> HookMethodMatchStatus.MISSING_ANCHOR
+                HookLocator.EXACT_DESCRIPTOR -> HookMethodMatchStatus.MISSING_DESCRIPTOR
+            }
+            return HookMethodMatch(status, anchoredMethods, emptyList())
         }
 
         val shapeMatchedMethods = anchoredMethods.filter {

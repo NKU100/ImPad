@@ -8,7 +8,7 @@ import tempfile
 from pathlib import Path
 from unittest.mock import Mock, patch
 
-from scripts.ci.candidate_selection import replay_report, main
+from scripts.ci.candidate_selection import replay_report, write_local_runtime_assets, main
 
 
 class CandidateSelectionTest(unittest.TestCase):
@@ -35,6 +35,47 @@ class CandidateSelectionTest(unittest.TestCase):
         self.assertEqual(self.profile['verificationStatus'], 'runtime-verified-local')
         with self.assertRaisesRegex(ValueError, 'not registered'):
             replay_report([self.profile], self.profile['sourceUrl'], 'b' * 64)
+
+    def test_local_runtime_assets_follow_the_selected_application_profile(self):
+        target = json.loads(Path('compatibility/wecom/targets.json').read_text())[0]
+        original = copy.deepcopy(target)
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            write_local_runtime_assets(target, 'wecom', root)
+            local_profile = json.loads((root / 'assets/compatibility-local/wecom/targets.json').read_text())[0]
+            scope = (root / 'resources/META-INF/xposed/scope.list').read_text().splitlines()
+        self.assertIsNone(local_profile['sourceUrl'])
+        self.assertEqual(local_profile['identity'], target['identity'])
+        self.assertEqual(scope, ['com.tencent.wework'])
+        self.assertEqual(target, original)
+
+    def test_registered_wecom_replay_selects_its_single_target_without_a_sha_override(self):
+        target = json.loads(Path('compatibility/wecom/targets.json').read_text())[0]
+        body = b'cached registered WeCom baseline'
+        digest = hashlib.sha256(body).hexdigest()
+        target['identity']['apkSha256'] = digest
+        target['sourceUrl'] = 'https://dldir1.qq.com/wework/work_weixin/wecom-test.apk'
+        remote = {'content_length': len(body), 'last_modified': 'Wed, 07 Oct 2026 00:00:00 GMT', 'etag': 'wecom-test'}
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            manifest = root / 'targets.json'
+            manifest.write_text(json.dumps([target]))
+            cache = root / 'inputs/cache'
+            cache.mkdir(parents=True)
+            (cache / f'{digest}.apk').write_bytes(body)
+            (cache / 'candidate.json').write_text(json.dumps(dict(remote, url=target['sourceUrl'], sha256=digest)))
+            with patch('sys.argv', ['candidate_selection', '--app-id', 'wecom', '--mode', 'registered',
+                                    '--targets', str(manifest), '--directory', str(root / 'inputs')]), \
+                    patch('scripts.ci.candidate_selection.remote_metadata', return_value=remote):
+                main()
+            report = json.loads((root / 'inputs/candidate-report.json').read_text())
+            local_profile = json.loads((root / 'inputs/assets/compatibility-local/wecom/targets.json').read_text())[0]
+            scope = (root / 'inputs/resources/META-INF/xposed/scope.list').read_text()
+        self.assertEqual(report['identity']['packageName'], 'com.tencent.wework')
+        self.assertEqual(report['selectionMode'], 'registered')
+        self.assertEqual(local_profile['identity']['apkSha256'], digest)
+        self.assertIsNone(local_profile['sourceUrl'])
+        self.assertEqual(scope, 'com.tencent.wework\n')
 
     def test_static_only_profile_cannot_be_replayed_as_supported(self):
         profile = copy.deepcopy(self.profile)
@@ -86,6 +127,9 @@ class CandidateSelectionTest(unittest.TestCase):
             self.assertEqual(report['identity']['apkSha256'], digest)
             self.assertEqual((root / f'inputs/wechat-{digest}.apk').read_bytes(), body)
             self.assertEqual(json.loads(manifest.read_text()), original_targets)
+            local_profile = json.loads((root / 'inputs/assets/compatibility-local/wechat/targets.json').read_text())[0]
+            self.assertIsNone(local_profile['sourceUrl'])
+            self.assertEqual((root / 'inputs/resources/META-INF/xposed/scope.list').read_text(), 'com.tencent.mm\n')
 
     def test_registered_mode_rejects_static_only_policy(self):
         profile = copy.deepcopy(self.profile)

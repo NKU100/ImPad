@@ -19,7 +19,7 @@ data class ResolutionCacheKey(
 )
 
 // Bump this when shared compatibility resolution behavior changes.
-const val COMPATIBILITY_RESOLVER_VERSION = 3
+const val COMPATIBILITY_RESOLVER_VERSION = 4
 
 @Serializable
 data class ResolutionCacheEntry(
