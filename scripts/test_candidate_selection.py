@@ -1,4 +1,5 @@
 import copy
+from http.client import RemoteDisconnected
 import unittest
 import io
 from contextlib import redirect_stderr
@@ -76,6 +77,24 @@ class CandidateSelectionTest(unittest.TestCase):
         self.assertEqual(local_profile['identity']['apkSha256'], digest)
         self.assertIsNone(local_profile['sourceUrl'])
         self.assertEqual(scope, 'com.tencent.wework\n')
+
+    def test_registered_replay_continues_when_cdn_head_metadata_disconnects(self):
+        target = json.loads(Path('compatibility/wecom/targets.json').read_text())[0]
+        expected_sha256 = target['identity']['apkSha256']
+        remote = {'content_length': None, 'last_modified': '', 'etag': ''}
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            apk = root / 'cached.apk'
+            apk.write_bytes(b'registered candidate bytes')
+            with patch('sys.argv', ['candidate_selection', '--app-id', 'wecom', '--mode', 'registered',
+                                    '--targets', str(Path('compatibility/wecom/targets.json').resolve()),
+                                    '--directory', str(root / 'inputs')]), \
+                    patch('scripts.ci.candidate_selection.remote_metadata', side_effect=RemoteDisconnected()), \
+                    patch('scripts.ci.candidate_selection.download_candidate', return_value=(apk, expected_sha256, {}, {})) as download:
+                main()
+            report = json.loads((root / 'inputs/candidate-report.json').read_text())
+        self.assertEqual(report['selectionMode'], 'registered')
+        self.assertEqual(download.call_args.args[2:], (expected_sha256, remote, unittest.mock.ANY))
 
     def test_static_only_profile_cannot_be_replayed_as_supported(self):
         profile = copy.deepcopy(self.profile)

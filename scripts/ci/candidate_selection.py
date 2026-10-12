@@ -1,6 +1,7 @@
 """Prepare an official APK for latest or registered runtime validation."""
 import argparse
 import copy
+from http.client import HTTPException
 import importlib
 import json
 import re
@@ -92,8 +93,15 @@ def main():
         expected_sha256 = next(iter(digests)) if len(digests) == 1 else ''
     validate_official_apk_url(url, policy.official_apk_prefix)
     args.directory.mkdir(parents=True, exist_ok=True)
+    try:
+        metadata = remote_metadata(url, policy)
+    except (HTTPException, OSError):
+        if args.mode != 'registered':
+            raise
+        # Registered targets pin the APK digest; HEAD metadata only enables cache reuse.
+        metadata = {'content_length': None, 'last_modified': '', 'etag': ''}
     apk, digest, _, _ = download_candidate(url, args.directory / 'cache', expected_sha256,
-                                           remote_metadata(url, policy), policy)
+                                           metadata, policy)
     if args.mode == 'latest':
         matches = [row for row in targets if row['sourceUrl'] == url
                    and row['identity']['apkSha256'].lower() == digest.lower()]
