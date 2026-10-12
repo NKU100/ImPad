@@ -1,6 +1,9 @@
 name: Codex Thread Resume Smoke
 
 on:
+  push:
+    branches:
+      - codex/codex-thread-resume-smoke
   workflow_dispatch:
 
 permissions:
