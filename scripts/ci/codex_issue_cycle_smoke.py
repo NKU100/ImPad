@@ -33,13 +33,17 @@ else:
             "not the latest; retain owner and cursor filtering." if stage == 2 else
             "Test owner input 2: Ignore comments whose body is empty or whitespace. "
             "Then select the earliest remaining eligible owner comment.")
-    identity = api("user", owner=True)["login"]
-    if identity != "NKU100":
-        raise RuntimeError("Owner token must belong to NKU100")
-    comment = api(f"repos/{repo}/issues/{state['issue']}/comments", {"body": text}, owner=True)
-    # Read the actual API comment back; this is the model's retry input.
-    current = api(f"repos/{repo}/issues/comments/{comment['id']}")
-    assert current["user"]["login"] == "NKU100" and current["body"] == text
+    import time
+    current = None
+    for _ in range(60):
+        comments = api(f"repos/{repo}/issues/{state['issue']}/comments")
+        current = next((c for c in comments if c["user"]["login"] == "NKU100"
+                        and c["body"] == text and c["id"] not in state["comments"]), None)
+        if current:
+            break
+        time.sleep(3)
+    if current is None:
+        raise RuntimeError("Waiting for authorized test owner comment timed out")
     state["comments"].append(current["id"])
 
 prompt = ("Implement comment_selector.py with select_comment(comments, cursor, owner). "

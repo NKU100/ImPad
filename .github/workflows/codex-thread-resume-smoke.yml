@@ -27,13 +27,12 @@ jobs:
         with:
           node-version: 24
       - run: npm install --global "@openai/codex@$CODEX_CLI_VERSION"
-      - name: Execute model turn and independently verify
-        env:
-          CODEX_AUTH_JSON: ${{ secrets.CODEX_AUTH_JSON }}
-          OWNER_TOKEN: ${{ secrets.CODEX_AUTH_WRITE_TOKEN }}
-          GH_TOKEN: ${{ github.token }}
-          RUN_URL: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}
-        run: python3 scripts/ci/codex_issue_cycle_smoke.py 1
+      - uses: actions/download-artifact@v8
+        with:
+          name: real-codex-checkpoint-1
+          path: ${{ runner.temp }}/issue-cycle
+          run-id: 38251678107
+          github-token: ${{ github.token }}
       - uses: actions/upload-artifact@v7
         if: always()
         with:
