@@ -3,6 +3,7 @@
 import argparse
 import json
 import os
+import re
 import subprocess
 import sys
 from pathlib import Path
@@ -69,7 +70,38 @@ class AppServer:
             raise RuntimeError(f'Codex app-server exited with status {status}')
 
 
+def issue_snapshot(path):
+    issue = json.loads(path.read_text())
+    body = issue.get('body') or ''
+    marker = re.search(r'^<!-- impad-adaptation:(\S+) -->$', body, re.MULTILINE)
+    status = re.search(r'^Status: `([A-Z_]+)`$', body, re.MULTILINE)
+    version = re.search(r'^WeCom ([^\s]+) \((\d+)\)$', body, re.MULTILINE)
+    apk_hash = re.search(r'^APK SHA-256: `([0-9a-f]{64})`$', body, re.MULTILINE)
+    source = re.search(r'^Source: (https://\S+)$', body, re.MULTILINE)
+    if not all((marker, status, version, apk_hash, source)):
+        raise ValueError('Issue does not contain the expected WeCom adaptation fields')
+    if issue.get('number') != 8 or issue.get('state') != 'open':
+        raise ValueError('Expected open ImPad issue #8')
+    if not marker.group(1).startswith('wecom-com.tencent.wework-arm64-v8a-'):
+        raise ValueError('Issue #8 does not identify a WeCom ARM64 candidate')
+    if apk_hash.group(1) not in marker.group(1) or apk_hash.group(1) not in issue.get('title', ''):
+        raise ValueError('Issue candidate marker, title, and APK hash do not agree')
+    return {
+        'number': issue['number'],
+        'title': issue['title'],
+        'state': issue['state'],
+        'url': issue['html_url'],
+        'candidateKey': marker.group(1),
+        'status': status.group(1),
+        'versionName': version.group(1),
+        'versionCode': version.group(2),
+        'apkSha256': apk_hash.group(1),
+        'sourceUrl': source.group(1),
+    }
+
+
 def create(args):
+    issue = issue_snapshot(args.issue_json) if args.issue_json else None
     server = AppServer(args.codex_home)
     try:
         thread = server.request('thread/start', {
@@ -81,7 +113,11 @@ def create(args):
             'config': {'features.goals': True},
         })['thread']
         thread_id = thread['id']
-        objective = 'Thread resume smoke test. Preserve this blocked Goal across CI jobs.'
+        objective = ('Resume adaptation record from GitHub issue '
+                     f"#{issue['number']} for WeCom {issue['versionName']} "
+                     f"({issue['versionCode']}, APK SHA-256 {issue['apkSha256']})."
+                     if issue else
+                     'Thread resume smoke test. Preserve this blocked Goal across CI jobs.')
         server.request('thread/goal/set', {
             'threadId': thread_id,
             'objective': objective,
@@ -94,6 +130,7 @@ def create(args):
             'objective': objective,
             'workspace': str(args.workspace.resolve()),
             'expectedStatus': 'blocked',
+            'issue': issue,
         }, indent=2) + '\n')
     finally:
         server.close()
@@ -105,6 +142,9 @@ def create(args):
 
 def resume(args):
     metadata = json.loads(args.metadata.read_text())
+    issue = issue_snapshot(args.issue_json) if args.issue_json else None
+    if metadata.get('issue') != issue:
+        raise RuntimeError('Issue #8 changed between checkpoint creation and restoration')
     server = AppServer(args.codex_home)
     try:
         thread = server.request('thread/resume', {
@@ -116,6 +156,8 @@ def resume(args):
         goal = server.request('thread/goal/get', {'threadId': metadata['threadId']}).get('goal') or {}
         if goal.get('status') != metadata['expectedStatus']:
             raise RuntimeError(f'Expected blocked Goal, got {goal.get("status")}')
+        if goal.get('objective') != metadata['objective']:
+            raise RuntimeError('Restored Goal objective does not match the Issue #8 checkpoint')
         server.request('thread/goal/set', {
             'threadId': metadata['threadId'],
             'status': 'active',
@@ -126,7 +168,8 @@ def resume(args):
             raise RuntimeError(f'User resume did not activate the Goal: {goal.get("status")}')
     finally:
         server.close()
-    print('PASS: restored the same thread and blocked Goal, then resumed it as the user.')
+    print('PASS: restored the same thread, blocked Goal, and Issue #8 metadata, then resumed it as the user.')
+    print('Issue status: the issue is read-only input; the smoke does not update or close it.')
     print('Model turns invoked: 0.')
 
 
@@ -136,6 +179,7 @@ def main():
     parser.add_argument('--codex-home', type=Path, required=True)
     parser.add_argument('--workspace', type=Path, required=True)
     parser.add_argument('--metadata', type=Path, required=True)
+    parser.add_argument('--issue-json', type=Path)
     parser.add_argument('--model', default='gpt-6-luna')
     args = parser.parse_args()
     if not args.workspace.is_dir():

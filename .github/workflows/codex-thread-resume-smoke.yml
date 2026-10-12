@@ -8,6 +8,7 @@ on:
 
 permissions:
   contents: read
+  issues: read
 
 env:
   CODEX_CLI_VERSION: 0.162.0-alpha.17.2
@@ -30,13 +31,16 @@ jobs:
         env:
           CODEX_HOME: ${{ github.workspace }}/.codex-thread-resume-smoke/.codex
           CHECKPOINT_DIR: ${{ runner.temp }}/thread-checkpoint
+          GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
           mkdir -p "$(dirname "$CODEX_HOME")" "$CHECKPOINT_DIR"
+          gh api "repos/$GITHUB_REPOSITORY/issues/8" > "$CHECKPOINT_DIR/issue.json"
           python3 -m scripts.ci.codex_thread_resume_smoke create \
             --codex-home "$CODEX_HOME" \
             --workspace "$GITHUB_WORKSPACE" \
-            --metadata "$CHECKPOINT_DIR/thread.json"
+            --metadata "$CHECKPOINT_DIR/thread.json" \
+            --issue-json "$CHECKPOINT_DIR/issue.json"
           test ! -e "$CODEX_HOME/auth.json"
           tar -czf "$CHECKPOINT_DIR/codex-home.tar.gz" -C "$CODEX_HOME" .
 
@@ -69,12 +73,15 @@ jobs:
         env:
           CODEX_HOME: ${{ github.workspace }}/.codex-thread-resume-smoke/.codex
           CHECKPOINT_DIR: ${{ runner.temp }}/thread-checkpoint
+          GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
           mkdir -p "$CODEX_HOME"
           tar -xzf "$CHECKPOINT_DIR/codex-home.tar.gz" -C "$CODEX_HOME"
           test ! -e "$CODEX_HOME/auth.json"
+          gh api "repos/$GITHUB_REPOSITORY/issues/8" > "$CHECKPOINT_DIR/current-issue.json"
           python3 -m scripts.ci.codex_thread_resume_smoke resume \
             --codex-home "$CODEX_HOME" \
             --workspace "$GITHUB_WORKSPACE" \
-            --metadata "$CHECKPOINT_DIR/thread.json"
+            --metadata "$CHECKPOINT_DIR/thread.json" \
+            --issue-json "$CHECKPOINT_DIR/current-issue.json"
