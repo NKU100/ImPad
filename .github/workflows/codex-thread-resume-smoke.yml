@@ -2,86 +2,100 @@ name: Codex Thread Resume Smoke
 
 on:
   push:
-    branches:
-      - codex/codex-thread-resume-smoke
+    branches: [codex/codex-thread-resume-smoke]
   workflow_dispatch:
 
 permissions:
   contents: read
-  issues: read
+  issues: write
+
+concurrency:
+  group: impad-codex-managed-auth
+  cancel-in-progress: false
 
 env:
   CODEX_CLI_VERSION: 0.162.0-alpha.17.2
 
 jobs:
-  checkpoint:
-    name: Create blocked Goal checkpoint
+  attempt1:
+    name: Real Codex attempt 1
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@v7
-
       - uses: actions/setup-node@v7
         with:
           node-version: 24
-
-      - name: Install pinned Codex CLI
-        run: npm install --global "@openai/codex@$CODEX_CLI_VERSION"
-
-      - name: Create a synthetic blocked Goal
+      - run: npm install --global "@openai/codex@$CODEX_CLI_VERSION"
+      - name: Execute model turn and independently verify
         env:
-          CODEX_HOME: ${{ github.workspace }}/.codex-thread-resume-smoke/.codex
-          CHECKPOINT_DIR: ${{ runner.temp }}/thread-checkpoint
+          CODEX_AUTH_JSON: ${{ secrets.CODEX_AUTH_JSON }}
+          OWNER_TOKEN: ${{ secrets.CODEX_AUTH_WRITE_TOKEN }}
           GH_TOKEN: ${{ github.token }}
-        run: |
-          set -euo pipefail
-          mkdir -p "$(dirname "$CODEX_HOME")" "$CHECKPOINT_DIR"
-          gh api "repos/$GITHUB_REPOSITORY/issues/8" > "$CHECKPOINT_DIR/issue.json"
-          python3 -m scripts.ci.codex_thread_resume_smoke create \
-            --codex-home "$CODEX_HOME" \
-            --workspace "$GITHUB_WORKSPACE" \
-            --metadata "$CHECKPOINT_DIR/thread.json" \
-            --issue-json "$CHECKPOINT_DIR/issue.json"
-          test ! -e "$CODEX_HOME/auth.json"
-          tar -czf "$CHECKPOINT_DIR/codex-home.tar.gz" -C "$CODEX_HOME" .
-
+          RUN_URL: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: python3 scripts/ci/codex_issue_cycle_smoke.py 1
       - uses: actions/upload-artifact@v7
+        if: always()
         with:
-          name: codex-thread-resume-checkpoint
-          path: ${{ runner.temp }}/thread-checkpoint/
+          name: real-codex-checkpoint-1
+          path: ${{ runner.temp }}/issue-cycle/
+          include-hidden-files: true
           retention-days: 2
-
-  resume:
-    name: Restore blocked Goal on a fresh runner
-    needs: checkpoint
+  attempt2:
+    name: Real Codex attempt 2
+    needs: attempt1
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@v7
-
       - uses: actions/setup-node@v7
         with:
           node-version: 24
-
-      - name: Install pinned Codex CLI
-        run: npm install --global "@openai/codex@$CODEX_CLI_VERSION"
-
+      - run: npm install --global "@openai/codex@$CODEX_CLI_VERSION"
       - uses: actions/download-artifact@v8
         with:
-          name: codex-thread-resume-checkpoint
-          path: ${{ runner.temp }}/thread-checkpoint
-
-      - name: Restore the original thread and resume the Goal
+          name: real-codex-checkpoint-1
+          path: ${{ runner.temp }}/issue-cycle
+      - name: Execute model turn and independently verify
         env:
-          CODEX_HOME: ${{ github.workspace }}/.codex-thread-resume-smoke/.codex
-          CHECKPOINT_DIR: ${{ runner.temp }}/thread-checkpoint
+          CODEX_AUTH_JSON: ${{ secrets.CODEX_AUTH_JSON }}
+          OWNER_TOKEN: ${{ secrets.CODEX_AUTH_WRITE_TOKEN }}
           GH_TOKEN: ${{ github.token }}
-        run: |
-          set -euo pipefail
-          mkdir -p "$CODEX_HOME"
-          tar -xzf "$CHECKPOINT_DIR/codex-home.tar.gz" -C "$CODEX_HOME"
-          test ! -e "$CODEX_HOME/auth.json"
-          gh api "repos/$GITHUB_REPOSITORY/issues/8" > "$CHECKPOINT_DIR/current-issue.json"
-          python3 -m scripts.ci.codex_thread_resume_smoke resume \
-            --codex-home "$CODEX_HOME" \
-            --workspace "$GITHUB_WORKSPACE" \
-            --metadata "$CHECKPOINT_DIR/thread.json" \
-            --issue-json "$CHECKPOINT_DIR/current-issue.json"
+          RUN_URL: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: python3 scripts/ci/codex_issue_cycle_smoke.py 2
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: real-codex-checkpoint-2
+          path: ${{ runner.temp }}/issue-cycle/
+          include-hidden-files: true
+          retention-days: 2
+  attempt3:
+    name: Real Codex attempt 3
+    needs: attempt2
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+      - run: npm install --global "@openai/codex@$CODEX_CLI_VERSION"
+      - uses: actions/download-artifact@v8
+        with:
+          name: real-codex-checkpoint-2
+          path: ${{ runner.temp }}/issue-cycle
+      - name: Execute model turn and independently verify
+        env:
+          CODEX_AUTH_JSON: ${{ secrets.CODEX_AUTH_JSON }}
+          OWNER_TOKEN: ${{ secrets.CODEX_AUTH_WRITE_TOKEN }}
+          GH_TOKEN: ${{ github.token }}
+          RUN_URL: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: python3 scripts/ci/codex_issue_cycle_smoke.py 3
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: real-codex-checkpoint-3
+          path: ${{ runner.temp }}/issue-cycle/
+          include-hidden-files: true
+          retention-days: 2
