@@ -1,0 +1,47 @@
+name: Check WeCom compatibility
+
+on:
+  schedule:
+    - cron: '23 3,9,15,21 * * *'
+  workflow_dispatch:
+    inputs:
+      force_recheck:
+        description: Run static regression even when the exact APK is already supported
+        type: boolean
+        default: false
+      goal_token_budget:
+        description: Maximum token budget for one Codex adaptation goal
+        type: string
+        default: '100000'
+      retry_adaptation:
+        description: Start a new adaptation attempt even when an earlier draft PR exists
+        type: boolean
+        default: false
+      run_codex:
+        description: Adapt verified unknown builds with gpt-6-luna/xhigh
+        type: boolean
+        default: true
+      baseline_apk_sha256:
+        description: Select a runtime-verified baseline variant when the preferred version is ambiguous
+        type: string
+        default: ''
+
+permissions:
+  contents: read
+
+jobs:
+  compatibility:
+    uses: ./.github/workflows/compatibility-app.yml
+    permissions:
+      actions: read
+      contents: write
+      issues: write
+      pull-requests: write
+    with:
+      app_id: wecom
+      force_recheck: ${{ inputs.force_recheck || false }}
+      goal_token_budget: ${{ inputs.goal_token_budget || '100000' }}
+      retry_adaptation: ${{ inputs.retry_adaptation || false }}
+      run_codex: ${{ github.event_name == 'schedule' || inputs.run_codex }}
+      baseline_apk_sha256: ${{ inputs.baseline_apk_sha256 || '' }}
+    secrets: inherit

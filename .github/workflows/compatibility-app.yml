@@ -1,0 +1,913 @@
+name: Run app compatibility pipeline
+
+on:
+  workflow_call:
+    inputs:
+      app_id:
+        description: Registered application policy to check
+        type: string
+        required: true
+      force_recheck:
+        description: Run static regression even when the exact APK is already supported
+        type: boolean
+        default: false
+      goal_token_budget:
+        description: Maximum token budget for one Codex adaptation goal
+        type: string
+        default: '500000'
+      retry_adaptation:
+        description: Start a new adaptation attempt even when an earlier draft PR exists
+        type: boolean
+        default: false
+      run_codex:
+        description: Adapt verified unknown builds with gpt-6-luna/xhigh
+        type: boolean
+        default: true
+      baseline_apk_sha256:
+        description: Select a runtime-verified baseline variant when the preferred version is ambiguous
+        type: string
+        default: ''
+
+permissions:
+  contents: read
+
+jobs:
+  prepare:
+    runs-on: ubuntu-latest
+    env:
+      APP_ID: ${{ inputs.app_id }}
+    outputs:
+      app_id: ${{ steps.policy.outputs.app_id }}
+      targets_path: ${{ steps.policy.outputs.targets_path }}
+      artifact_prefix: ${{ steps.policy.outputs.artifact_prefix }}
+      adaptation_prompt: ${{ steps.policy.outputs.adaptation_prompt }}
+      targets: ${{ steps.targets.outputs.matrix }}
+      skip_heavy: ${{ steps.discovery-gate.outputs.skip_heavy }}
+      source_url: ${{ steps.discover.outputs.source_url }}
+      expected_sha256: ${{ steps.discover.outputs.expected_sha256 }}
+      cache_dir: ${{ steps.discover.outputs.cache_dir }}
+      cache_key: ${{ steps.discover.outputs.cache_key }}
+      version_code_hint: ${{ steps.discover.outputs.version_code_hint }}
+      pipeline_status: ${{ steps.preparation-failure.outputs.pipeline_status }}
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v7
+
+      - name: Resolve trusted application policy
+        id: policy
+        run: python3 -m scripts.ci.app_policy --app-id "$APP_ID" --github-output "$GITHUB_OUTPUT"
+
+      - name: Test official candidate discovery and cache validation
+        run: python3 -m unittest scripts.test_discover_latest_wechat scripts.test_candidate_selection scripts.test_discovery_gate
+
+      - name: Test latest-three compatibility window selection
+        run: python3 -m unittest scripts.test_select_compatibility_window
+
+      - name: Test application policy isolation
+        run: python3 -m unittest scripts.test_app_policy
+
+      - name: Test Codex eligibility, edit guards, timeout, and deduplication
+        run: python3 -m unittest scripts.test_codex_adaptation scripts.test_codex_task scripts.test_codex_goal scripts.test_adb_device scripts.test_runtime_adaptation scripts.test_host_build
+
+      - name: Validate target manifest
+        id: validate
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          python3 -c 'import json,os; from scripts.ci.app_policy import validate_targets; validate_targets(json.load(open(os.environ["TARGETS_PATH"])), os.environ["APP_ID"])'
+
+      - name: Prepare official candidate diagnostic
+        run: |
+          mkdir -p compatibility-report
+          printf '# Latest official application compatibility check\n\n' \
+            > compatibility-report/latest-official.md
+
+      - name: Select official ARM64 APK
+        id: discover
+        run: |
+          python3 -m scripts.ci.discover_latest_wechat \
+            --app-id "$APP_ID" \
+            --targets "$TARGETS_PATH" \
+            --github-output "$GITHUB_OUTPUT" \
+            --report compatibility-report/latest-official.md
+
+      - name: Restore official candidate cache for lightweight discovery
+        uses: actions/cache@v6
+        with:
+          path: ${{ steps.discover.outputs.cache_dir }}
+          key: ${{ steps.discover.outputs.cache_key }}
+
+      - name: Revalidate discovered APK before deciding whether it changed
+        id: discovery-download
+        env:
+          SOURCE_URL: ${{ steps.discover.outputs.source_url }}
+          CACHE_DIRECTORY: ${{ steps.discover.outputs.cache_dir }}
+          EXPECTED_SHA256: ${{ steps.discover.outputs.expected_sha256 }}
+        run: |
+          python3 -m scripts.ci.fetch_latest_wechat_apk \
+            --app-id "$APP_ID" --url "$SOURCE_URL" --cache-dir "$CACHE_DIRECTORY" \
+            --expected-sha256 "$EXPECTED_SHA256" \
+            --github-output "$GITHUB_OUTPUT" --report compatibility-report/latest-official.md
+
+      - name: Decide whether expensive analysis is needed
+        id: discovery-gate
+        env:
+          SOURCE_URL: ${{ steps.discover.outputs.source_url }}
+          APK_SHA256: ${{ steps.discovery-download.outputs.apk_sha256 }}
+          FORCE_RECHECK: ${{ inputs.force_recheck || false }}
+        run: |
+          python3 -m scripts.ci.discovery_gate \
+            --app-id "$APP_ID" --targets "$TARGETS_PATH" --source-url "$SOURCE_URL" \
+            --apk-sha256 "$APK_SHA256" --force-recheck "$FORCE_RECHECK" \
+            --github-output "$GITHUB_OUTPUT" --summary "$GITHUB_STEP_SUMMARY" \
+            --report compatibility-report/discovery-result.json
+
+      - name: Upload discovery decision
+        uses: actions/upload-artifact@v7
+        with:
+          name: ${{ steps.policy.outputs.artifact_prefix }}-${{ steps.policy.outputs.app_id }}-discovery-result
+          path: |
+            compatibility-report/discovery-result.json
+            compatibility-report/latest-official.md
+          retention-days: 14
+
+      - name: Select the latest-three regression window
+        if: steps.discovery-gate.outputs.skip_heavy != 'true'
+        id: targets
+        env:
+          WECHAT_CANDIDATE_VERSION_CODE: ${{ steps.discover.outputs.version_code_hint }}
+        run: |
+          python3 -m scripts.ci.select_compatibility_window \
+            --app-id "$APP_ID" \
+            --targets "$TARGETS_PATH" \
+            --candidate-version-code "$WECHAT_CANDIDATE_VERSION_CODE" \
+            --github-output "$GITHUB_OUTPUT"
+
+      - name: Record candidate preparation failure
+        id: preparation-failure
+        if: failure()
+        env:
+          VALIDATION_RESULT: ${{ steps.validate.outcome }}
+          DISCOVERY_RESULT: ${{ steps.discover.outcome }}
+          DOWNLOAD_RESULT: ${{ steps.discovery-download.outcome }}
+          TARGET_SELECTION_RESULT: ${{ steps.targets.outcome }}
+          WECHAT_APK_URL: ${{ steps.discover.outputs.source_url }}
+          WECHAT_TARGET_MATRIX: ${{ steps.targets.outputs.matrix || '[]' }}
+        run: |
+          status=STATIC_REGRESSION_FAILED
+          reason='Compatibility preparation failed before candidate analysis.'
+          if [[ "$VALIDATION_RESULT" == 'failure' || "$TARGET_SELECTION_RESULT" == 'failure' ]]; then
+            status=BASELINE_INVALID
+            reason='Compatibility target manifest or regression window is invalid.'
+          elif [[ "$DISCOVERY_RESULT" == 'failure' || "$DOWNLOAD_RESULT" == 'failure' ]]; then
+            status=FETCH_FAILED
+            reason='Official application candidate discovery, download or integrity verification failed.'
+          fi
+          checked_versions="$(jq -r '[.[].version_name] | join(",")' <<< "$WECHAT_TARGET_MATRIX")"
+          python3 -m scripts.ci.write_candidate_failure_report \
+            --app-id "$APP_ID" \
+            --report compatibility-report/candidate-report.json \
+            --github-output "$GITHUB_OUTPUT" \
+            --status "$status" \
+            --reason "$reason" \
+            --source-url "$WECHAT_APK_URL" \
+            --checked-versions "$checked_versions"
+          {
+            echo '## Candidate pipeline'
+            echo "- Status: $status"
+            echo "- Blocked: $reason"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload candidate preparation failure
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: ${{ steps.policy.outputs.artifact_prefix }}-${{ steps.policy.outputs.app_id }}-candidate-preparation-failure
+          path: |
+            compatibility-report/candidate-report.json
+            compatibility-report/latest-official.md
+          if-no-files-found: warn
+          retention-days: 14
+
+  check:
+    needs: prepare
+    if: needs.prepare.outputs.skip_heavy != 'true'
+    runs-on: ubuntu-latest
+    env:
+      APP_ID: ${{ needs.prepare.outputs.app_id }}
+      TARGETS_PATH: ${{ needs.prepare.outputs.targets_path }}
+    strategy:
+      fail-fast: false
+      matrix:
+        target: ${{ fromJSON(needs.prepare.outputs.targets) }}
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v7
+
+      - name: Set up JDK 21
+        uses: actions/setup-java@v6
+        with:
+          distribution: temurin
+          java-version: '21'
+          cache: gradle
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v4
+        with:
+          packages: ''
+
+      - name: Install Android SDK packages
+        run: sdkmanager 'platforms;android-37.2' 'build-tools;37.0.0'
+
+      - name: Prepare APK cache and diagnostic report
+        env:
+          WECHAT_VERSION: ${{ matrix.target.version_name }}
+          WECHAT_VERSION_CODE: ${{ matrix.target.version_code }}
+          WECHAT_APK_SHA256: ${{ matrix.target.sha256 }}
+        run: |
+          set -euo pipefail
+          mkdir -p ".cache/${APP_ID}-apks" compatibility-report
+          printf '# %s %s (%s) compatibility check\n\nExpected APK SHA-256: %s\n\n' \
+            "$APP_ID" "$WECHAT_VERSION" "$WECHAT_VERSION_CODE" "$WECHAT_APK_SHA256" \
+            > "compatibility-report/$WECHAT_VERSION-$WECHAT_VERSION_CODE-$WECHAT_APK_SHA256.md"
+
+      - name: Restore APK by SHA-256
+        uses: actions/cache@v6
+        with:
+          path: .cache/${{ matrix.target.app_id }}-apks/${{ matrix.target.sha256 }}.apk
+          key: impad-${{ matrix.target.app_id }}-${{ matrix.target.package_name }}-${{ matrix.target.abi }}-apk-${{ matrix.target.sha256 }}
+
+      - name: Download and verify official APK
+        env:
+          WECHAT_VERSION: ${{ matrix.target.version_name }}
+          WECHAT_VERSION_CODE: ${{ matrix.target.version_code }}
+          WECHAT_APK_SHA256: ${{ matrix.target.sha256 }}
+          WECHAT_APK_URL: ${{ matrix.target.source_url }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          apk_path=".cache/${{ matrix.target.app_id }}-apks/$WECHAT_APK_SHA256.apk"
+          mkdir -p "$(dirname "$apk_path")"
+          report="compatibility-report/$WECHAT_VERSION-$WECHAT_VERSION_CODE-$WECHAT_APK_SHA256.md"
+          printf 'Source: %s\n\n' "$WECHAT_APK_URL" >> "$report"
+
+          if [[ -f "$apk_path" ]] && printf '%s  %s\n' "$WECHAT_APK_SHA256" "$apk_path" | sha256sum --check --status; then
+            echo 'APK cache hit; SHA-256 verified.' | tee -a "$report"
+            exit 0
+          fi
+
+          echo 'Downloading the APK from the Tencent CDN.' | tee -a "$report"
+          download_path="$RUNNER_TEMP/impad-$WECHAT_APK_SHA256.apk"
+          if ! curl --fail --show-error --silent --location --retry 3 \
+            --connect-timeout 20 --max-time 600 \
+            --proto '=https' --proto-redir '=https' \
+            --output "$download_path" "$WECHAT_APK_URL"; then
+            echo 'Download failed.' | tee -a "$report"
+            exit 1
+          fi
+
+          if ! printf '%s  %s\n' "$WECHAT_APK_SHA256" "$download_path" | sha256sum --check --status; then
+            actual_sha256="$(sha256sum "$download_path" | cut -d ' ' -f 1)"
+            printf 'SHA-256 mismatch. Expected %s; received %s.\n' \
+              "$WECHAT_APK_SHA256" "$actual_sha256" | tee -a "$report"
+            exit 1
+          fi
+
+          install -m 0644 "$download_path" "$apk_path"
+          echo 'Downloaded APK SHA-256 verified and cached.' | tee -a "$report"
+
+      - name: Run shared compatibility checker
+        id: compatibility
+        continue-on-error: true
+        env:
+          WECHAT_VERSION: ${{ matrix.target.version_name }}
+          WECHAT_VERSION_CODE: ${{ matrix.target.version_code }}
+          WECHAT_APK_SHA256: ${{ matrix.target.sha256 }}
+        shell: bash
+        run: |
+          set -uo pipefail
+
+          report="compatibility-report/$WECHAT_VERSION-$WECHAT_VERSION_CODE-$WECHAT_APK_SHA256.md"
+          apk_path=".cache/${{ matrix.target.app_id }}-apks/$WECHAT_APK_SHA256.apk"
+          printf '\n## Shared compat-core result\n\n' >> "$report"
+
+          set +e
+          ./gradlew --no-daemon :compat-checker:run \
+            --args="check --targets $TARGETS_PATH --apk $apk_path --app-id $APP_ID" \
+            2>&1 | tee -a "$report"
+          checker_status=${PIPESTATUS[0]}
+          set -e
+
+          if [[ "$checker_status" -eq 0 ]]; then
+            printf '\nStatic compatibility check passed.\n' >> "$report"
+          else
+            printf '\nStatic compatibility check failed with exit code %s.\n' "$checker_status" >> "$report"
+          fi
+          exit "$checker_status"
+
+      - name: Upload compatibility diagnostic
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: ${{ matrix.target.artifact_prefix }}-${{ matrix.target.app_id }}-${{ matrix.target.package_name }}-${{ matrix.target.abi }}-compatibility-${{ matrix.target.version_name }}-${{ matrix.target.version_code }}-${{ matrix.target.sha256 }}
+          path: compatibility-report/${{ matrix.target.version_name }}-${{ matrix.target.version_code }}-${{ matrix.target.sha256 }}.md
+          if-no-files-found: warn
+          retention-days: 14
+
+      - name: Mark checker failure
+        if: steps.compatibility.outcome == 'failure'
+        run: exit 1
+
+  latest:
+    name: Check latest official APK
+    needs: [prepare, check]
+    if: always() && needs.prepare.result == 'success' && needs.prepare.outputs.skip_heavy != 'true'
+    runs-on: ubuntu-latest
+    env:
+      APP_ID: ${{ needs.prepare.outputs.app_id }}
+      TARGETS_PATH: ${{ needs.prepare.outputs.targets_path }}
+      ARTIFACT_PREFIX: ${{ needs.prepare.outputs.artifact_prefix }}
+    outputs:
+      pipeline_status: ${{ steps.latest-compatibility.outputs.pipeline_status || steps.candidate-failure.outputs.pipeline_status }}
+      adaptation_eligible: ${{ steps.adaptation-eligibility.outputs.adaptation_eligible }}
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v7
+
+      - name: Set up JDK 21
+        uses: actions/setup-java@v6
+        with:
+          distribution: temurin
+          java-version: '21'
+          cache: gradle
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v4
+        with:
+          packages: ''
+
+      - name: Install Android SDK packages
+        run: sdkmanager 'platforms;android-37.2' 'build-tools;37.0.0'
+
+      - name: Test shared compatibility core
+        run: ./gradlew --no-daemon :compat-core:test :compat-checker:test
+
+      - name: Prepare latest candidate diagnostic
+        run: |
+          mkdir -p compatibility-report
+          printf '# Latest official application compatibility check\n\n' \
+            > compatibility-report/latest-official.md
+
+      - name: Prepare latest candidate cache
+        env:
+          WECHAT_APK_CACHE_DIR: ${{ needs.prepare.outputs.cache_dir }}
+        run: mkdir -p "$WECHAT_APK_CACHE_DIR"
+
+      - name: Restore latest candidate by official URL
+        uses: actions/cache@v6
+        with:
+          path: ${{ needs.prepare.outputs.cache_dir }}
+          key: ${{ needs.prepare.outputs.cache_key }}
+
+      - name: Download and verify latest candidate
+        id: candidate
+        env:
+          WECHAT_APK_URL: ${{ needs.prepare.outputs.source_url }}
+          WECHAT_APK_CACHE_DIR: ${{ needs.prepare.outputs.cache_dir }}
+          WECHAT_APK_EXPECTED_SHA256: ${{ needs.prepare.outputs.expected_sha256 }}
+        run: |
+          python3 -m scripts.ci.fetch_latest_wechat_apk \
+            --app-id "$APP_ID" \
+            --url "$WECHAT_APK_URL" \
+            --cache-dir "$WECHAT_APK_CACHE_DIR" \
+            --expected-sha256 "$WECHAT_APK_EXPECTED_SHA256" \
+            --github-output "$GITHUB_OUTPUT" \
+            --report compatibility-report/latest-official.md
+
+      - name: Run shared compatibility checker on latest candidate
+        id: latest-compatibility
+        env:
+          WECHAT_APK_PATH: ${{ steps.candidate.outputs.apk_path }}
+          WECHAT_APK_URL: ${{ needs.prepare.outputs.source_url }}
+          WECHAT_TARGET_MATRIX: ${{ needs.prepare.outputs.targets }}
+          WECHAT_REGRESSION_PASSED: ${{ needs.check.result != 'failure' && needs.check.result != 'cancelled' }}
+          BASELINE_APK_SHA256: ${{ inputs.baseline_apk_sha256 }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          baseline_args=''
+          if [[ -n "$BASELINE_APK_SHA256" ]]; then
+            if [[ ! "$BASELINE_APK_SHA256" =~ ^[[:xdigit:]]{64}$ ]]; then
+              echo 'baseline_apk_sha256 must be 64 hexadecimal characters' >&2
+              exit 2
+            fi
+            baseline_args="--baseline-apk-sha256 $BASELINE_APK_SHA256"
+          fi
+          checked_versions="$(jq -r '[.[].version_name] | join(",")' <<< "$WECHAT_TARGET_MATRIX")"
+          if [[ "$GITHUB_REF" == 'refs/heads/main' ]]; then
+            profile_merged_to_main=true
+          else
+            profile_merged_to_main=false
+          fi
+
+          ./gradlew --no-daemon :compat-checker:run \
+            --args="analyze-candidate --app-id $APP_ID --targets $TARGETS_PATH --apk '$WECHAT_APK_PATH' --source-url '$WECHAT_APK_URL' --checked-versions '$checked_versions' --regression-passed '$WECHAT_REGRESSION_PASSED' --profile-merged-to-main '$profile_merged_to_main' $baseline_args --report compatibility-report/candidate-report.json" \
+            2>&1 | tee -a compatibility-report/latest-official.md
+
+      - name: Determine whether Codex should adapt this build
+        id: adaptation-eligibility
+        run: |
+          python3 -m scripts.ci.codex_adaptation eligibility \
+            --app-id "$APP_ID" \
+            --repository . \
+            --report compatibility-report/candidate-report.json
+
+      - name: Record candidate analysis failure
+        id: candidate-failure
+        if: failure() && steps.latest-compatibility.outcome != 'success'
+        env:
+          DOWNLOAD_RESULT: ${{ steps.candidate.outcome }}
+          WECHAT_APK_URL: ${{ needs.prepare.outputs.source_url }}
+          WECHAT_TARGET_MATRIX: ${{ needs.prepare.outputs.targets }}
+        run: |
+          if [[ -f compatibility-report/candidate-report.json ]]; then
+            exit 0
+          fi
+          status=STATIC_REGRESSION_FAILED
+          reason='Static candidate analysis could not complete.'
+          if [[ "$DOWNLOAD_RESULT" == 'failure' ]]; then
+            status=FETCH_FAILED
+            reason='Official candidate APK download or integrity verification failed.'
+          fi
+          checked_versions="$(jq -r '[.[].version_name] | join(",")' <<< "$WECHAT_TARGET_MATRIX")"
+          python3 -m scripts.ci.write_candidate_failure_report \
+            --app-id "$APP_ID" \
+            --report compatibility-report/candidate-report.json \
+            --github-output "$GITHUB_OUTPUT" \
+            --status "$status" \
+            --reason "$reason" \
+            --source-url "$WECHAT_APK_URL" \
+            --checked-versions "$checked_versions"
+
+      - name: Add pipeline result to the Actions summary
+        if: always() && hashFiles('compatibility-report/candidate-report.json') != ''
+        run: |
+          {
+            echo '## Candidate pipeline'
+            jq -r '"- Status: " + .status + "\n- Candidate: " + ((.identity.versionName // "unknown") + " (" + ((.identity.versionCode // "unknown") | tostring) + ")") + "\n- Baseline: " + (.baselineVersion // "none") + "\n- Checked builds: " + (.checkedVersions | join(", "))' compatibility-report/candidate-report.json
+            echo
+            echo '## Hook findings'
+            jq -r '.hooks[]? | "- " + .hookId + ": " + .status + " — " + (if (.selectedDescriptor // "") != "" then .selectedDescriptor elif (.candidateDescriptors | length) > 0 then (.candidateDescriptors | join(", ")) else .message end)' compatibility-report/candidate-report.json
+            jq -r '.blockers[]? | "- Blocked: " + .' compatibility-report/candidate-report.json
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload latest candidate diagnostic
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: ${{ needs.prepare.outputs.artifact_prefix }}-${{ needs.prepare.outputs.app_id }}-latest-official-candidate
+          path: |
+            compatibility-report/candidate-report.json
+            compatibility-report/latest-official.md
+          if-no-files-found: warn
+          retention-days: 14
+
+  adapt:
+    name: Adapt unknown build with Codex
+    needs: [prepare, check, latest]
+    if: >-
+      !cancelled() && github.ref == 'refs/heads/main' &&
+      inputs.run_codex &&
+      needs.latest.result == 'success' && needs.latest.outputs.adaptation_eligible == 'true'
+    runs-on: ubuntu-latest
+    concurrency:
+      group: impad-codex-managed-auth
+      cancel-in-progress: false
+    outputs:
+      pipeline_status: ${{ steps.publish.outputs.pipeline_status || steps.adaptation-failure.outputs.pipeline_status }}
+      pr_url: ${{ steps.publish.outputs.pr_url }}
+      head_sha: ${{ steps.publish.outputs.head_sha }}
+      issue: ${{ steps.claim.outputs.issue }}
+    permissions:
+      contents: write
+      issues: write
+      pull-requests: write
+      actions: write
+    env:
+      PYTHONDONTWRITEBYTECODE: '1'
+      APP_ID: ${{ needs.prepare.outputs.app_id }}
+      TARGETS_PATH: ${{ needs.prepare.outputs.targets_path }}
+      ARTIFACT_PREFIX: ${{ needs.prepare.outputs.artifact_prefix }}
+      ADAPTATION_PROMPT: ${{ needs.prepare.outputs.adaptation_prompt }}
+    steps:
+      - name: Check out trusted pipeline source
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Verify trusted trigger and authentication configuration
+        env:
+          CODEX_AUTH_JSON: ${{ secrets.CODEX_AUTH_JSON }}
+          CODEX_TRACE_RECIPIENT: ${{ vars.CODEX_TRACE_RECIPIENT }}
+          GH_TOKEN: ${{ secrets.CODEX_AUTH_WRITE_TOKEN }}
+        run: |
+          set -euo pipefail
+          [[ "$GITHUB_REF" == 'refs/heads/main' && ( "$GITHUB_EVENT_NAME" == 'workflow_dispatch' || "$GITHUB_EVENT_NAME" == 'schedule' ) ]] || { echo 'Managed authentication requires a main-branch manual or scheduled run.'; exit 1; }
+          [[ -n "$CODEX_AUTH_JSON" && -n "$GH_TOKEN" ]] || { echo 'Configure CODEX_AUTH_JSON and CODEX_AUTH_WRITE_TOKEN before starting Codex.'; exit 1; }
+          [[ -n "$CODEX_TRACE_RECIPIENT" ]] || { echo 'Configure the CODEX_TRACE_RECIPIENT Actions variable before starting Codex.'; exit 1; }
+          gh api "repos/$GITHUB_REPOSITORY/actions/secrets/public-key" >/dev/null
+
+      - name: Download verified candidate report
+        uses: actions/download-artifact@v8
+        with:
+          name: ${{ needs.prepare.outputs.artifact_prefix }}-${{ needs.prepare.outputs.app_id }}-latest-official-candidate
+          path: compatibility-report
+
+      - name: Freeze adaptation controller outside agent checkout
+        run: |
+          CONTROLLER_ROOT="$RUNNER_TEMP/impad-trusted"
+          CODEX_TASK_DIR="$RUNNER_TEMP/impad-adaptation"
+          mkdir -p "$CONTROLLER_ROOT" "$CODEX_TASK_DIR"
+          {
+            echo "CONTROLLER_ROOT=$CONTROLLER_ROOT"
+            echo "CODEX_TASK_DIR=$CODEX_TASK_DIR"
+            echo "PYTHONPATH=$CONTROLLER_ROOT"
+          } >> "$GITHUB_ENV"
+          cp -R scripts "$CONTROLLER_ROOT/scripts"
+          cp "$ADAPTATION_PROMPT" "$CONTROLLER_ROOT/adapt-prompt.md"
+          echo "ADAPTATION_PROMPT=$CONTROLLER_ROOT/adapt-prompt.md" >> "$GITHUB_ENV"
+
+      - name: Claim or explicitly retry adaptation for this APK
+        id: claim
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RETRY_ADAPTATION: ${{ github.event_name == 'workflow_dispatch' && inputs.retry_adaptation }}
+        run: |
+          cd "$CONTROLLER_ROOT"
+          retry_args=()
+          if [[ "$RETRY_ADAPTATION" == 'true' ]]; then retry_args+=(--retry); fi
+          python3 -m scripts.ci.codex_task claim --app-id "$APP_ID" "${retry_args[@]}" \
+            --report "$GITHUB_WORKSPACE/compatibility-report/candidate-report.json" \
+            --targets "$GITHUB_WORKSPACE/$TARGETS_PATH" \
+            --directory "$CODEX_TASK_DIR"
+
+      - name: Set up JDK 21
+        if: steps.claim.outputs.claimed == 'true'
+        uses: actions/setup-java@v6
+        with:
+          distribution: temurin
+          java-version: '21'
+          cache: gradle
+
+      - name: Set up Android SDK
+        if: steps.claim.outputs.claimed == 'true'
+        uses: android-actions/setup-android@v4
+        with:
+          packages: ''
+
+      - name: Prepare static validation dependencies
+        if: steps.claim.outputs.claimed == 'true'
+        run: |
+          export WECHATPAD_DEBUG_KEYSTORE="$RUNNER_TEMP/wechatpad-debug.keystore"
+          keytool -genkeypair -keystore "$WECHATPAD_DEBUG_KEYSTORE" -storepass android -keypass android -alias androiddebugkey -keyalg RSA -keysize 2048 -validity 10000 -dname 'CN=Android Debug,O=Android,C=US'
+          echo "WECHATPAD_DEBUG_KEYSTORE=$WECHATPAD_DEBUG_KEYSTORE" >> "$GITHUB_ENV"
+          sdkmanager 'platforms;android-37.2' 'build-tools;37.0.0'
+          ./gradlew --no-daemon :app:testDebugUnitTest :compat-core:test :compat-checker:test :app:assembleDebug
+
+      - name: Set up Node.js
+        if: steps.claim.outputs.claimed == 'true'
+        uses: actions/setup-node@v7
+        with:
+          node-version: '24'
+
+      - name: Prepare Linux sandbox prerequisites
+        if: steps.claim.outputs.claimed == 'true'
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y bubblewrap
+          # The restrictive example AppArmor profile strips capabilities needed by nested sandboxes.
+          if [[ -e /proc/sys/kernel/apparmor_restrict_unprivileged_userns ]]; then
+            sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
+          fi
+          command -v bwrap
+          bwrap --version
+          bwrap --ro-bind / / --dev-bind /dev /dev --proc /proc -- \
+            bwrap --ro-bind / / --dev-bind /dev /dev --proc /proc -- true
+
+      - name: Install pinned Codex CLI and jadx
+        if: steps.claim.outputs.claimed == 'true'
+        run: |
+          set -euo pipefail
+          npm install --global @openai/codex@0.160.1
+          npm install --prefix "$CONTROLLER_ROOT" --ignore-scripts @actions/artifact@6.3.1
+          sudo apt-get update
+          sudo apt-get install --yes age
+          curl --fail --silent --show-error --location --retry 3 \
+            --output "$RUNNER_TEMP/jadx.zip" \
+            https://github.com/skylot/jadx/releases/download/v1.5.6/jadx-1.5.6.zip
+          printf '%s  %s\n' 545ea2be9c242511bc145755cf4bda2485ade42966e096f8b4d3da2a230e8974 "$RUNNER_TEMP/jadx.zip" | sha256sum --check
+          unzip -q "$RUNNER_TEMP/jadx.zip" -d "$RUNNER_TEMP/jadx"
+          mv "$RUNNER_TEMP/jadx/bin/jadx" "$RUNNER_TEMP/jadx/bin/jadx.real"
+          install -m 0755 "$CONTROLLER_ROOT/scripts/ci/jadx-serial.sh" "$RUNNER_TEMP/jadx/bin/jadx"
+          echo "$RUNNER_TEMP/jadx/bin" >> "$GITHUB_PATH"
+          python3 -m unittest scripts.test_jadx_launcher
+
+      - name: Restore verified candidate cache
+        if: steps.claim.outputs.claimed == 'true'
+        uses: actions/cache@v6
+        with:
+          path: ${{ needs.prepare.outputs.cache_dir }}
+          key: ${{ needs.prepare.outputs.cache_key }}
+
+      - name: Restore regression APK cache
+        if: steps.claim.outputs.claimed == 'true'
+        uses: actions/cache@v6
+        with:
+          path: .cache/${{ needs.prepare.outputs.app_id }}-apks
+          key: impad-${{ needs.prepare.outputs.app_id }}-regression-${{ hashFiles(needs.prepare.outputs.targets_path) }}
+          restore-keys: impad-${{ needs.prepare.outputs.app_id }}-regression-
+
+      - name: Revalidate candidate cache and prepare isolated checkout
+        if: steps.claim.outputs.claimed == 'true'
+        env:
+          WECHAT_APK_URL: ${{ needs.prepare.outputs.source_url }}
+          WECHAT_APK_CACHE_DIR: ${{ needs.prepare.outputs.cache_dir }}
+        run: |
+          set -euo pipefail
+          expected_sha256="$(jq -r .identity.apkSha256 compatibility-report/candidate-report.json)"
+          python3 -m scripts.ci.fetch_latest_wechat_apk \
+            --app-id "$APP_ID" --url "$WECHAT_APK_URL" --cache-dir "$WECHAT_APK_CACHE_DIR" \
+            --expected-sha256 "$expected_sha256" \
+            --github-output "$RUNNER_TEMP/candidate-cache-output" \
+            --report "$RUNNER_TEMP/candidate-cache-report.md"
+          cd "$CONTROLLER_ROOT"
+          python3 -m scripts.ci.codex_adaptation --app-id "$APP_ID" prepare \
+            --repository "$GITHUB_WORKSPACE" \
+            --report "$GITHUB_WORKSPACE/compatibility-report/candidate-report.json" \
+            --apk "$GITHUB_WORKSPACE/$WECHAT_APK_CACHE_DIR/$expected_sha256.apk" \
+            --directory "$CODEX_TASK_DIR"
+
+      - name: Restore dedicated managed account authentication
+        if: steps.claim.outputs.claimed == 'true'
+        id: restore-auth
+        env:
+          CODEX_AUTH_JSON: ${{ secrets.CODEX_AUTH_JSON }}
+          CODEX_HOME: ${{ runner.temp }}/impad-codex-auth
+        run: |
+          python3 - <<'PY'
+          import json, os
+          from pathlib import Path
+          auth = json.loads(os.environ['CODEX_AUTH_JSON'])
+          if auth.get('auth_mode') != 'chatgpt' or not auth.get('tokens', {}).get('refresh_token'):
+              raise SystemExit('CODEX_AUTH_JSON must contain dedicated managed ChatGPT authentication.')
+          home = Path(os.environ['CODEX_HOME'])
+          home.mkdir(mode=0o700)
+          path = home / 'auth.json'
+          path.touch(mode=0o600)
+          path.write_text(json.dumps(auth))
+          PY
+
+      - name: Prepare pinned AVD inputs for adaptation
+        if: steps.claim.outputs.claimed == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir -p work/runtime-smoke/evidence work/runtime-smoke/module
+          cp app/build/outputs/apk/debug/app-debug.apk work/runtime-smoke/module/app-debug.apk
+          candidate_sha256="$(jq -r .identity.apkSha256 "$CODEX_TASK_DIR/checkout/work/analysis/candidate-report.json")"
+          cp "$CODEX_TASK_DIR/checkout/work/apks/candidate-${candidate_sha256}.apk" "work/runtime-smoke/${APP_ID}.apk"
+          gh release download experimental-ramdisk-api37.2-r06-magisk31.0 \
+            --pattern ramdisk37-patched.img --pattern LSPosed-v2.2.1-7912-release.zip --dir work/runtime-smoke
+          echo 'b49fec2e291582495196d9437bf520f337882bddf763d2530a576f3e4da99df8  work/runtime-smoke/ramdisk37-patched.img' | sha256sum --check
+          echo 'ed37de2d2097aa6ba871377e7bf4ac719b708484f9468928e6abae10ab311e74  work/runtime-smoke/LSPosed-v2.2.1-7912-release.zip' | sha256sum --check
+          mv work/runtime-smoke/LSPosed-v2.2.1-7912-release.zip work/runtime-smoke/lsposed.zip
+          7z e -so work/runtime-smoke/lsposed.zip module.prop | grep -Fxq 'version=v2.2.1 (7912)'
+          7z e -so work/runtime-smoke/lsposed.zip module.prop | grep -Fxq 'versionCode=7912'
+          7z e -so work/runtime-smoke/lsposed.zip manager.apk > work/runtime-smoke/manager.apk
+          curl --fail --location --silent --show-error --retry 2 --connect-timeout 20 --max-time 180 \
+            --proto '=https' --proto-redir '=https' https://github.com/topjohnwu/Magisk/releases/download/v31.0/Magisk-v31.0.apk -o work/runtime-smoke/magisk.apk
+          echo '2c8a488b9a5293e578e95ae4f07e3c57aba4feec4a52ca4dd852a2692d6dd4e8  work/runtime-smoke/magisk.apk' | sha256sum --check
+          sudo apt-get install -y --no-install-recommends tesseract-ocr
+          test -c /dev/kvm
+          sudo chmod 666 /dev/kvm
+
+      - name: Adapt through a verified Codex goal with disposable AVD
+        if: steps.claim.outputs.claimed == 'true'
+        env:
+          CODEX_HOME: ${{ runner.temp }}/impad-codex-auth
+          GOAL_TOKEN_BUDGET: ${{ inputs.goal_token_budget || '500000' }}
+          CODEX_TRACE_RECIPIENT: ${{ vars.CODEX_TRACE_RECIPIENT }}
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: '37.2'
+          emulator-build: '15917651'
+          target: google_apis_ps16k
+          arch: x86_64
+          profile: pixel_5
+          cores: 2
+          ram-size: 4096M
+          disk-size: 6144M
+          emulator-options: -no-window -gpu swiftshader_indirect -feature GLDirectMem,HasSharedSlotsHostMemoryAllocator -noaudio -no-boot-anim -camera-back none -camera-front none -no-snapshot
+          pre-emulator-launch-script: bash scripts/ci/prepare_avd_ramdisk.sh
+          script: |
+            bash scripts/ci/verify_avd_root.sh
+            mkdir -p work/runtime-smoke/ui-classes
+            javac --release 17 -cp "$ANDROID_HOME/platforms/android-37.2/android.jar" -d work/runtime-smoke/ui-classes scripts/ci/UiHierarchy.java
+            "$ANDROID_HOME/build-tools/37.0.0/d8" --min-api 37 --lib "$ANDROID_HOME/platforms/android-37.2/android.jar" --output work/runtime-smoke/ui-hierarchy.jar work/runtime-smoke/ui-classes/UiHierarchy.class
+            python3 -m scripts.ci.runtime_adaptation --directory "$CODEX_TASK_DIR" --root "$GITHUB_WORKSPACE/work/runtime-smoke"
+            node "$CONTROLLER_ROOT/scripts/ci/codex_live_cli.mjs"
+
+      - name: Persist refreshed authentication even after model failure
+        if: always() && steps.restore-auth.outcome == 'success'
+        id: persist-auth
+        env:
+          CODEX_HOME: ${{ runner.temp }}/impad-codex-auth
+          GH_TOKEN: ${{ secrets.CODEX_AUTH_WRITE_TOKEN }}
+        run: |
+          set -euo pipefail
+          gh secret set CODEX_AUTH_JSON --repo "$GITHUB_REPOSITORY" < "$CODEX_HOME/auth.json"
+
+      - name: Remove runner authentication before validation
+        if: always() && steps.restore-auth.outcome == 'success'
+        env:
+          CODEX_HOME: ${{ runner.temp }}/impad-codex-auth
+        run: rm -f "$CODEX_HOME/auth.json"
+
+      - name: Validate adaptation through shared checker and build
+        if: success() && steps.claim.outputs.claimed == 'true'
+        run: |
+          cd "$CONTROLLER_ROOT"
+          python3 -m scripts.ci.codex_adaptation validate --directory "$CODEX_TASK_DIR"
+
+      - name: Export validated runtime inputs
+        if: success() && steps.claim.outputs.claimed == 'true'
+        run: |
+          python3 - <<'PYEXPORT'
+          import json, os, shutil
+          from pathlib import Path
+          task = Path(os.environ['CODEX_TASK_DIR'])
+          checkout = Path(json.loads((task / 'state.json').read_text())['worktree'])
+          destination = Path('runtime-inputs')
+          destination.mkdir()
+          shutil.copyfile(checkout / 'app/build/outputs/apk/debug/app-debug.apk', destination / 'app-debug.apk')
+          report = json.loads((checkout / 'work/analysis/candidate-report.json').read_text())
+          digest = report['identity']['apkSha256']
+          shutil.copyfile(checkout / 'work/apks' / f'candidate-{digest}.apk', destination / f"{os.environ['APP_ID']}-{digest}.apk")
+          shutil.copyfile(task / 'candidate-report.json', destination / 'candidate-report.json')
+          PYEXPORT
+
+      - name: Upload validated module APK
+        if: success() && steps.claim.outputs.claimed == 'true'
+        uses: actions/upload-artifact@v7
+        with:
+          name: ${{ needs.prepare.outputs.artifact_prefix }}-${{ needs.prepare.outputs.app_id }}-adapted-module
+          path: runtime-inputs/app-debug.apk
+          if-no-files-found: error
+          retention-days: 7
+
+      - name: Upload verified runtime candidate
+        if: success() && steps.claim.outputs.claimed == 'true'
+        uses: actions/upload-artifact@v7
+        with:
+          name: ${{ needs.prepare.outputs.artifact_prefix }}-${{ needs.prepare.outputs.app_id }}-runtime-candidate
+          path: |
+            runtime-inputs/${{ needs.prepare.outputs.app_id }}-*.apk
+            runtime-inputs/candidate-report.json
+          if-no-files-found: error
+          retention-days: 7
+
+      - name: Publish statically verified draft PR
+        if: success() && steps.claim.outputs.claimed == 'true'
+        id: publish
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh auth setup-git
+          cd "$CONTROLLER_ROOT"
+          python3 -m scripts.ci.codex_task publish \
+            --directory "$CODEX_TASK_DIR" --app-id "$APP_ID" --issue '${{ steps.claim.outputs.issue }}'
+
+      - name: Record adaptation failure without retrying
+        if: failure() && steps.claim.outputs.claimed == 'true' && steps.publish.outputs.pr_url == ''
+        id: adaptation-failure
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          cd "$CONTROLLER_ROOT"
+          python3 -m scripts.ci.codex_task fail \
+            --directory "$CODEX_TASK_DIR" --app-id "$APP_ID" --issue '${{ steps.claim.outputs.issue }}' \
+            --report "$GITHUB_WORKSPACE/compatibility-report/candidate-report.json"
+
+      - name: Add adaptation result to summary
+        if: always()
+        env:
+          PIPELINE_STATUS: ${{ steps.publish.outputs.pipeline_status || steps.adaptation-failure.outputs.pipeline_status }}
+          ADAPTATION_PR: ${{ steps.publish.outputs.pr_url }}
+          CLAIMED: ${{ steps.claim.outputs.claimed }}
+          ISSUE_NUMBER: ${{ steps.claim.outputs.issue }}
+        run: |
+          {
+            echo '## Codex adaptation'
+            echo '- Model: gpt-6-luna; reasoning: xhigh; one goal; independent verification; no custom model timeout.'
+            echo "- Status: ${PIPELINE_STATUS:-not started}"
+            echo "- Claimed: ${CLAIMED:-false}; issue: ${ISSUE_NUMBER:-none}"
+            [[ -z "$ADAPTATION_PR" ]] || echo "- Draft PR: $ADAPTATION_PR"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload deterministic adaptation result
+        if: always() && steps.claim.outputs.claimed == 'true'
+        uses: actions/upload-artifact@v7
+        with:
+          name: ${{ needs.prepare.outputs.artifact_prefix }}-${{ needs.prepare.outputs.app_id }}-codex-adaptation
+          path: |
+            ${{ runner.temp }}/impad-adaptation/candidate-report.json
+            ${{ runner.temp }}/impad-adaptation/adaptation.patch
+            ${{ runner.temp }}/impad-adaptation/goal-diagnostics.json
+            ${{ runner.temp }}/impad-adaptation/session.jsonl.age
+            ${{ runner.temp }}/impad-adaptation/trace-chunks/*.age
+            ${{ runner.temp }}/impad-adaptation/runtime-report.json
+          if-no-files-found: warn
+          retention-days: 14
+
+      - name: Upload adaptation AVD evidence
+        if: always() && steps.claim.outputs.claimed == 'true'
+        uses: actions/upload-artifact@v7
+        with:
+          name: ${{ needs.prepare.outputs.artifact_prefix }}-${{ needs.prepare.outputs.app_id }}-adaptation-avd
+          path: |
+            work/runtime-smoke/prepare-evidence/
+            work/runtime-smoke/iteration-*/
+            work/root-verification/evidence/
+          if-no-files-found: warn
+          retention-days: 14
+
+  runtime:
+    name: Smoke adapted candidate on hosted AVD
+    needs: [prepare, adapt]
+    if: needs.adapt.outputs.pr_url != ''
+    permissions:
+      contents: read
+      actions: read
+    uses: ./.github/workflows/runtime-smoke.yml
+    with:
+      module_run_id: ${{ github.run_id }}
+      app_id: ${{ needs.prepare.outputs.app_id }}
+      module_artifact: ${{ needs.prepare.outputs.artifact_prefix }}-${{ needs.prepare.outputs.app_id }}-adapted-module
+      candidate_artifact: ${{ needs.prepare.outputs.artifact_prefix }}-${{ needs.prepare.outputs.app_id }}-runtime-candidate
+
+  runtime-result:
+    name: Record runtime acceptance
+    outputs:
+      pipeline_status: ${{ steps.record.outputs.pipeline_status }}
+    needs: [prepare, adapt, runtime]
+    if: always() && needs.adapt.outputs.pr_url != ''
+    runs-on: ubuntu-latest
+    env:
+      APP_ID: ${{ needs.prepare.outputs.app_id }}
+      ARTIFACT_PREFIX: ${{ needs.prepare.outputs.artifact_prefix }}
+    permissions:
+      contents: write
+      issues: write
+      pull-requests: write
+      actions: read
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ github.sha }}
+      - uses: actions/download-artifact@v8
+        with:
+          name: ${{ needs.prepare.outputs.artifact_prefix }}-${{ needs.prepare.outputs.app_id }}-codex-adaptation
+          path: runtime-result
+      - name: Download runtime evidence
+        continue-on-error: true
+        uses: actions/download-artifact@v8
+        with:
+          name: ${{ needs.prepare.outputs.artifact_prefix }}-${{ needs.prepare.outputs.app_id }}-runtime-smoke
+          path: runtime-result/evidence
+      - name: Record verified profile or rejection
+        id: record
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ADAPTATION_PR: ${{ needs.adapt.outputs.pr_url }}
+          TESTED_HEAD: ${{ needs.adapt.outputs.head_sha }}
+          ADAPTATION_ISSUE: ${{ needs.adapt.outputs.issue }}
+          SMOKE_CONCLUSION: ${{ needs.runtime.result }}
+        run: |
+          gh auth setup-git
+          python3 -m scripts.ci.runtime_task \
+            --app-id "$APP_ID" --directory runtime-result \
+            --smoke runtime-result/evidence/runtime-smoke/evidence/smoke-report.json \
+            --conclusion "$SMOKE_CONCLUSION" --pr "$ADAPTATION_PR" \
+            --head "$TESTED_HEAD" --issue "$ADAPTATION_ISSUE"
+      - name: Upload pipeline acceptance report
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: ${{ needs.prepare.outputs.artifact_prefix }}-${{ needs.prepare.outputs.app_id }}-runtime-result
+          path: runtime-result/runtime-candidate-report.json
+          retention-days: 14
+          if-no-files-found: warn
