@@ -6,10 +6,17 @@ import subprocess
 import tempfile
 from pathlib import Path
 from unittest.mock import patch
-from scripts.ci.runtime_task import runtime_result, main
+from scripts.ci.runtime_task import runtime_result, main, close_issue_if_complete
 
 
 class RuntimeTaskTest(unittest.TestCase):
+    def test_only_runtime_verified_closes_the_adaptation_issue(self):
+        with patch('scripts.ci.runtime_task.gh') as github:
+            close_issue_if_complete('owner/repo', 8, 'RUNTIME_REJECTED')
+            github.assert_not_called()
+            close_issue_if_complete('owner/repo', 8, 'RUNTIME_VERIFIED')
+        github.assert_called_once_with('issue', 'close', '8', '--repo', 'owner/repo')
+
     def setUp(self):
         identity = {'packageName': 'com.tencent.mm', 'versionName': '8.0.79', 'versionCode': 3200,
                     'abi': 'arm64-v8a', 'apkSha256': 'a' * 64,
@@ -116,7 +123,7 @@ class RuntimeTaskTest(unittest.TestCase):
                 os.chdir(checkout)
                 with patch.dict(os.environ, env), patch('sys.argv', ['runtime_task', '--directory', str(directory),
                            '--smoke', str(evidence), '--conclusion', 'success', '--pr', 'https://github.com/owner/repo/pull/1',
-                           '--head', head, '--issue', '2']), patch('scripts.ci.runtime_task.gh', side_effect=[json.dumps(pr), '', '']), patch('scripts.ci.runtime_task.write_issue'):
+                           '--head', head, '--issue', '2']), patch('scripts.ci.runtime_task.gh', side_effect=[json.dumps(pr), '', '', '', '']), patch('scripts.ci.runtime_task.write_issue'):
                     main()
             finally:
                 os.chdir(previous)

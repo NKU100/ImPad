@@ -1,4 +1,4 @@
-"""Trusted controller for one bounded Codex adaptation and static validation."""
+"""Trusted controller for one Codex adaptation continuation and static validation."""
 
 import argparse
 import hashlib
@@ -181,9 +181,9 @@ def prepare(repository, report_path, candidate_apk, directory):
     (directory / "state.json").write_text(json.dumps(state, indent=2))
 
 
-def run_model(directory, prompt_path, token_budget=500_000):
+def run_model(directory, prompt_path):
     from scripts.ci.codex_goal import run_model_goal
-    run_model_goal(directory, prompt_path, token_budget)
+    run_model_goal(directory, prompt_path)
 
 
 def validate(directory):
@@ -231,7 +231,6 @@ def main():
     parser.add_argument("--apk", type=Path)
     parser.add_argument("--directory", type=Path)
     parser.add_argument("--prompt", type=Path)
-    parser.add_argument("--goal-token-budget", type=int, default=500_000)
     args = parser.parse_args()
     if args.stage == "eligibility":
         report = json.loads(args.report.read_text())
@@ -243,7 +242,7 @@ def main():
     elif args.stage == "prepare":
         prepare(args.repository.resolve(), args.report, args.apk.resolve(), args.directory.resolve())
     elif args.stage == "model":
-        run_model(args.directory.resolve(), args.prompt, args.goal_token_budget)
+        run_model(args.directory.resolve(), args.prompt)
     else:
         validate(args.directory.resolve())
 

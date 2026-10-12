@@ -33,43 +33,73 @@ class FakeClient:
 
 
 class GoalTest(unittest.TestCase):
-    def test_long_instructions_remain_in_first_turn_without_exceeding_goal_limit(self):
+    def test_adaptation_step_uses_no_token_budget_and_stops_after_one_turn(self):
+        client = FakeClient()
+        with tempfile.TemporaryDirectory() as root, patch('scripts.ci.codex_goal.write_diagnostics'):
+            with patch('scripts.ci.codex_goal.verify', side_effect=ValueError('missing profile')) as verify:
+                result = run_goal(client, Path(root), 'adapt', resume_context={'previousStage': 'adaptation-in-progress'})
+
+        goal = next(params for method, params in client.calls
+                    if method == 'thread/goal/set' and 'objective' in params)
+        turn = next(params for method, params in client.calls if method == 'turn/start')
+        self.assertNotIn('tokenBudget', goal)
+        self.assertEqual(1, client.turn)
+        self.assertEqual(1, verify.call_count)
+        self.assertEqual('continue', result)
+        self.assertIn('previousStage', turn['input'][0]['text'])
+
+    def test_step_reports_verified_only_after_independent_validation(self):
+        client = FakeClient()
+        with tempfile.TemporaryDirectory() as root, patch('scripts.ci.codex_goal.write_diagnostics'), \
+                patch('scripts.ci.codex_goal.verify') as verify:
+            result = run_goal(client, Path(root), 'adapt')
+
+        self.assertEqual('verified', result)
+        self.assertEqual(1, client.turn)
+        self.assertTrue(any(method == 'thread/goal/set' and params.get('status') == 'complete'
+                            for method, params in client.calls))
+
+    def test_long_instructions_remain_in_first_continuation_turn(self):
         client = FakeClient()
         prompt = 'Full constraints ' * 500
         with tempfile.TemporaryDirectory() as root, patch('scripts.ci.codex_goal.write_diagnostics'), patch('scripts.ci.codex_goal.verify'):
-            run_goal(client, Path(root), prompt, 500000)
-        goal = next(p for m, p in client.calls if m == 'thread/goal/set' and 'objective' in p)
+            run_goal(client, Path(root), prompt)
         turn = next(p for m, p in client.calls if m == 'turn/start')
-        self.assertLessEqual(len(goal['objective']), 4000)
+        goal = next(p for m, p in client.calls if m == 'thread/goal/set' and 'objective' in p)
+        self.assertNotIn('tokenBudget', goal)
         self.assertTrue(turn['input'][0]['text'].startswith(prompt))
 
-    def test_failed_validation_is_fed_back_to_same_thread(self):
+    def test_failed_validation_is_checkpointed_for_the_next_thread(self):
         client = FakeClient()
         with tempfile.TemporaryDirectory() as root, patch('scripts.ci.codex_goal.write_diagnostics'):
             with patch('scripts.ci.codex_goal.verify', side_effect=[ValueError('missing profile'), None]) as verify:
-                run_goal(client, Path(root), 'adapt', 10000)
-            self.assertEqual(2, verify.call_count)
+                result = run_goal(client, Path(root), 'adapt', {'previousStage': 'adaptation-in-progress'})
+            self.assertEqual(1, verify.call_count)
         turns = [p for m,p in client.calls if m == 'turn/start']
-        self.assertEqual(['thread-1', 'thread-1'], [p['threadId'] for p in turns])
-        self.assertIn('missing profile', turns[1]['input'][0]['text'])
+        self.assertEqual(['thread-1'], [p['threadId'] for p in turns])
+        self.assertIn('previousStage', turns[0]['input'][0]['text'])
+        self.assertEqual('continue', result)
 
     def test_model_completion_does_not_bypass_independent_validation(self):
         with tempfile.TemporaryDirectory() as root, patch('scripts.ci.codex_goal.write_diagnostics'), patch('scripts.ci.codex_goal.verify', side_effect=ValueError('missing profile')):
-            with self.assertRaisesRegex(RuntimeError, 'three'):
-                run_goal(FakeClient('complete'), Path(root), 'adapt', 10000)
+            result = run_goal(FakeClient('complete'), Path(root), 'adapt')
+        self.assertEqual('continue', result)
 
-    def test_same_runtime_error_stops_even_when_evidence_directory_changes(self):
-        errors = [ValueError('No tablet entry. work/analysis/runtime/iteration-' + f'{i:03d}') for i in range(1, 4)]
-        with tempfile.TemporaryDirectory() as root, patch('scripts.ci.codex_goal.write_diagnostics'), patch('scripts.ci.codex_goal.verify', side_effect=errors):
-            with self.assertRaisesRegex(RuntimeError, 'three'):
-                run_goal(FakeClient(), Path(root), 'adapt with AVD', 500000)
+    def test_runtime_failure_does_not_end_automatic_continuation(self):
+        with tempfile.TemporaryDirectory() as root, patch('scripts.ci.codex_goal.write_diagnostics'), \
+                patch('scripts.ci.codex_goal.verify', side_effect=ValueError('No tablet entry')):
+            client = FakeClient()
+            result = run_goal(client, Path(root), 'adapt with AVD')
+        self.assertEqual('continue', result)
+        self.assertEqual(1, client.turn)
 
-    def test_budget_limit_stops_without_another_turn(self):
+    def test_no_goal_token_budget_is_sent_to_codex(self):
         client = FakeClient('budgetLimited')
         with tempfile.TemporaryDirectory() as root, patch('scripts.ci.codex_goal.write_diagnostics'), patch('scripts.ci.codex_goal.verify', side_effect=ValueError('missing profile')):
-            with self.assertRaisesRegex(RuntimeError, 'budgetLimited'):
-                run_goal(client, Path(root), 'adapt', 10000)
+            result = run_goal(client, Path(root), 'adapt')
         self.assertEqual(1, client.turn)
+        self.assertEqual('continue', result)
+        self.assertFalse(any('tokenBudget' in params for method, params in client.calls))
 
     def test_sandbox_failure_stops_before_creating_goal_or_spending_tokens(self):
         client = FakeClient()
@@ -87,10 +117,10 @@ class GoalTest(unittest.TestCase):
     def test_failed_turn_is_not_verified_or_retried(self):
         client = FakeClient()
         with tempfile.TemporaryDirectory() as root, patch('scripts.ci.codex_goal.write_diagnostics'), patch('scripts.ci.codex_goal.verify') as verify, patch.object(client, 'wait_turn', return_value={'status': 'failed', 'error': {'message': 'tool unavailable'}}):
-            with self.assertRaisesRegex(RuntimeError, 'turn failed'):
-                run_goal(client, Path(root), 'adapt', 10000)
+            result = run_goal(client, Path(root), 'adapt')
             verify.assert_not_called()
         self.assertEqual(1, client.turn)
+        self.assertEqual('continue', result)
 
     def test_diagnostics_remain_valid_json_after_redaction(self):
         client = FakeClient()

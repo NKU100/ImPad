@@ -1,0 +1,95 @@
+name: Codex Thread Resume Smoke
+
+on:
+  push:
+    branches: [codex/codex-thread-resume-smoke]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  issues: write
+
+concurrency:
+  group: impad-codex-managed-auth
+  cancel-in-progress: false
+
+env:
+  CODEX_CLI_VERSION: 0.162.0-alpha.17.2
+
+jobs:
+  attempt1:
+    name: Real Codex attempt 1
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+      - run: npm install --global "@openai/codex@$CODEX_CLI_VERSION"
+      - uses: actions/download-artifact@v8
+        with:
+          name: real-codex-checkpoint-1
+          path: ${{ runner.temp }}/issue-cycle
+          run-id: 38251678107
+          github-token: ${{ github.token }}
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: real-codex-checkpoint-1
+          path: ${{ runner.temp }}/issue-cycle/
+          include-hidden-files: true
+          retention-days: 2
+  attempt2:
+    name: Real Codex attempt 2
+    needs: attempt1
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+      - run: npm install --global "@openai/codex@$CODEX_CLI_VERSION"
+      - uses: actions/download-artifact@v8
+        with:
+          name: real-codex-checkpoint-2
+          path: ${{ runner.temp }}/issue-cycle
+          run-id: 38251909377
+          github-token: ${{ github.token }}
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: real-codex-checkpoint-2
+          path: ${{ runner.temp }}/issue-cycle/
+          include-hidden-files: true
+          retention-days: 2
+  attempt3:
+    name: Real Codex attempt 3
+    needs: attempt2
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+      - run: npm install --global "@openai/codex@$CODEX_CLI_VERSION"
+      - uses: actions/download-artifact@v8
+        with:
+          name: real-codex-checkpoint-2
+          path: ${{ runner.temp }}/issue-cycle
+      - name: Execute model turn and independently verify
+        env:
+          CODEX_AUTH_JSON: ${{ secrets.CODEX_AUTH_JSON }}
+          OWNER_TOKEN: ${{ secrets.CODEX_AUTH_WRITE_TOKEN }}
+          GH_TOKEN: ${{ github.token }}
+          RUN_URL: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: python3 scripts/ci/codex_issue_cycle_smoke.py 3
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: real-codex-checkpoint-3
+          path: ${{ runner.temp }}/issue-cycle/
+          include-hidden-files: true
+          retention-days: 2
