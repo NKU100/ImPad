@@ -44,6 +44,11 @@ def runtime_result(report, smoke, conclusion, app_id=None):
     return result
 
 
+def close_issue_if_complete(repo, issue, status):
+    if status == 'RUNTIME_VERIFIED':
+        gh('issue', 'close', str(issue), '--repo', repo)
+
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('--app-id', default='wechat')
@@ -91,10 +96,19 @@ def main():
         gh('pr', 'ready', args.pr, '--repo', repo)
     elif result['status'] == 'RUNTIME_REJECTED':
         body = directory / 'runtime-failure.md'
-        body.write_text(f'Hosted smoke rejected this build. [Diagnostics]({run_url}). No automatic Codex retry.\n')
+        body.write_text(f'Hosted smoke rejected this build. [Diagnostics]({run_url}). The next scheduled run will continue from the saved adaptation checkpoint.\n')
         gh('pr', 'comment', args.pr, '--repo', repo, '--body-file', str(body))
     issue_status = 'WAITING_RUNTIME' if result['status'] == 'STATIC_VERIFIED_PENDING_RUNTIME' else result['status']
-    write_issue(repo, args.issue, issue_body(result, issue_status, run_url, args.pr), directory)
+    policy = policy_for_report(result, args.app_id)
+    checkpoint_artifact = f'{policy.artifact_prefix}-{policy.app_id}-codex-adaptation'
+    accepted_head = commit if result['status'] == 'RUNTIME_VERIFIED' else pr['headRefOid']
+    write_issue(repo, args.issue, issue_body(result, issue_status, run_url, args.pr,
+                run_url, checkpoint_artifact, accepted_head), directory)
+    result_note = directory / 'runtime-issue-result.md'
+    result_note.write_text(f"Hosted runtime result: `{result['status']}`\nRun: {run_url}\n")
+    if result['status'] in {'RUNTIME_VERIFIED', 'RUNTIME_REJECTED'}:
+        gh('issue', 'comment', str(args.issue), '--repo', repo, '--body-file', str(result_note))
+    close_issue_if_complete(repo, args.issue, result['status'])
     (directory / 'runtime-candidate-report.json').write_text(json.dumps(result, indent=2) + '\n')
     append_github_output(Path(os.environ['GITHUB_OUTPUT']), {'pipeline_status': result['status']})
     with Path(os.environ['GITHUB_STEP_SUMMARY']).open('a') as output:

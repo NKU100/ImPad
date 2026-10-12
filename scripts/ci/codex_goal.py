@@ -1,4 +1,4 @@
-"""Drive one budgeted Codex goal and independently verify every completed turn."""
+"""Drive one Codex continuation turn and independently verify its result."""
 import base64
 import json
 import os
@@ -7,9 +7,6 @@ import signal
 import subprocess
 from collections import deque
 from pathlib import Path
-
-DEFAULT_TOKEN_BUDGET = 500_000
-
 
 def redact(text, secrets):
     for secret in sorted(set(secrets), key=len, reverse=True):
@@ -28,6 +25,13 @@ def sanitize(value, secrets):
     if isinstance(value, dict):
         return {k: sanitize(v, secrets) for k, v in value.items()}
     return value
+
+
+def read_json(path, fallback):
+    try:
+        return json.loads(path.read_text())
+    except (OSError, json.JSONDecodeError):
+        return fallback
 
 
 def auth_secrets():
@@ -163,9 +167,12 @@ def verify(directory):
         verify_runtime(directory)
 
 
-def write_diagnostics(directory, iterations, client):
+def write_diagnostics(directory, iterations, client, status='continue'):
     secrets = getattr(client, 'secrets', []) + auth_secrets()
-    result = {'iterations': iterations, 'modelMessages': getattr(client, 'messages', [])[-10:]}
+    result = {'status': status, 'iterations': iterations,
+              'modelMessages': getattr(client, 'messages', [])[-10:],
+              'threadId': getattr(client, 'thread_id', None),
+              'inputDelivered': getattr(client, 'input_delivered', False)}
     (directory / 'goal-diagnostics.json').write_text(json.dumps(sanitize(result, secrets), indent=2) + '\n')
 
 
@@ -180,9 +187,7 @@ def verification_error(directory, error):
     return redact(details, auth_secrets())
 
 
-def run_goal(client, directory, prompt, token_budget):
-    if type(token_budget) is not int or token_budget <= 0:
-        raise ValueError('Goal token budget must be a positive integer')
+def run_goal(client, directory, prompt, resume_context=None):
     workspace = directory / 'checkout'
     hidden_repository = str(Path(os.environ.get('GITHUB_WORKSPACE', '/unavailable-repository')) / '.git/HEAD')
     probe = ("from pathlib import Path; import json, tempfile; "
@@ -208,67 +213,77 @@ def run_goal(client, directory, prompt, token_budget):
     if preflight.get('exitCode') != 0:
         raise RuntimeError('Sandbox preflight failed before model invocation: ' + str(preflight.get('stderr', ''))[:2000])
     from scripts.ci.codex_adaptation import MODEL, REASONING
-    thread = client.request('thread/start', {'cwd': str(directory / 'checkout'), 'model': MODEL,
-        'approvalPolicy': 'never', 'sandbox': 'workspace-write', 'ephemeral': False,
-        'config': {'model_reasoning_effort': REASONING, 'features.multi_agent': False,
-                   'features.multi_agent_v2': False, 'features.goals': True}})['thread']['id']
-    objective = 'Adapt the exact candidate APK using only the supplied clean inputs and the full instructions in the first turn. Preserve existing profiles and tests, obey allowed edit paths and isolation constraints. Complete only when independent candidate and old-build static checks and module tests/build pass. Do not weaken checks. If evidence is insufficient, explain it and mark the goal blocked.'
+    native_thread = (resume_context or {}).get('nativeThreadId')
+    params = {'cwd': str(directory / 'checkout'), 'model': MODEL,
+              'approvalPolicy': 'never', 'sandbox': 'workspace-write',
+              'config': {'model_reasoning_effort': REASONING, 'features.multi_agent': False,
+                         'features.multi_agent_v2': False, 'features.goals': True}}
+    if native_thread:
+        params['threadId'] = native_thread
+        thread = client.request('thread/resume', params)['thread']['id']
+        if thread != native_thread:
+            raise RuntimeError('Codex returned a different native thread during resume')
+    else:
+        params['ephemeral'] = False
+        thread = client.request('thread/start', params)['thread']['id']
+    client.thread_id = thread
+    (directory / 'native-thread.json').write_text(json.dumps({'threadId': thread}) + '\n')
+    objective = 'Continue adapting the exact candidate APK using only the supplied clean inputs and full instructions. Preserve existing profiles and tests, obey allowed edit paths and isolation constraints, and never weaken checks. Work on the next concrete step in this run. If blocked, record the precise blocker and the next action; the next scheduled run will continue from the saved checkpoint. Do not claim completion without independent verification.'
     if state.get('runtime'):
         objective += '\nThis Goal also requires independent AVD verification of installed hooks, the Phone & Tablet entry and a stable LoginAsExDeviceUI QR page. Use adb to debug the disposable emulator described in work/analysis/runtime-device.json. Static success alone is insufficient. Screenshots and runtime logs from rejected turns will be placed under work/analysis/runtime.'
-    client.request('thread/goal/set', {'threadId': thread, 'objective': objective,
-                                      'tokenBudget': token_budget, 'status': 'paused'})
-    iterations = []
+    client.request('thread/goal/set', {'threadId': thread, 'objective': objective, 'status': 'paused'})
     feedback = prompt + '\n' + objective
-    previous_error = None
-    repeated = 0
+    if resume_context:
+        feedback += '\n\nVerified adaptation handoff from the previous scheduled run:\n'
+        feedback += json.dumps(resume_context, ensure_ascii=False, sort_keys=True)
+    comments = (resume_context or {}).get('ownerComments', [])
+    if comments:
+        feedback += '\n\nPrioritize these new instructions from the repository owner over earlier adaptation assumptions. '
+        feedback += 'Process them in ID order; later instructions supersede conflicting earlier ones. '
+        feedback += 'State how each instruction was addressed, or explain the precise blocker. '
+        feedback += 'Candidate identity, edit guards and independent acceptance checks remain mandatory.\n'
+        feedback += json.dumps(comments, ensure_ascii=False)
+    iterations = []
+    status = 'continue'
     try:
-        while True:
-            turn = client.request('turn/start', {'threadId': thread, 'model': MODEL, 'effort': REASONING,
-                                  'input': [{'type': 'text', 'text': feedback}]})['turn']['id']
-            client.request('thread/goal/set', {'threadId': thread, 'status': 'active'})
-            outcome = client.wait_turn(thread, turn)
-            goal = client.request('thread/goal/get', {'threadId': thread})['goal']
-            client.pause(thread)
-            if outcome['status'] != 'completed':
-                iterations.append({'turn': turn, 'status': outcome['status'], 'error': outcome.get('error')})
-                raise RuntimeError('Codex turn failed or was interrupted; see goal diagnostics')
+        turn = client.request('turn/start', {'threadId': thread, 'model': MODEL, 'effort': REASONING,
+                              'input': [{'type': 'text', 'text': feedback}]})['turn']['id']
+        client.input_delivered = True
+        outcome = client.wait_turn(thread, turn)
+        client.pause(thread)
+        if outcome['status'] != 'completed':
+            iterations.append({'turn': turn, 'status': outcome['status'], 'error': outcome.get('error')})
+        else:
             try:
                 verify(directory)
             except (ValueError, OSError, RuntimeError, subprocess.SubprocessError, StopIteration) as error:
-                reason = verification_error(directory, error)
-                iterations.append({'turn': turn, 'status': 'verification-failed', 'goal': goal, 'error': reason})
-                signature = re.sub(r'work/analysis/runtime/iteration-\d+', 'work/analysis/runtime/iteration', reason)
-                repeated = repeated + 1 if signature == previous_error else 1
-                previous_error = signature
-                write_diagnostics(directory, iterations, client)
-                if goal is None:
-                    raise RuntimeError('Codex cleared its goal before verification completed')
-                if goal['status'] in {'blocked', 'budgetLimited', 'usageLimited'} or goal['tokensUsed'] >= token_budget:
-                    raise RuntimeError('Codex goal stopped: ' + goal['status'])
-                if repeated >= 3:
-                    raise RuntimeError('The same verification failure occurred three consecutive times')
-                feedback = 'Independent verification failed. Continue this same adaptation goal and correct the failure without changing its constraints:\n' + reason
+                iterations.append({'turn': turn, 'status': 'verification-failed',
+                                   'error': verification_error(directory, error)})
             else:
-                iterations.append({'turn': turn, 'status': 'verified', 'goal': goal})
+                iterations.append({'turn': turn, 'status': 'verified'})
                 client.request('thread/goal/set', {'threadId': thread, 'status': 'complete'})
-                return
+                status = 'verified'
+        return status
     finally:
-        write_diagnostics(directory, iterations, client)
+        write_diagnostics(directory, iterations, client, status)
 
 
-def run_model_goal(directory, prompt_path, token_budget):
+def run_model_goal(directory, prompt_path):
     allowed = {'PATH', 'HOME', 'LANG', 'LC_ALL', 'JAVA_HOME', 'ANDROID_HOME', 'ANDROID_SDK_ROOT',
                'GRADLE_USER_HOME', 'CODEX_HOME', 'SSL_CERT_FILE', 'TMPDIR', 'WECHATPAD_DEBUG_KEYSTORE'}
     env = {key: value for key, value in os.environ.items() if key in allowed}
-    if type(token_budget) is not int or token_budget <= 0:
-        raise ValueError('Goal token budget must be a positive integer')
     client = None
     def interrupted(number, frame):
         raise InterruptedError(f'Controller received signal {number}')
     handlers = {number: signal.signal(number, interrupted) for number in [signal.SIGTERM, signal.SIGINT]}
     try:
         client = AppServer(directory, env)
-        run_goal(client, directory, prompt_path.read_text(), token_budget)
+        resume_context = read_json(directory / 'resume-context.json', {})
+        status = run_goal(client, directory, prompt_path.read_text(), resume_context)
+        output = os.environ.get('GITHUB_OUTPUT')
+        if output:
+            with Path(output).open('a') as stream:
+                stream.write(f"adaptation_ready={str(status == 'verified').lower()}\n")
     except Exception as error:
         path = directory / 'goal-diagnostics.json'
         diagnostics = json.loads(path.read_text()) if path.is_file() else {}
@@ -284,3 +299,7 @@ def run_model_goal(directory, prompt_path, token_budget):
             signal.signal(number, handler)
         if client is not None:
             client.close()
+            from scripts.ci.codex_session_checkpoint import save_session
+            save_session(directory, Path(os.environ['CODEX_HOME']),
+                         os.environ.get('CODEX_CHECKPOINT_RECIPIENT', ''),
+                         os.environ.get('CODEX_CHECKPOINT_IDENTITY', ''))

@@ -17,8 +17,7 @@ export async function run(core) {
   let stopping = false;
   let signal = null;
   const child = spawn('python3', ['-m', 'scripts.ci.codex_adaptation', 'model',
-    '--directory', task, '--prompt', prompt,
-    '--goal-token-budget', process.env.GOAL_TOKEN_BUDGET], {cwd: controller, stdio: 'inherit'});
+    '--directory', task, '--prompt', prompt], {cwd: controller, stdio: 'inherit'});
   const finished = new Promise(resolve => {
     child.once('error', error => resolve({error: String(error)}));
     child.once('exit', (code, received) => resolve({code, signal: received}));
