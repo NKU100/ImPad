@@ -31,6 +31,41 @@ class CodexTaskTest(unittest.TestCase):
         self.assertEqual(('1234', 'impad-wechat-codex-adaptation'),
                          checkpoint_reference(body, 'owner/repo', 'wechat'))
 
+    def test_checkpoint_reference_accepts_a_run_scoped_live_artifact(self):
+        body = ('Checkpoint run: https://github.com/NKU100/ImPad/actions/runs/5678\n'
+                'Checkpoint artifact: `impad-wecom-codex-adaptation-live-2-3`\n')
+        self.assertEqual(('5678', 'impad-wecom-codex-adaptation-live-2-3'),
+                         checkpoint_reference(body, 'NKU100/ImPad', 'wecom'))
+
+    def test_checkpoint_reference_rejects_foreign_live_artifact(self):
+        body = ('Checkpoint run: https://github.com/NKU100/ImPad/actions/runs/5678\n'
+                'Checkpoint artifact: `other-repo-secret`\n')
+        self.assertEqual((None, None), checkpoint_reference(body, 'NKU100/ImPad', 'wecom'))
+
+    def test_live_checkpoint_updates_issue_pointer_without_commenting(self):
+        report = dict(candidate_report(), appId='wecom', identity={
+            'packageName':'com.tencent.wework', 'abi':'arm64-v8a', 'versionName':'5.0.12',
+            'versionCode':83835, 'apkSha256':'b'*64,
+        })
+        with tempfile.TemporaryDirectory() as root:
+            directory=Path(root);report_path=directory/'candidate-report.json'
+            report_path.write_text(json.dumps(report))
+            (directory/'checkpoint.json').write_text(json.dumps({
+                'schemaVersion':1,'candidateKey':candidate_key(report),'stage':'adaptation-in-progress'}))
+            (directory/'goal-diagnostics.json').write_text(json.dumps({'status':'running','inputDelivered':True}))
+            (directory/'resume-context.json').write_text(json.dumps({
+                'ownerComments':[{'id':123,'body':'continue'}], 'consumedCommentId':0}))
+            with patch('scripts.ci.codex_task.gh', return_value='') as gh_mock, \
+                    patch('scripts.ci.codex_task.write_issue') as write_issue_mock, \
+                    patch.dict(os.environ, {'GITHUB_OUTPUT':str(directory/'output')}):
+                record_checkpoint('NKU100/ImPad', report_path, directory, 11,
+                                  'https://github.com/NKU100/ImPad/actions/runs/5678', 'wecom',
+                                  'impad-wecom-codex-adaptation-live-2-3', True)
+            self.assertFalse(any(call.args[:2] == ('issue','comment') for call in gh_mock.call_args_list))
+            body=write_issue_mock.call_args.args[2]
+            self.assertIn('Checkpoint artifact: `impad-wecom-codex-adaptation-live-2-3`', body)
+            self.assertEqual(123, json.loads((directory/'resume-context.json').read_text())['consumedCommentId'])
+
     def test_pending_attempt_pins_oldest_unfinished_issue_for_the_selected_app(self):
         older = record('RUNTIME_REJECTED')
         older.update(number=8, created_at='2026-10-01T00:00:00Z')

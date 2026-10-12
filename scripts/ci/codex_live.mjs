@@ -14,8 +14,11 @@ export async function run(core) {
   const uploaded = new Set();
   const started = Math.floor(Date.now() / 1000);
   let sequence = 0;
+  let checkpointSequence = 0;
   let stopping = false;
   let signal = null;
+  const checkpoint_interval_ms = 10 * 60 * 1000;
+  let nextCheckpoint = Date.now() + checkpoint_interval_ms;
   const child = spawn('python3', ['-m', 'scripts.ci.codex_adaptation', 'model',
     '--directory', task, '--prompt', prompt], {cwd: controller, stdio: 'inherit'});
   const finished = new Promise(resolve => {
@@ -27,6 +30,41 @@ export async function run(core) {
   const interrupt = () => onSignal('SIGINT');
   process.on('SIGTERM', term);
   process.on('SIGINT', interrupt);
+  async function checkpoint() {
+    if (!process.env.ADAPTATION_ISSUE) throw new Error('Live checkpoints require a claimed adaptation issue.');
+    const threadFile = path.join(task, 'native-thread.json');
+    if (!(await readFile(threadFile).then(() => true).catch(() => false))) return false;
+    const output = path.join(task, 'live-checkpoints', String(process.env.GITHUB_RUN_ATTEMPT || '1'), String(++checkpointSequence));
+    await mkdir(output, {recursive: true, mode: 0o700});
+    execFileSync('python3', ['-m', 'scripts.ci.codex_session_checkpoint', 'save',
+      '--directory', task, '--home', process.env.CODEX_HOME], {cwd: controller, stdio: 'pipe'});
+    execFileSync('python3', ['-m', 'scripts.ci.adaptation_checkpoint', 'capture',
+      '--directory', task], {cwd: controller, stdio: 'pipe'});
+    const names = ['candidate-report.json', 'checkpoint.patch', 'checkpoint.json', 'handoff.json',
+      'native-session.tar.age', 'goal-diagnostics.json', 'adaptation.patch', 'runtime-report.json'];
+    const files = [];
+    for (const name of names) {
+      const source = path.join(task, name);
+      try {
+        await copyFile(source, path.join(output, name));
+        files.push(path.join(output, name));
+      } catch (error) {
+        if (error.code !== 'ENOENT') throw error;
+      }
+    }
+    if (!files.includes(path.join(output, 'native-session.tar.age')) ||
+        !files.includes(path.join(output, 'checkpoint.json'))) {
+      throw new Error('Live native-session checkpoint is incomplete');
+    }
+    const artifactName = `${process.env.ARTIFACT_PREFIX || 'impad'}-${process.env.APP_ID || 'wechat'}-codex-adaptation-live-${process.env.GITHUB_RUN_ATTEMPT || '1'}-${checkpointSequence}`;
+    await artifacts.uploadArtifact(artifactName, files, output, {retentionDays: 90});
+    execFileSync('python3', ['-m', 'scripts.ci.codex_task', 'checkpoint', '--app-id', process.env.APP_ID,
+      '--report', path.join(task, 'candidate-report.json'), '--directory', task,
+      '--issue', process.env.ADAPTATION_ISSUE, '--artifact-name', artifactName, '--live'],
+      {cwd: controller, stdio: 'pipe'});
+    core.info(`Saved resumable checkpoint ${checkpointSequence} as ${artifactName}.`);
+    return true;
+  }
   async function snapshot() {
     const chunks = path.join(task, 'trace-chunks');
     const names = (await readdir(chunks).catch(() => [])).filter(name => /^\d+\.jsonl\.age$/.test(name) && !uploaded.has(name)).sort();
@@ -91,6 +129,10 @@ export async function run(core) {
   try {
     while (!stopping) {
       try {await snapshot();} catch (error) {core.warning(`Live diagnostic upload failed: ${error.message}`);}
+      if (Date.now() >= nextCheckpoint) {
+        try {await checkpoint();} catch (error) {core.warning(`Live adaptation checkpoint failed: ${error.message}`);}
+        nextCheckpoint = Date.now() + checkpoint_interval_ms;
+      }
       let timer;
       const tick = new Promise(resolve => {timer = setTimeout(() => resolve(null), 60000);});
       outcome = await Promise.race([finished, tick]);
@@ -99,6 +141,7 @@ export async function run(core) {
     }
     outcome ??= await finished;
     try {await snapshot();} catch (error) {core.warning(`Final diagnostic upload failed: ${error.message}`);}
+    try {await checkpoint();} catch (error) {core.warning(`Final live adaptation checkpoint failed: ${error.message}`);}
     if (outcome.code !== 0) core.setFailed(`Codex controller exited: ${JSON.stringify(outcome)}`);
   } finally {
     process.off('SIGTERM', term);

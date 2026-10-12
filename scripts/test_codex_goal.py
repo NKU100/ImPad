@@ -33,6 +33,18 @@ class FakeClient:
 
 
 class GoalTest(unittest.TestCase):
+    def test_running_goal_publishes_thread_and_delivered_input_for_live_checkpoint(self):
+        client = FakeClient()
+        snapshots = []
+        def capture(directory, iterations, client, status='continue'):
+            snapshots.append({'status': status, 'threadId': client.thread_id,
+                              'inputDelivered': getattr(client, 'input_delivered', False)})
+        with tempfile.TemporaryDirectory() as root, patch('scripts.ci.codex_goal.write_diagnostics', side_effect=capture), \
+                patch('scripts.ci.codex_goal.verify', side_effect=ValueError('pending')):
+            run_goal(client, Path(root), 'adapt')
+        self.assertIn({'status':'running','threadId':'thread-1','inputDelivered':False}, snapshots)
+        self.assertIn({'status':'running','threadId':'thread-1','inputDelivered':True}, snapshots)
+
     def test_adaptation_step_uses_no_token_budget_and_stops_after_one_turn(self):
         client = FakeClient()
         with tempfile.TemporaryDirectory() as root, patch('scripts.ci.codex_goal.write_diagnostics'):

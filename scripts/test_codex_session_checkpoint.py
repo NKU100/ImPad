@@ -33,7 +33,9 @@ class SessionCheckpointTest(unittest.TestCase):
             with sqlite3.connect(home/'state_5.sqlite') as db:
                 db.execute('CREATE TABLE threads (id TEXT, rollout_path TEXT)')
                 db.execute('INSERT INTO threads VALUES (?,?)',('thread-1',str(rollout)))
-            (home/'goals_1.sqlite').write_bytes(b'goal-state')
+            with sqlite3.connect(home/'goals_1.sqlite') as db:
+                db.execute('CREATE TABLE goals (status TEXT)')
+                db.execute('INSERT INTO goals VALUES (?)',('paused',))
             checkpoint=root/'checkpoint';checkpoint.mkdir()
             (checkpoint/'native-thread.json').write_text(json.dumps({'threadId':'thread-1'}))
             identity=root/'identity';subprocess.run(['age-keygen','-o',str(identity)],capture_output=True,check=True)
@@ -42,7 +44,32 @@ class SessionCheckpointTest(unittest.TestCase):
             restored=root/'restored';restore_session(checkpoint,restored,identity.read_text(),public)
             with sqlite3.connect(restored/'state_5.sqlite') as db:
                 self.assertEqual(str(restored/'sessions/thread.jsonl'),db.execute('SELECT rollout_path FROM threads').fetchone()[0])
-            self.assertEqual(b'goal-state',(restored/'goals_1.sqlite').read_bytes())
+            with sqlite3.connect(restored/'goals_1.sqlite') as db:
+                self.assertEqual('paused', db.execute('SELECT status FROM goals').fetchone()[0])
+
+    def test_live_wal_database_is_captured_as_a_consistent_sqlite_snapshot(self):
+        import sqlite3
+        from scripts.ci.codex_session_checkpoint import save_session, restore_session
+        with tempfile.TemporaryDirectory() as tmp:
+            root=Path(tmp);home=root/'home';home.mkdir()
+            (home/'sessions').mkdir()
+            database=home/'state_9.sqlite'
+            with sqlite3.connect(database) as db:
+                db.execute('PRAGMA journal_mode=WAL')
+                db.execute('CREATE TABLE threads (id TEXT, rollout_path TEXT)')
+                db.execute('INSERT INTO threads VALUES (?,?)',('thread-9',str(home/'sessions/thread.jsonl')))
+            self.assertTrue(database.with_name(database.name+'-wal').exists())
+            (home/'sessions/thread.jsonl').write_text('{"event":"turn_started"}\n')
+            checkpoint=root/'checkpoint';checkpoint.mkdir()
+            (checkpoint/'native-thread.json').write_text(json.dumps({'threadId':'thread-9'}))
+            identity=root/'identity';subprocess.run(['age-keygen','-o',str(identity)],capture_output=True,check=True)
+            public=subprocess.check_output(['age-keygen','-y',str(identity)]).decode().strip()
+            save_session(checkpoint,home,public,identity.read_text())
+            restored=root/'restored';restore_session(checkpoint,restored,identity.read_text(),public)
+            with sqlite3.connect(restored/'state_9.sqlite') as db:
+                self.assertEqual(('thread-9',str((restored/'sessions/thread.jsonl').resolve())),
+                                 db.execute('SELECT id, rollout_path FROM threads').fetchone())
+                self.assertEqual('ok',db.execute('PRAGMA integrity_check').fetchone()[0])
 
     def test_symlinks_are_not_archived(self):
         from scripts.ci.codex_session_checkpoint import session_files

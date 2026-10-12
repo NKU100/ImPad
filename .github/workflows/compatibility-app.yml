@@ -758,6 +758,8 @@ jobs:
           CODEX_TRACE_RECIPIENT: ${{ vars.CODEX_TRACE_RECIPIENT }}
           CODEX_CHECKPOINT_RECIPIENT: ${{ vars.CODEX_CHECKPOINT_RECIPIENT }}
           CODEX_CHECKPOINT_IDENTITY: ${{ secrets.CODEX_CHECKPOINT_IDENTITY }}
+          GH_TOKEN: ${{ github.token }}
+          ADAPTATION_ISSUE: ${{ steps.claim.outputs.issue }}
         uses: reactivecircus/android-emulator-runner@v2
         with:
           api-level: '37.2'
@@ -766,7 +768,7 @@ jobs:
           arch: x86_64
           profile: pixel_5
           cores: 2
-          ram-size: 4096M
+          ram-size: ${{ inputs.app_id == 'wecom' && '3072M' || '4096M' }}
           disk-size: 6144M
           emulator-options: -no-window -gpu swiftshader_indirect -feature GLDirectMem,HasSharedSlotsHostMemoryAllocator -noaudio -no-boot-anim -camera-back none -camera-front none -no-snapshot
           pre-emulator-launch-script: bash scripts/ci/prepare_avd_ramdisk.sh

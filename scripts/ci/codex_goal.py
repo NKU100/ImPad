@@ -173,7 +173,10 @@ def write_diagnostics(directory, iterations, client, status='continue'):
               'modelMessages': getattr(client, 'messages', [])[-10:],
               'threadId': getattr(client, 'thread_id', None),
               'inputDelivered': getattr(client, 'input_delivered', False)}
-    (directory / 'goal-diagnostics.json').write_text(json.dumps(sanitize(result, secrets), indent=2) + '\n')
+    target = directory / 'goal-diagnostics.json'
+    temporary = target.with_suffix('.json.tmp')
+    temporary.write_text(json.dumps(sanitize(result, secrets), indent=2) + '\n')
+    temporary.replace(target)
 
 
 def verification_error(directory, error):
@@ -228,6 +231,7 @@ def run_goal(client, directory, prompt, resume_context=None):
         thread = client.request('thread/start', params)['thread']['id']
     client.thread_id = thread
     (directory / 'native-thread.json').write_text(json.dumps({'threadId': thread}) + '\n')
+    client.input_delivered = False
     objective = 'Continue adapting the exact candidate APK using only the supplied clean inputs and full instructions. Preserve existing profiles and tests, obey allowed edit paths and isolation constraints, and never weaken checks. Work on the next concrete step in this run. If blocked, record the precise blocker and the next action; the next scheduled run will continue from the saved checkpoint. Do not claim completion without independent verification.'
     if state.get('runtime'):
         objective += '\nThis Goal also requires independent AVD verification of installed hooks, the Phone & Tablet entry and a stable LoginAsExDeviceUI QR page. Use adb to debug the disposable emulator described in work/analysis/runtime-device.json. Static success alone is insufficient. Screenshots and runtime logs from rejected turns will be placed under work/analysis/runtime.'
@@ -246,9 +250,11 @@ def run_goal(client, directory, prompt, resume_context=None):
     iterations = []
     status = 'continue'
     try:
+        write_diagnostics(directory, iterations, client, 'running')
         turn = client.request('turn/start', {'threadId': thread, 'model': MODEL, 'effort': REASONING,
                               'input': [{'type': 'text', 'text': feedback}]})['turn']['id']
         client.input_delivered = True
+        write_diagnostics(directory, iterations, client, 'running')
         outcome = client.wait_turn(thread, turn)
         client.pause(thread)
         if outcome['status'] != 'completed':
@@ -269,7 +275,7 @@ def run_goal(client, directory, prompt, resume_context=None):
 
 
 def run_model_goal(directory, prompt_path):
-    allowed = {'PATH', 'HOME', 'LANG', 'LC_ALL', 'JAVA_HOME', 'ANDROID_HOME', 'ANDROID_SDK_ROOT',
+    allowed = {'PATH', 'HOME', 'LANG', 'LC_ALL', 'JAVA_HOME', 'ANDROID_HOME', 'ANDROID_SDK_ROOT', 'APP_ID',
                'GRADLE_USER_HOME', 'CODEX_HOME', 'SSL_CERT_FILE', 'TMPDIR', 'WECHATPAD_DEBUG_KEYSTORE'}
     env = {key: value for key, value in os.environ.items() if key in allowed}
     client = None

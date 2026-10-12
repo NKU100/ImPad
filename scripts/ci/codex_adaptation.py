@@ -119,6 +119,14 @@ def run_bounded(command, cwd, env, log, timeout=None):
         raise RuntimeError(f"Command failed with exit code {result}; raw output is retained only on the runner")
 
 
+def gradle_command(app_id):
+    command = ["./gradlew", "--offline", "--no-daemon",
+               ":app:testDebugUnitTest", ":compat-core:test", ":compat-checker:test", ":app:assembleDebug"]
+    if app_id == 'wecom':
+        command[3:3] = ['--no-parallel', '--max-workers=2']
+    return command
+
+
 def sha256(path):
     digest = hashlib.sha256()
     with path.open("rb") as source:
@@ -204,7 +212,7 @@ def validate(directory):
     for version, apk, expected in state["apks"]:
         check_apk(worktree, Path(policy.targets_path), worktree / apk, expected,
                   directory / f"check-{version}-{expected}.log", offline=True, app_id=policy.app_id)
-    run_bounded(["./gradlew", "--offline", "--no-daemon", ":app:testDebugUnitTest", ":compat-core:test", ":compat-checker:test", ":app:assembleDebug"],
+    run_bounded(gradle_command(policy.app_id),
                 worktree, dict(os.environ), directory / "build.log", timeout=600)
     for path in new_files:
         subprocess.run(["git", "add", "--", path], cwd=worktree, check=True)

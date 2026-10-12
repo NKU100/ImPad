@@ -143,16 +143,27 @@ def action_run_id_from_url(url, repo):
 
 def checkpoint_reference(body, repo, app_id):
     policy = get_policy(app_id)
-    expected_artifact = f"{policy.artifact_prefix}-{policy.app_id}-codex-adaptation"
     run_match = re.search(r"^Checkpoint run: (\S+)$", body, re.MULTILINE)
     artifact_match = re.search(r"^Checkpoint artifact: `([^`]+)`$", body, re.MULTILINE)
     if not run_match:
         run_match = re.search(r"^Run: (\S+)$", body, re.MULTILINE)
     run_id = action_run_id_from_url(run_match[1], repo) if run_match else None
-    artifact = artifact_match[1] if artifact_match else expected_artifact
-    if not run_id or artifact != expected_artifact:
+    artifact = artifact_match[1] if artifact_match else f"{policy.artifact_prefix}-{policy.app_id}-codex-adaptation"
+    try:
+        artifact = validate_checkpoint_artifact(policy.app_id, artifact)
+    except ValueError:
+        artifact = ''
+    if not run_id or not artifact:
         return None, None
     return run_id, artifact
+
+
+def validate_checkpoint_artifact(app_id, artifact):
+    policy = get_policy(app_id)
+    expected = f"{policy.artifact_prefix}-{policy.app_id}-codex-adaptation"
+    if artifact == expected or re.fullmatch(re.escape(expected) + r'-live-[1-9][0-9]*-[1-9][0-9]*', artifact):
+        return artifact
+    raise ValueError('Checkpoint artifact is not a trusted artifact for this application')
 
 
 def adaptation_pr_reference(body, repo):
@@ -345,7 +356,8 @@ def publish(repo, directory, issue, run_url, app_id=None):
     print(url)
 
 
-def record_checkpoint(repo, report_path, directory, issue, run_url, app_id=None):
+def record_checkpoint(repo, report_path, directory, issue, run_url, app_id=None,
+                      artifact_name=None, live=False):
     from scripts.ci.adaptation_checkpoint import SCHEMA_VERSION
     directory = Path(directory)
     policy = get_policy(app_id)
@@ -355,7 +367,9 @@ def record_checkpoint(repo, report_path, directory, issue, run_url, app_id=None)
     manifest = json.loads((directory / "checkpoint.json").read_text())
     if manifest.get("schemaVersion") != SCHEMA_VERSION or manifest.get("candidateKey") != candidate_key(report):
         raise ValueError("Checkpoint manifest does not match the claimed candidate")
-    expected_artifact = f"{policy.artifact_prefix}-{policy.app_id}-codex-adaptation"
+    expected_artifact = (validate_checkpoint_artifact(policy.app_id, artifact_name)
+                         if artifact_name else
+                         f"{policy.artifact_prefix}-{policy.app_id}-codex-adaptation")
     if action_run_id_from_url(run_url, repo) is None:
         raise ValueError("Checkpoint pointer must refer to a run in this repository")
     context_path = directory / 'resume-context.json'
@@ -374,7 +388,8 @@ def record_checkpoint(repo, report_path, directory, issue, run_url, app_id=None)
     diagnostics_summary = json.dumps(diagnostics, ensure_ascii=False, indent=2)[-12000:]
     result_path = directory / 'attempt-result.md'
     result_path.write_text(f"Adaptation result: `{status}`\nRun: {run_url}\n\n```json\n{diagnostics_summary}\n```\n")
-    gh('issue', 'comment', str(issue), '--repo', repo, '--body-file', str(result_path))
+    if not live:
+        gh('issue', 'comment', str(issue), '--repo', repo, '--body-file', str(result_path))
     write_issue(repo, issue, issue_body(report, status, run_url, pr_url, run_url,
                 expected_artifact, pr_head_match[1] if pr_head_match else ""), directory)
     append_github_output(Path(os.environ["GITHUB_OUTPUT"]), {"checkpoint_saved": "true", "consumed_comment_id": str(context.get("consumedCommentId", 0))})
@@ -391,6 +406,8 @@ def main():
     parser.add_argument("--output-report", type=Path)
     parser.add_argument("--app-id", default="wechat")
     parser.add_argument("--issue", type=int)
+    parser.add_argument("--artifact-name")
+    parser.add_argument("--live", action="store_true")
     args = parser.parse_args()
     policy = get_policy(args.app_id)
     repo = os.environ["GITHUB_REPOSITORY"]
@@ -407,7 +424,8 @@ def main():
         policy = get_policy(state.get("appId"))
         publish(repo, args.directory, args.issue, run_url, policy.app_id)
     elif args.stage == "checkpoint":
-        record_checkpoint(repo, args.report, args.directory, args.issue, run_url, policy.app_id)
+        record_checkpoint(repo, args.report, args.directory, args.issue, run_url, policy.app_id,
+                          args.artifact_name, args.live)
     else:
         report = json.loads(args.report.read_text())
         policy_for_report(report, policy.app_id)

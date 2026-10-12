@@ -6,10 +6,18 @@ import unittest
 from unittest.mock import patch, MagicMock
 from pathlib import Path
 
-from scripts.ci.codex_adaptation import candidate_key, eligible_candidate, validate_profiles, validate_paths, run_bounded, validate_existing_tests, sha256
+from scripts.ci.codex_adaptation import candidate_key, eligible_candidate, validate_profiles, validate_paths, run_bounded, validate_existing_tests, sha256, gradle_command
 
 
 class CodexAdaptationTest(unittest.TestCase):
+    def test_wecom_validation_serializes_gradle_workers_without_changing_wechat_command(self):
+        self.assertEqual(['./gradlew', '--offline', '--no-daemon', ':app:testDebugUnitTest',
+                          ':compat-core:test', ':compat-checker:test', ':app:assembleDebug'],
+                         gradle_command('wechat'))
+        self.assertEqual(['./gradlew', '--offline', '--no-daemon', '--no-parallel', '--max-workers=2',
+                          ':app:testDebugUnitTest', ':compat-core:test', ':compat-checker:test', ':app:assembleDebug'],
+                         gradle_command('wecom'))
+
     def setUp(self):
         self.targets = json.loads(Path('compatibility/wechat/targets.json').read_text())
         self.identity = dict(self.targets[-1]['identity'], versionName='8.0.80', versionCode=3220, apkSha256='a' * 64)

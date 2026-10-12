@@ -1,10 +1,13 @@
 """Encrypt credential-free native Codex state for trusted CI continuation."""
 import io
+import argparse
+import json
 import subprocess
 import sqlite3
 import tarfile
 import tempfile
 import re
+import shutil
 from pathlib import Path, PurePosixPath
 
 MAX_BYTES = 256 * 1024 * 1024
@@ -15,7 +18,7 @@ def permitted(name):
     return (not path.is_absolute() and '..' not in path.parts
             and (path.parts[0] in {'sessions', 'archived_sessions'}
                  or (len(path.parts) == 1 and path.name.startswith(('state_', 'goals_', 'thread_history_'))
-                     and '.sqlite' in path.name)))
+                     and path.name.endswith('.sqlite'))))
 
 
 def session_files(home):
@@ -43,16 +46,41 @@ def save_session(directory, home, recipient, identity):
     validate_identity(identity, recipient)
     if not (directory / 'native-thread.json').is_file():
         return False
-    content = io.BytesIO()
-    with tarfile.open(fileobj=content, mode='w:gz') as archive:
-        for path in session_files(home):
-            archive.add(path, arcname=path.relative_to(home).as_posix(), recursive=False)
     target = directory / 'native-session.tar.age'
     partial = target.with_suffix('.partial')
     try:
-        with partial.open('wb') as output:
-            subprocess.run(['age', '--encrypt', '-r', recipient], input=content.getvalue(),
-                           stdout=output, stderr=subprocess.PIPE, check=True, timeout=60)
+        with tempfile.TemporaryDirectory(prefix='impad-session-') as temporary:
+            temporary = Path(temporary)
+            staged = temporary / 'files'
+            staged.mkdir()
+            total = 0
+            for path in session_files(home):
+                relative = path.relative_to(home)
+                snapshot = staged / relative
+                snapshot.parent.mkdir(parents=True, exist_ok=True)
+                if path.suffix == '.sqlite':
+                    source_uri = path.as_uri() + '?mode=ro'
+                    source = sqlite3.connect(source_uri, uri=True, timeout=30)
+                    destination = sqlite3.connect(snapshot)
+                    try:
+                        source.backup(destination, pages=256, sleep=0.01)
+                    finally:
+                        destination.close()
+                        source.close()
+                else:
+                    with path.open('rb') as source, snapshot.open('wb') as destination:
+                        shutil.copyfileobj(source, destination)
+                total += snapshot.stat().st_size
+                if total > MAX_BYTES:
+                    raise ValueError('Native checkpoint exceeds the capture limit')
+            archive_path = temporary / 'native-session.tar.gz'
+            with tarfile.open(archive_path, mode='w:gz') as archive:
+                for path in sorted(staged.rglob('*')):
+                    if path.is_file():
+                        archive.add(path, arcname=path.relative_to(staged).as_posix(), recursive=False)
+            with partial.open('wb') as output, archive_path.open('rb') as content:
+                subprocess.run(['age', '--encrypt', '-r', recipient], stdin=content,
+                               stdout=output, stderr=subprocess.PIPE, check=True, timeout=120)
         partial.replace(target)
     finally:
         partial.unlink(missing_ok=True)
@@ -100,3 +128,19 @@ def restore_session(directory, home, identity, recipient):
                     raise ValueError('Native thread rollout is missing from the checkpoint')
                 connection.execute('UPDATE threads SET rollout_path=? WHERE id=?',
                                    (str(home / relative), thread_id))
+
+
+def main():
+    parser = argparse.ArgumentParser()
+    parser.add_argument('stage', choices=['save'])
+    parser.add_argument('--directory', type=Path, required=True)
+    parser.add_argument('--home', type=Path, required=True)
+    args = parser.parse_args()
+    result = save_session(args.directory, args.home,
+                          os.environ.get('CODEX_CHECKPOINT_RECIPIENT', ''),
+                          os.environ.get('CODEX_CHECKPOINT_IDENTITY', ''))
+    print(json.dumps({'saved': result}))
+
+
+if __name__ == '__main__':
+    main()
