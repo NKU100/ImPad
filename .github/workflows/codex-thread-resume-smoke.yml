@@ -1,0 +1,77 @@
+name: Codex Thread Resume Smoke
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  CODEX_CLI_VERSION: 0.162.0-alpha.17.2
+
+jobs:
+  checkpoint:
+    name: Create blocked Goal checkpoint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+
+      - name: Install pinned Codex CLI
+        run: npm install --global "@openai/codex@$CODEX_CLI_VERSION"
+
+      - name: Create a synthetic blocked Goal
+        env:
+          CODEX_HOME: ${{ github.workspace }}/.codex-thread-resume-smoke/.codex
+          CHECKPOINT_DIR: ${{ runner.temp }}/thread-checkpoint
+        run: |
+          set -euo pipefail
+          mkdir -p "$(dirname "$CODEX_HOME")" "$CHECKPOINT_DIR"
+          python3 -m scripts.ci.codex_thread_resume_smoke create \
+            --codex-home "$CODEX_HOME" \
+            --workspace "$GITHUB_WORKSPACE" \
+            --metadata "$CHECKPOINT_DIR/thread.json"
+          test ! -e "$CODEX_HOME/auth.json"
+          tar -czf "$CHECKPOINT_DIR/codex-home.tar.gz" -C "$CODEX_HOME" .
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: codex-thread-resume-checkpoint
+          path: ${{ runner.temp }}/thread-checkpoint/
+          retention-days: 2
+
+  resume:
+    name: Restore blocked Goal on a fresh runner
+    needs: checkpoint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+
+      - name: Install pinned Codex CLI
+        run: npm install --global "@openai/codex@$CODEX_CLI_VERSION"
+
+      - uses: actions/download-artifact@v8
+        with:
+          name: codex-thread-resume-checkpoint
+          path: ${{ runner.temp }}/thread-checkpoint
+
+      - name: Restore the original thread and resume the Goal
+        env:
+          CODEX_HOME: ${{ github.workspace }}/.codex-thread-resume-smoke/.codex
+          CHECKPOINT_DIR: ${{ runner.temp }}/thread-checkpoint
+        run: |
+          set -euo pipefail
+          mkdir -p "$CODEX_HOME"
+          tar -xzf "$CHECKPOINT_DIR/codex-home.tar.gz" -C "$CODEX_HOME"
+          test ! -e "$CODEX_HOME/auth.json"
+          python3 -m scripts.ci.codex_thread_resume_smoke resume \
+            --codex-home "$CODEX_HOME" \
+            --workspace "$GITHUB_WORKSPACE" \
+            --metadata "$CHECKPOINT_DIR/thread.json"
