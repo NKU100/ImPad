@@ -33,7 +33,7 @@ jobs:
   compatibility:
     uses: ./.github/workflows/compatibility-app.yml
     permissions:
-      actions: read
+      actions: write
       contents: write
       issues: write
       pull-requests: write
