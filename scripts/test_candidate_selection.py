@@ -79,15 +79,24 @@ class CandidateSelectionTest(unittest.TestCase):
         self.assertEqual(scope, 'com.tencent.wework\n')
 
     def test_registered_replay_continues_when_cdn_head_metadata_disconnects(self):
-        target = json.loads(Path('compatibility/wecom/targets.json').read_text())[0]
+        target = {
+            'identity': {'packageName': 'com.tencent.wework', 'versionName': '5.0.8',
+                         'versionCode': 70675, 'abi': 'arm64-v8a', 'apkSha256': 'a' * 64,
+                         'signerSha256': '66896ae0aae48b9e963a3e034fa2ca813ca2f661f53619a92263a8a5c2e3f388'},
+            'sourceUrl': 'https://dldir1.qq.com/wework/work_weixin/wecom-test.apk',
+            'verificationStatus': 'runtime-verified-local',
+            'hooks': [{'id': hook} for hook in ('device_type', 'app_pad', 'service_pad')],
+        }
         expected_sha256 = target['identity']['apkSha256']
         remote = {'content_length': None, 'last_modified': '', 'etag': ''}
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
+            manifest = root / 'targets.json'
+            manifest.write_text(json.dumps([target]))
             apk = root / 'cached.apk'
             apk.write_bytes(b'registered candidate bytes')
             with patch('sys.argv', ['candidate_selection', '--app-id', 'wecom', '--mode', 'registered',
-                                    '--targets', str(Path('compatibility/wecom/targets.json').resolve()),
+                                    '--targets', str(manifest),
                                     '--directory', str(root / 'inputs')]), \
                     patch('scripts.ci.candidate_selection.remote_metadata', side_effect=RemoteDisconnected()), \
                     patch('scripts.ci.candidate_selection.download_candidate', return_value=(apk, expected_sha256, {}, {})) as download:
