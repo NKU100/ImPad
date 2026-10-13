@@ -96,12 +96,21 @@ def navigate(smoke):
         smoke.tap(target)
 
 
+def configure_manager(smoke, enabled):
+    _, xml = smoke.snapshot('qq-manager-preflight')
+    if any(n.get('text') == 'QQ keeps stopping' for n in smoke.nodes(xml)):
+        close = smoke.unique_node(xml, lambda n: n.get('text') == 'Close app' and n.get('package') == 'android')
+        if close is not None:
+            smoke.tap(close)
+    smoke.configure_manager(enabled)
+
+
 def observe(smoke, enabled):
     root = smoke.ROOT
     expected_hash = smoke.apk_digest(root / 'qq.apk')
     if installed_hash(smoke, smoke.APP_PACKAGE) != expected_hash:
         raise ValueError('Installed QQ differs from the exact candidate')
-    smoke.configure_manager(enabled)
+    configure_manager(smoke, enabled)
     state = manager_state(smoke)
     if state['moduleEnabled'] is not enabled:
         raise RuntimeError('LSPosed did not persist the requested module state')
@@ -113,10 +122,17 @@ def observe(smoke, enabled):
     else:
         raise RuntimeError('Previous QQ MSF did not stop')
     smoke.adb('shell', 'am', 'start', '-n', smoke.UI_STRATEGY.launcher_component)
+    previous_pid = None
+    stable = 0
     for _ in range(30):
         pids = smoke.adb('shell', 'pidof', 'com.tencent.mobileqq:MSF', check=False).stdout.decode().split()
         if len(pids) == 1:
-            break
+            stable = stable + 1 if pids[0] == previous_pid else 1
+            previous_pid = pids[0]
+            if stable >= 6:
+                break
+        else:
+            previous_pid, stable = None, 0
         time.sleep(1)
     else:
         raise RuntimeError('QQ MSF did not start')
@@ -207,12 +223,12 @@ def observe_pair(smoke):
         raise RuntimeError('No matching trusted security command in the phone/tablet captures')
     finally:
         cleanup_errors = []
-        for action in (lambda: smoke.configure_manager(True),
+        for action in (lambda: configure_manager(smoke, True),
                        lambda: smoke.adb('shell', 'am', 'force-stop', smoke.APP_PACKAGE),
                        lambda: smoke.adb('shell', 'am', 'start', '-n', smoke.UI_STRATEGY.launcher_component)):
             try:
                 action()
-            except Exception:
-                cleanup_errors.append('QQ state restoration failed')
+            except Exception as error:
+                cleanup_errors.append(str(error))
         if cleanup_errors:
-            raise RuntimeError('QQ state restoration failed; acceptance is unavailable')
+            raise RuntimeError('QQ state restoration failed; acceptance is unavailable: ' + '; '.join(cleanup_errors))

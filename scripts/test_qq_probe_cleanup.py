@@ -49,11 +49,12 @@ class QqProbeCleanupTest(unittest.TestCase):
 
             smoke = SimpleNamespace(ROOT=root, EVIDENCE=root, MODULE='fixture.module',
                                     configure_manager=lambda enabled: None,
+                                    snapshot=lambda label: ('', ''), nodes=lambda xml: [],
                                     UI_STRATEGY=SimpleNamespace(launcher_component='fixture.activity'),
                                     APP_PACKAGE='com.tencent.mobileqq',
                                     apk_digest=lambda apk: hashlib.sha256(apk.read_bytes()).hexdigest(),
                                     adb=device, su=superuser, run=lambda *a, **k: result())
-            with patch('scripts.ci.apps.qq.runtime_probe.manager_state', return_value={'moduleEnabled': False, 'scopeVerified': True}):
+            with patch('scripts.ci.apps.qq.runtime_probe.time.sleep'), patch('scripts.ci.apps.qq.runtime_probe.manager_state', return_value={'moduleEnabled': False, 'scopeVerified': True}):
                 with self.assertRaisesRegex(RuntimeError, expected_error):
                     observe(smoke, False)
         self.assertIn('kill 900', commands)
