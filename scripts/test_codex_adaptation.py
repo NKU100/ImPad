@@ -1,4 +1,5 @@
 import copy
+import hashlib
 import json
 import subprocess
 import tempfile
@@ -78,8 +79,17 @@ class CodexAdaptationTest(unittest.TestCase):
 
     def test_preparation_uses_wecom_policy_for_regression_apk(self):
         from scripts.ci.codex_adaptation import prepare
-        targets = json.loads(Path('compatibility/wecom/targets.json').read_text())
-        baseline = targets[0]
+        baseline_bytes = b'cached baseline'
+        baseline = {
+            'identity': {'packageName': 'com.tencent.wework', 'versionName': '5.0.8',
+                         'versionCode': 70675, 'abi': 'arm64-v8a',
+                         'apkSha256': hashlib.sha256(baseline_bytes).hexdigest(),
+                         'signerSha256': '66896ae0aae48b9e963a3e034fa2ca813ca2f661f53619a92263a8a5c2e3f388'},
+            'sourceUrl': 'https://dldir1.qq.com/wework/work_weixin/wecom-baseline-test.apk',
+            'verificationStatus': 'runtime-verified-local',
+            'hooks': [{'id': hook} for hook in ('device_type', 'app_pad', 'service_pad')],
+        }
+        targets = [baseline]
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
             repository = root / 'repository'
@@ -102,10 +112,10 @@ class CodexAdaptationTest(unittest.TestCase):
             report_path.write_text(json.dumps(report))
             cache = repository / '.cache/wecom-apks'
             cache.mkdir(parents=True)
-            (cache / f"{baseline['identity']['apkSha256']}.apk").write_bytes(b'cached baseline')
+            (cache / f"{baseline['identity']['apkSha256']}.apk").write_bytes(baseline_bytes)
 
-            with patch('scripts.ci.static_regression.file_sha256',
-                       return_value=baseline['identity']['apkSha256']):
+            with patch('scripts.ci.static_regression.download_candidate',
+                       side_effect=AssertionError('Regression fixture must not download APKs')):
                 prepare(repository, report_path, candidate_apk, root / 'task')
 
             state = json.loads((root / 'task/state.json').read_text())
