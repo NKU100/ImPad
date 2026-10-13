@@ -204,6 +204,8 @@ def observe(smoke, enabled):
         return dict(observed, **state, observerSha256=agent_hash, apkSha256=expected_hash,
                     moduleApkSha256=installed_hash(smoke, smoke.MODULE), processName='com.tencent.mobileqq:MSF')
     finally:
+        server_log = smoke.su('tail -c 4000 /data/local/tmp/impad-qq-wire.log', check=False)
+        (smoke.EVIDENCE / ('qq-wire-server-enabled.txt' if enabled else 'qq-wire-server-disabled.txt')).write_text(server_log.stdout.decode(errors='replace'))
         if port and port.isdigit():
             smoke.adb('forward', '--remove', 'tcp:' + port, check=False)
         recovered = smoke.su('cat ' + pid_file, check=False).stdout.decode().strip()
