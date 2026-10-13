@@ -794,6 +794,18 @@ jobs:
           test -c /dev/kvm
           sudo chmod 666 /dev/kvm
 
+      - name: Expose masked artifact transport credentials to trusted controller
+        if: steps.claim.outputs.claimed == 'true' && steps.restore-checkpoint.outputs.needs_model == 'true'
+        uses: actions/github-script@v8
+        with:
+          script: |
+            for (const name of ['ACTIONS_RUNTIME_TOKEN', 'ACTIONS_RESULTS_URL', 'ACTIONS_RUNTIME_URL']) {
+              const value = process.env[name];
+              if (!value) throw new Error(`Missing artifact transport environment: ${name}`);
+              if (name === 'ACTIONS_RUNTIME_TOKEN') core.setSecret(value);
+              core.exportVariable(name, value);
+            }
+
       - name: Adapt through a verified Codex goal with disposable AVD
         id: adaptation
         if: steps.claim.outputs.claimed == 'true' && steps.restore-checkpoint.outputs.needs_model == 'true'

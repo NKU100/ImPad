@@ -81,9 +81,11 @@ class AppServer:
             self.request('initialize', {'clientInfo': {'name': 'impad_ci', 'version': '1'},
                                         'capabilities': {'experimentalApi': True}})
             self.send({'method': 'initialized'})
-        except Exception:
+        except Exception as error:
             self.close()
-            raise
+            stderr = directory / 'app-server.stderr.log'
+            details = redact(stderr.read_text(errors='replace')[-4000:], self.secrets + auth_secrets()) if stderr.is_file() else ''
+            raise RuntimeError(str(error) + '\nCodex startup diagnostics:\n' + details) from error
 
     def send(self, message):
         self.trace.record('request', message)

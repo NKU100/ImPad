@@ -26,8 +26,24 @@ jobs:
       - run: |
           sudo apt-get update
           sudo apt-get install -y age bubblewrap
+          if [[ -e /proc/sys/kernel/apparmor_restrict_unprivileged_userns ]]; then
+            sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
+          fi
+          bwrap --ro-bind / / --dev-bind /dev /dev --proc /proc -- \
+            bwrap --ro-bind / / --dev-bind /dev /dev --proc /proc -- true
           npm install --global "@openai/codex@$CODEX_CLI_VERSION"
           npm install --ignore-scripts @actions/artifact@6.3.1
+      - name: Expose masked artifact transport credentials to trusted controller
+        uses: actions/github-script@v8
+        with:
+          script: |
+            for (const name of ['ACTIONS_RUNTIME_TOKEN', 'ACTIONS_RESULTS_URL', 'ACTIONS_RUNTIME_URL']) {
+              const value = process.env[name];
+              if (!value) throw new Error(`Missing artifact transport environment: ${name}`);
+              if (name === 'ACTIONS_RUNTIME_TOKEN') core.setSecret(value);
+              core.exportVariable(name, value);
+            }
+
       - name: Execute real Goal and interrupt after acknowledged checkpoint
         id: probe
         continue-on-error: true
@@ -76,12 +92,28 @@ jobs:
       - run: |
           sudo apt-get update
           sudo apt-get install -y age bubblewrap
+          if [[ -e /proc/sys/kernel/apparmor_restrict_unprivileged_userns ]]; then
+            sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
+          fi
+          bwrap --ro-bind / / --dev-bind /dev /dev --proc /proc -- \
+            bwrap --ro-bind / / --dev-bind /dev /dev --proc /proc -- true
           npm install --global "@openai/codex@$CODEX_CLI_VERSION"
           npm install --ignore-scripts @actions/artifact@6.3.1
       - uses: actions/download-artifact@v8
         with:
           name: goal-smoke-recovery-input
           path: ${{ runner.temp }}/goal-smoke-input
+      - name: Expose masked artifact transport credentials to trusted controller
+        uses: actions/github-script@v8
+        with:
+          script: |
+            for (const name of ['ACTIONS_RUNTIME_TOKEN', 'ACTIONS_RESULTS_URL', 'ACTIONS_RUNTIME_URL']) {
+              const value = process.env[name];
+              if (!value) throw new Error(`Missing artifact transport environment: ${name}`);
+              if (name === 'ACTIONS_RUNTIME_TOKEN') core.setSecret(value);
+              core.exportVariable(name, value);
+            }
+
       - name: Resume the real native thread and complete independent acceptance
         env:
           CODEX_AUTH_JSON: ${{ secrets.CODEX_AUTH_JSON }}
