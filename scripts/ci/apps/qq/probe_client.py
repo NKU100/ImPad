@@ -15,6 +15,7 @@ def main():
     parser.add_argument('--agent', type=Path, required=True)
     parser.add_argument('--ready', type=Path, required=True)
     parser.add_argument('--seconds', type=int, default=30)
+    parser.add_argument('--realm', choices=('native', 'emulated'), default='native')
     args = parser.parse_args()
     if not 1 <= args.seconds <= 45:
         raise ValueError('Invalid capture duration')
@@ -22,7 +23,7 @@ def main():
     ready = threading.Event()
     lock = threading.Lock()
     device = frida.get_device_manager().add_remote_device(f'127.0.0.1:{args.port}')
-    session = device.attach(args.pid)
+    session = device.attach(args.pid, realm=args.realm)
     script = None
 
     def message(value, data):

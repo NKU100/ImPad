@@ -107,6 +107,8 @@ def configure_manager(smoke, enabled):
 
 def observe(smoke, enabled):
     root = smoke.ROOT
+    system_abi = smoke.adb('shell', 'getprop', 'ro.product.cpu.abi').stdout.decode().strip()
+    realm = 'emulated' if system_abi in ('x86', 'x86_64') else 'native'
     expected_hash = smoke.apk_digest(root / 'qq.apk')
     if installed_hash(smoke, smoke.APP_PACKAGE) != expected_hash:
         raise ValueError('Installed QQ differs from the exact candidate')
@@ -159,6 +161,7 @@ def observe(smoke, enabled):
             client = subprocess.Popen([str(root / 'qq-probe/venv/bin/python'), '-m',
                                        'scripts.ci.apps.qq.probe_client', '--port', port,
                                        '--pid', pids[0], '--agent', str(root / 'qq-probe/agent.js'),
+                                       '--realm', realm,
                                        '--ready', str(ready), '--seconds', '30'], stdout=output, stderr=errors)
             deadline = time.monotonic() + 45
             while not ready.exists():
