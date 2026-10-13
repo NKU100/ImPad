@@ -26,6 +26,16 @@ class QqPolicyTest(unittest.TestCase):
         targets = json.loads(Path('compatibility/qq/targets.json').read_text())
         self.assertEqual(validate_targets(targets, 'qq').package_name, 'com.tencent.mobileqq')
 
+    def test_first_baseline_can_replay_static_profile_without_promoting_it(self):
+        from scripts.ci.candidate_selection import replay_report
+        profile = json.loads(Path('compatibility/qq/targets.json').read_text())[0]
+        profile['verificationStatus'] = 'static-verified'
+        report = replay_report([profile], profile['sourceUrl'], profile['identity']['apkSha256'], 'qq', 'baseline')
+        self.assertEqual(report['status'], 'STATIC_VERIFIED_PENDING_RUNTIME')
+        self.assertEqual(report['suggestedProfile']['verificationStatus'], 'static-verified')
+        with self.assertRaises(ValueError):
+            replay_report([profile], profile['sourceUrl'], profile['identity']['apkSha256'], 'qq', 'registered')
+
     def test_manifest_expected_values_are_parsed_from_both_configurations(self):
         from scripts.ci.apps.qq.runtime_probe import manifest_app_ids
         xml = '<manifest xmlns:android="http://schemas.android.com/apk/res/android"><application>'
