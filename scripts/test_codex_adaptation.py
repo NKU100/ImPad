@@ -276,7 +276,7 @@ class CodexAdaptationTest(unittest.TestCase):
 
     def test_explicit_unknown_app_and_cross_app_profile_fail_closed(self):
         report = copy.deepcopy(self.report)
-        report['appId'] = 'qq'
+        report['appId'] = 'unregistered'
         with self.assertRaisesRegex(ValueError, 'Unknown or unregistered appId'):
             eligible_candidate(report, self.targets)
         report = copy.deepcopy(self.report)

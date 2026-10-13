@@ -32,7 +32,7 @@ class AppCompatibilityPolicyTest {
 
     @Test
     fun productionRegistryRejectsUnknownApplications() {
-        val error = assertFailsWith<IllegalArgumentException> { AppCompatibilityPolicies.require("qq") }
+        val error = assertFailsWith<IllegalArgumentException> { AppCompatibilityPolicies.require("unregistered") }
         assertTrue(error.message!!.contains("Unknown or unregistered appId"))
     }
 

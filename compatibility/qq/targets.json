@@ -1,0 +1,27 @@
+[
+  {
+    "identity": {
+      "packageName": "com.tencent.mobileqq",
+      "versionName": "9.3.1",
+      "versionCode": 14378,
+      "abi": "arm64-v8a",
+      "apkSha256": "ccf9714d268662ee8311add537705e66dee3367d45a20eabbf57b0070949595e",
+      "signerSha256": "ea6e97ad6c34f7039a9c6daba732c97d0e098e83ede2b4d52c76eb0184ac7a38"
+    },
+    "sourceUrl": "https://downv6.qq.com/qqweb/QQ_1/android_apk/9.3.1_877e277185fb829c.apk",
+    "verificationStatus": "static-verified",
+    "featureRulesVersion": 1,
+    "hooks": [
+      {
+        "id": "device_type",
+        "stringAnchor": null,
+        "parameterDescriptors": [
+          "Landroid/content/Context;"
+        ],
+        "returnDescriptor": "Lcom/tencent/common/config/pad/DeviceType;",
+        "expectedDescriptor": "Lcom/tencent/common/config/pad/PadUtil;->a(Landroid/content/Context;)Lcom/tencent/common/config/pad/DeviceType;",
+        "locator": "EXACT_DESCRIPTOR"
+      }
+    ]
+  }
+]

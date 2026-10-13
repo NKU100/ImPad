@@ -238,6 +238,10 @@ def validate(directory):
     report = dict(candidate, status="STATIC_VERIFIED_PENDING_RUNTIME", blockers=[],
                   checkedVersions=list(dict.fromkeys(version for version, _, _ in state["apks"])),
                   suggestedProfile=next(p for p in after if p["identity"] == candidate["identity"]))
+    if policy.app_id == 'qq':
+        from scripts.ci.apps.qq.runtime_probe import manifest_expectation
+        candidate_apk = worktree / state['apks'][0][1]
+        report['requestIdentityExpectation'] = manifest_expectation(candidate_apk, candidate['identity']['apkSha256'])
     # Findings describe the successful exact-profile checks, not the pre-adaptation failure.
     report["hooks"] = [{"hookId": h["id"], "status": "UNIQUE_MATCH", "stringAnchor": h["stringAnchor"],
                         "selectedDescriptor": h["expectedDescriptor"], "candidateDescriptors": [h["expectedDescriptor"]],

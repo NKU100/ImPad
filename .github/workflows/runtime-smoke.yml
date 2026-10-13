@@ -78,6 +78,9 @@ jobs:
       - uses: android-actions/setup-android@v4
         with:
           packages: ''
+      - name: Prepare pinned QQ independent observer
+        if: env.APP_ID == 'qq'
+        run: python3 -m scripts.ci.apps.qq.prepare_probe --root work/runtime-smoke --abi x86_64
       - name: Reuse module build
         uses: actions/download-artifact@v8
         with:
@@ -109,6 +112,7 @@ jobs:
           run-id: ${{ inputs.module_run_id }}
           github-token: ${{ github.token }}
       - name: Verify and stage exact candidate APK
+        if: inputs.candidate_artifact != ''
         run: |
           python3 - <<'PYVERIFY'
           import hashlib, json, os
@@ -132,6 +136,7 @@ jobs:
         run: |
           python3 -m scripts.ci.candidate_selection \
             --app-id "$APP_ID" \
+            --mode "$([ "$APP_ID" = qq ] && echo baseline || echo latest)" \
             --directory work/runtime-smoke
           python3 - <<'PY'
           import json, os, shutil

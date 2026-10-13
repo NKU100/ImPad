@@ -29,6 +29,18 @@ class AppPolicy:
     discovery_strategy: str
 
 
+POLICY_SHARED_PATHS = (
+    "app/src/main/kotlin/io/github/nku100/impad/ImPadModule.kt",
+    "app/src/main/kotlin/io/github/nku100/impad/runtime/AppAdapter.kt",
+    "app/src/main/kotlin/io/github/nku100/impad/runtime/AppAdapterRegistry.kt",
+    "app/src/main/kotlin/io/github/nku100/impad/runtime/HookInstaller.kt",
+    "app/src/main/kotlin/io/github/nku100/impad/runtime/RuntimeCompatibilityResolver.kt",
+    "compat-core/src/main/kotlin/io/github/nku100/impad/compat/CandidatePipeline.kt",
+    "compat-core/src/main/kotlin/io/github/nku100/impad/compat/CompatibilityResolver.kt",
+    "compat-checker/src/main/kotlin/io/github/nku100/impad/checker/Main.kt",
+)
+
+
 POLICIES = {
     "wechat": AppPolicy(
         app_id="wechat",
@@ -83,6 +95,19 @@ POLICIES = {
         runtime_qr_page="LoginQrCodeForAndroidPad",
         runtime_ui_strategy="scripts.ci.apps.wecom.runtime_policy",
         discovery_strategy="scripts.ci.apps.wecom.discovery_policy",
+    ),
+    "qq": AppPolicy(
+        app_id="qq", display_name="QQ", package_name="com.tencent.mobileqq",
+        targets_path="compatibility/qq/targets.json", required_hook_ids=("device_type",),
+        official_apk_prefix="https://downv6.qq.com/qqweb/QQ_1/android_apk/",
+        artifact_prefix="impad", adaptation_prompt=".github/codex/adapt-qq.md",
+        app_source_prefix="app/src/main/kotlin/io/github/nku100/impad/apps/qq/",
+        shared_source_paths=POLICY_SHARED_PATHS,
+        supported_abis=("arm64-v8a",),
+        signer_sha256="ea6e97ad6c34f7039a9c6daba732c97d0e098e83ede2b4d52c76eb0184ac7a38",
+        runtime_baseline="PHONE_REQUEST_APP_ID", runtime_qr_page="REQUEST_APP_ID_CONTRAST",
+        runtime_ui_strategy="scripts.ci.apps.qq.runtime_policy",
+        discovery_strategy="scripts.ci.apps.qq.discovery_policy",
     ),
 }
 

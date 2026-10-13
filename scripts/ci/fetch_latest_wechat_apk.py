@@ -20,12 +20,15 @@ MAX_APK_BYTES = 1_500_000_000
 CHUNK_SIZE = 1024 * 1024
 
 
-def final_url_is_official(url: str, policy=None) -> bool:
+def final_url_is_official(url: str, policy=None, source_url=None) -> bool:
     try:
         selected = policy or get_policy()
         validate_official_apk_url(url, selected.official_apk_prefix)
         return True
     except ValueError:
+        if selected.app_id == 'qq':
+            from scripts.ci.apps.qq.download_policy import valid_download_redirect
+            return valid_download_redirect(url, source_url)
         return False
 
 
@@ -102,7 +105,7 @@ def remote_metadata(url: str, policy=None) -> dict[str, object]:
         with urlopen(request, timeout=30) as response:
             if response.status != 200:
                 raise ValueError(f"Tencent CDN HEAD request returned HTTP {response.status}")
-            if not final_url_is_official(response.geturl(), policy):
+            if not final_url_is_official(response.geturl(), policy, url):
                 raise ValueError("Tencent CDN HEAD request redirected outside its official APK directory")
             return header_metadata(response.headers)
     except HTTPError as error:
@@ -166,7 +169,7 @@ def download_candidate(
             with urlopen(request, timeout=120) as response:
                 if response.status != 200:
                     raise ValueError(f"Tencent CDN returned HTTP {response.status}")
-                if not final_url_is_official(response.geturl(), selected):
+                if not final_url_is_official(response.geturl(), selected, url):
                     raise ValueError("Tencent CDN download redirected outside its official APK directory")
                 downloaded_headers = header_metadata(response.headers)
                 remote_length = remote.get("content_length")

@@ -81,7 +81,7 @@ class UiEvidenceTest(unittest.TestCase):
         self.assertEqual((root / 'app/src/main/resources/META-INF/xposed/java_init.list').read_text().strip(),
                          'io.github.nku100.impad.ImPadModule')
         self.assertEqual((root / 'app/src/main/resources/META-INF/xposed/scope.list').read_text().splitlines(),
-                         ['com.tencent.mm', 'com.tencent.wework'])
+                         ['com.tencent.mm', 'com.tencent.wework', 'com.tencent.mobileqq'])
 
     def test_script_help_imports_from_clean_environment(self):
         environment = os.environ.copy()

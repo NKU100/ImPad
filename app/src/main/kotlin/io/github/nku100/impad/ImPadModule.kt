@@ -25,7 +25,8 @@ class ImPadModule : XposedModule() {
     private var currentProcessName: String? = null
     private val handledPackages = mutableSetOf<String>()
     private val adapters = AppAdapterRegistry(
-        listOfNotNull(WeChatAppAdapter(), WeComAppAdapter().takeIf { BuildConfig.DEBUG }),
+        listOfNotNull(WeChatAppAdapter(), WeComAppAdapter().takeIf { BuildConfig.DEBUG },
+            io.github.nku100.impad.apps.qq.QqAppAdapter().takeIf { BuildConfig.DEBUG }),
     )
 
     override fun onModuleLoaded(param: ModuleLoadedParam) {

@@ -81,6 +81,7 @@ data class AppCompatibilityPolicy(
 object AppCompatibilityPolicies {
     private val policies = listOf(
         WeChatCompatibilityPolicy.policy,
+        io.github.nku100.impad.compat.apps.qq.QqCompatibilityPolicy.policy,
         io.github.nku100.impad.compat.apps.wecom.WeComCompatibilityPolicy.policy,
     ).associateBy(AppCompatibilityPolicy::appId)
 

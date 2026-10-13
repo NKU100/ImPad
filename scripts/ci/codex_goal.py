@@ -255,7 +255,11 @@ def run_goal(client, directory, prompt, resume_context=None, *, verifier=None, c
     client.input_delivered = False
     objective = 'Continue adapting the exact candidate APK using only the supplied clean inputs and full instructions. Preserve existing profiles and tests, obey allowed edit paths and isolation constraints, and never weaken checks. Continue until your own tests demonstrate completion or an external blocker requires owner input. Before marking the Goal complete or blocked, write work/analysis/adaptation-summary.json with string-array fields completed, blockers, nextActions, questions, written in concise Chinese. Do not create a separate summary turn. Independent acceptance runs after completion; rejection will be returned to this same thread. Do not treat a recoverable test failure as an external blocker.'
     if state.get('runtime'):
-        objective += '\nThis Goal requires AVD verification of installed hooks and the application-policy-specific tablet login entry and stable login page. Use adb to debug the disposable emulator described in work/analysis/runtime-device.json. Static success alone is insufficient. Screenshots and runtime logs from rejected turns will be placed under work/analysis/runtime.'
+        if state.get('appId', state.get('report', {}).get('appId')) == 'qq':
+            objective += '\nThis Goal requires independent QQ request identity smoke: the exact APK must naturally send a trusted security command with its Manifest phone AppID when the module is disabled and tablet AppID when enabled. Do not call or register an AppID Getter as an acceptance point. The trusted controller owns socket capture, protocol decoding and acceptance criteria. No account authentication is required or verified.'
+        else:
+            objective += '\nThis Goal requires AVD verification of installed hooks and the application-policy-specific tablet login entry and stable login page.'
+        objective += ' Use adb to debug the disposable emulator described in work/analysis/runtime-device.json. Static success alone is insufficient. Screenshots and runtime logs from rejected turns will be placed under work/analysis/runtime.'
     objective = objective_override or objective
     verifier = verifier or verify
     checkpoint = checkpoint or persist_turn

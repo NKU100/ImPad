@@ -37,6 +37,14 @@ def initialize(directory, root, serial):
     candidate_apk = root / f'{policy.app_id}.apk'
     if sha256(candidate_apk) != state['report']['identity']['apkSha256']:
         raise ValueError('Runtime candidate does not match verified identity')
+    if policy.app_id == 'qq':
+        from scripts.ci.apps.qq.prepare_probe import prepare
+        device_abi = smoke.adb('shell', 'getprop', 'ro.product.cpu.abi').stdout.decode().strip()
+        probe_abi = {'x86_64': 'x86_64', 'arm64-v8a': 'arm64'}.get(device_abi)
+        if probe_abi is None:
+            raise ValueError('QQ independent observer requires a supported emulator ABI')
+        prepare(root, probe_abi)
+        (root / 'candidate-report.json').write_text(json.dumps(state['report'], indent=2))
     smoke.ROOT = root
     smoke.EVIDENCE = root / 'prepare-evidence'
     os.environ['ANDROID_SERIAL'] = serial

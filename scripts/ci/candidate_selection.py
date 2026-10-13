@@ -24,7 +24,8 @@ def replay_report(targets, url, digest, app_id="wechat", selection_mode="latest"
     if len(matches) != 1:
         raise ValueError('Selected exact APK is not registered; run compatibility adaptation first')
     profile = copy.deepcopy(matches[0])
-    if profile['verificationStatus'] not in SUPPORTED_STATUSES:
+    allowed = SUPPORTED_STATUSES | ({'static-verified'} if app_id == 'qq' and selection_mode == 'baseline' else set())
+    if profile['verificationStatus'] not in allowed:
         raise ValueError('Selected profile is not runtime-verified; run compatibility adaptation first')
     profile['verificationStatus'] = 'static-verified'
     return {
@@ -58,7 +59,7 @@ def main():
     parser.add_argument('--app-id', default='wechat')
     parser.add_argument('--targets', type=Path)
     parser.add_argument('--directory', type=Path, required=True)
-    parser.add_argument('--mode', choices=('latest', 'registered'), default='latest')
+    parser.add_argument('--mode', choices=('latest', 'registered', 'baseline'), default='latest')
     parser.add_argument('--apk-sha256', help='Select a registered APK variant by SHA-256')
     args = parser.parse_args()
     if args.apk_sha256 and not re.fullmatch(r'[a-fA-F0-9]{64}', args.apk_sha256):
@@ -67,10 +68,13 @@ def main():
     targets_path = args.targets or Path(policy.targets_path)
     targets = json.loads(targets_path.read_text())
     validate_targets(targets, policy.app_id)
-    if args.mode == 'registered':
+    if args.mode == 'baseline' and policy.app_id != 'qq':
+        raise ValueError('Initial static baseline replay is available only for QQ')
+    if args.mode in ('registered', 'baseline'):
+        allowed = SUPPORTED_STATUSES | ({'static-verified'} if args.mode == 'baseline' else set())
         matches = [row for row in targets if row['identity']['packageName'] == policy.package_name
                    and row['identity']['abi'] in policy.supported_abis
-                   and row['verificationStatus'] in SUPPORTED_STATUSES]
+                   and row['verificationStatus'] in allowed]
         if not matches:
             raise ValueError('No runtime-verified registered APK is available for this application policy')
         highest_version_code = max(row['identity']['versionCode'] for row in matches)
@@ -96,7 +100,7 @@ def main():
     try:
         metadata = remote_metadata(url, policy)
     except (HTTPException, OSError):
-        if args.mode != 'registered':
+        if args.mode not in ('registered', 'baseline'):
             raise
         # Registered targets pin the APK digest; HEAD metadata only enables cache reuse.
         metadata = {'content_length': None, 'last_modified': '', 'etag': ''}

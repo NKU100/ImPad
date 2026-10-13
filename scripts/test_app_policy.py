@@ -22,9 +22,9 @@ class AppPolicyTest(unittest.TestCase):
 
     def test_unknown_explicit_app_never_falls_back_to_wechat(self):
         with self.assertRaisesRegex(ValueError, "Unknown or unregistered appId"):
-            get_policy("qq")
+            get_policy("unregistered")
         with self.assertRaisesRegex(ValueError, "Unknown or unregistered appId"):
-            policy_for_report({"identity": {"packageName": "com.tencent.mm"}}, "qq")
+            policy_for_report({"identity": {"packageName": "com.tencent.mm"}}, "unregistered")
 
     def test_wecom_runtime_policy_is_separate_from_wechat(self):
         wechat = get_policy("wechat")

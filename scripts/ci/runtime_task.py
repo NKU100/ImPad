@@ -34,9 +34,17 @@ def runtime_result(report, smoke, conclusion, app_id=None):
         and smoke.get('abi') == identity.get('abi')
         and smoke.get('baseline') == policy.runtime_baseline
         and smoke.get('hookIds') == list(policy.required_hook_ids)
-        and smoke.get('qrPage') == policy.runtime_qr_page
+        and (policy.app_id == 'qq' or smoke.get('qrPage') == policy.runtime_qr_page)
         and smoke.get('apkSha256') == identity.get('apkSha256')
     )
+    if policy.app_id == 'qq':
+        from scripts.ci.apps.qq.runtime_policy import validate_request_evidence
+        if smoke.get('status') == 'ACCEPTANCE_UNAVAILABLE':
+            result.update(status='STATIC_VERIFIED_PENDING_RUNTIME', runtimeConclusion='acceptance-unavailable',
+                          blockers=['QQ request identity observation is unavailable; no runtime promotion.'])
+            return result
+        verified = verified and smoke.get('acceptanceKind') == 'REQUEST_APP_ID_CONTRAST' and validate_request_evidence(
+            smoke.get('requestIdentityEvidence'), identity.get('apkSha256'), smoke.get('moduleApkSha256'), report.get('requestIdentityExpectation'))
     result['status'] = 'RUNTIME_VERIFIED' if verified else 'RUNTIME_REJECTED'
     result['blockers'] = [] if verified else ['Hosted runtime smoke failed or exact-build evidence is missing.']
     if verified:
@@ -91,7 +99,10 @@ def main():
                                          'compat: record hosted runtime verification'], env=env).decode().strip()
         subprocess.run(['git', 'push', 'origin', f'{commit}:refs/heads/{pr["headRefName"]}'], check=True)
         body = directory / 'runtime-pr-body.md'
-        body.write_text(pr['body'] + f'\n\nHosted smoke passed: injection, Phone & Tablet entry and QR page. No account login. [Evidence]({run_url}). Ready for merge; formal support begins after merge.\n')
+        if args.app_id == 'qq':
+            body.write_text(pr['body'] + f'\n\nHosted QQ request identity smoke passed. No account authentication, server acceptance or dual-device coexistence verified. [Evidence]({run_url}). Ready for merge; formal support begins after merge.\n')
+        else:
+            body.write_text(pr['body'] + f'\n\nHosted smoke passed: injection, Phone & Tablet entry and QR page. No account login. [Evidence]({run_url}). Ready for merge; formal support begins after merge.\n')
         gh('pr', 'edit', args.pr, '--repo', repo, '--body-file', str(body))
         gh('pr', 'ready', args.pr, '--repo', repo)
     elif result['status'] == 'RUNTIME_REJECTED':

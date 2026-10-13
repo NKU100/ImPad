@@ -198,12 +198,15 @@ def reboot():
 def bootstrap_magisk():
     files = ROOT / 'magisk-files'
     files.mkdir(exist_ok=True)
+    device_abi = adb('shell', 'getprop', 'ro.product.cpu.abi').stdout.decode().strip()
+    if device_abi not in {'x86_64', 'arm64-v8a'}:
+        raise ValueError('Runtime Magisk bootstrap requires a supported emulator ABI')
     with zipfile.ZipFile(ROOT / 'magisk.apk') as apk:
         for name in apk.namelist():
             if name.startswith('assets/') and name.endswith('.sh'):
                 (files / Path(name).name).write_bytes(apk.read(name))
         for binary in ('busybox', 'magisk', 'magiskboot', 'magiskinit', 'magiskpolicy', 'bootctl'):
-            (files / binary).write_bytes(apk.read(f'lib/x86_64/lib{binary}.so'))
+            (files / binary).write_bytes(apk.read(f'lib/{device_abi}/lib{binary}.so'))
     adb('shell', 'mkdir', '-p', '/data/local/tmp/impad-magisk-files')
     for file in files.iterdir():
         adb('push', str(file), '/data/local/tmp/impad-magisk-files/' + file.name)
@@ -253,21 +256,21 @@ def manager_module_enabled():
         return value
 
 
-def configure_manager():
+def configure_manager(enabled_state=True):
     adb('shell', 'am', 'start', '-n', 'org.lsposed.manager/.ui.activity.MainActivity')
     for _ in range(10):
         state = manager_module_enabled()
-        if state is True:
+        if state is enabled_state:
             return
         _, ui = snapshot('manager-current')
         enabled = unique_node(ui, lambda n: 'Switch' in n.get('class', '') and n.get('checkable') == 'true')
         if enabled is not None and any(n.get('text') == MODULE_LABEL for n in nodes(ui)):
-            if enabled.get('checked') != 'true':
+            if enabled.get('checked') != str(enabled_state).lower():
                 tap(enabled)
                 _, ui = snapshot('manager-enabled')
                 enabled = unique_node(ui, lambda n: 'Switch' in n.get('class', '') and n.get('checkable') == 'true')
-            if enabled is None or enabled.get('checked') != 'true':
-                raise RuntimeError(f'Manager did not confirm {MODULE_LABEL} enabled')
+            if enabled is None or enabled.get('checked') != str(enabled_state).lower():
+                raise RuntimeError(f'Manager did not confirm {MODULE_LABEL} enabled={enabled_state}')
             return
         tsv = manager_ocr()
         enable = ocr_target(tsv, 'Enable module')
@@ -278,10 +281,10 @@ def configure_manager():
             tap(enable)
             snapshot('manager-enable-requested')
             for _ in range(3):
-                if manager_module_enabled() is True:
+                if manager_module_enabled() is enabled_state:
                     return
                 time.sleep(1)
-            raise RuntimeError('Manager enable action did not persist the enabled state')
+            raise RuntimeError('Manager action did not persist the requested enabled state')
         node = unique_node(ui, lambda n: n.get('text') == MODULE_LABEL)
         if node is None:
             node = ocr_target(tsv, MODULE_LABEL)
@@ -291,7 +294,7 @@ def configure_manager():
             tap(node)
         else:
             time.sleep(2)
-    raise RuntimeError(f'Unable to enable {MODULE_LABEL} through the official Manager UI')
+    raise RuntimeError(f'Unable to set {MODULE_LABEL} enabled={enabled_state} through the official Manager UI')
 
 
 def hook_diagnostics(logs):
@@ -377,6 +380,9 @@ def probe_environment(report):
     adb('shell', 'pm', 'clear', APP_PACKAGE)
     adb('logcat', '-c')
     ui = mobile_input('module-mobile')
+    if APP_ID == 'qq':
+        probe_qq_environment(report)
+        return
     choice = unique_node(ui, lambda n: is_tablet_entry(n.get('text', '')))
     if choice is None:
         raise RuntimeError(f'No {APP_ID} policy entry after module enable')
@@ -404,6 +410,32 @@ def probe_environment(report):
                   hooks=len(APP_POLICY.required_hook_ids), qrPage=APP_POLICY.runtime_qr_page,
                   appId=APP_ID, packageName=APP_PACKAGE, abi=apk_native_abi(apk_path),
                   apkSha256=apk_digest(apk_path))
+
+def probe_qq_environment(report):
+    from scripts.ci.apps.qq.runtime_probe import observe_pair, manifest_expectation
+    module_sha = apk_digest(ROOT / 'module/app-debug.apk')
+    try:
+        expectation = manifest_expectation(ROOT / 'qq.apk', apk_digest(ROOT / 'qq.apk'))
+        proof = observe_pair(sys.modules[__name__])
+    except (RuntimeError, ValueError, OSError) as error:
+        report.update(status='ACCEPTANCE_UNAVAILABLE', reason=str(error),
+                      acceptanceKind='REQUEST_APP_ID_CONTRAST')
+        return
+    report.update(requestIdentityEvidence=proof, moduleApkSha256=module_sha,
+                  acceptanceKind='REQUEST_APP_ID_CONTRAST')
+    if not UI_STRATEGY.validate_request_evidence(proof, apk_digest(ROOT / 'qq.apk'), module_sha, expectation):
+        report.update(status='RUNTIME_REJECTED', reason='Request identities did not establish the phone/tablet contrast')
+        return
+    logs = collect_logs()
+    diagnostics = UI_STRATEGY.hook_diagnostics(logs)
+    if diagnostics['compatibility'] != 'COMPATIBLE' or diagnostics['hookInstallation'] != 'INSTALLED_1':
+        report.update(status='RUNTIME_REJECTED', reason='Request contrast has no compatible hook installation evidence')
+        return
+    report.update(status='RUNTIME_SMOKE_VERIFIED', stage='COMPLETE',
+                  hookIds=list(APP_POLICY.required_hook_ids), hooks=len(APP_POLICY.required_hook_ids),
+                  appId=APP_ID, packageName=APP_PACKAGE, abi=apk_native_abi(ROOT / 'qq.apk'),
+                  apkSha256=apk_digest(ROOT / 'qq.apk'))
+
 
 def main(mode="full", app_id=None):
     global stage
@@ -443,7 +475,7 @@ def main(mode="full", app_id=None):
         (EVIDENCE / 'summary.md').write_text(f'# {APP_ID} runtime smoke\n\n' + json.dumps(report, indent=2)
                                             + '\n\nNo QR scanning, account login or dual-device session was performed.\n')
         print(json.dumps(report))
-    return 0 if report['status'] in {'RUNTIME_SMOKE_VERIFIED', 'ENVIRONMENT_READY'} else 1
+    return 0 if report['status'] in {'RUNTIME_SMOKE_VERIFIED', 'CONFIGURATION_SMOKE_VERIFIED', 'ENVIRONMENT_READY'} else 1
 
 
 if __name__ == '__main__':
