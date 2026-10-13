@@ -177,6 +177,12 @@ def observe(smoke, enabled):
                 (smoke.EVIDENCE / 'qq-wire-client-error.txt').write_text(diagnostic)
                 raise RuntimeError('Network observer failed: ' + diagnostic.splitlines()[-1] if diagnostic.splitlines() else 'Network observer failed')
             observed = json.loads(output.read())
+        except Exception:
+            errors.seek(0)
+            diagnostic = errors.read().decode(errors='replace')[-4000:]
+            if diagnostic:
+                (smoke.EVIDENCE / 'qq-wire-client-error.txt').write_text(diagnostic)
+            raise
         finally:
             if client is not None and client.poll() is None:
                 client.terminate()
