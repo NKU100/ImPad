@@ -215,11 +215,11 @@ def bootstrap_magisk():
 def module_enabled_from_database(path):
     connection = sqlite3.connect(Path(path).resolve().as_uri() + '?mode=ro', uri=True)
     try:
-        rows = connection.execute('SELECT enabled FROM modules WHERE module_pkg_name=?', (MODULE,)).fetchall()
+        rows = connection.execute('SELECT enabled FROM modules_state WHERE module_pkg_name=? AND user_id=?', (MODULE, 0)).fetchall()
     finally:
         connection.close()
     if not rows:
-        return None
+        return False
     if len(rows) != 1 or rows[0][0] not in (0,1):
         raise ValueError('Unexpected LSPosed module enabled state')
     return bool(rows[0][0])

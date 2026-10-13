@@ -33,8 +33,8 @@ class UiEvidenceTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as root:
             path=Path(root)/'db'
             with sqlite3.connect(path) as connection:
-                connection.execute('CREATE TABLE modules(module_pkg_name TEXT, enabled INTEGER)')
-                connection.execute('INSERT INTO modules VALUES(?,1)', (smoke.MODULE,))
+                connection.execute('CREATE TABLE modules_state(module_pkg_name TEXT, user_id INTEGER, enabled INTEGER)')
+                connection.execute('INSERT INTO modules_state VALUES(?,0,1)', (smoke.MODULE,))
             payload=base64.encodebytes(path.read_bytes()).replace(b'\n', b'\r\n')
             def read(command, **kwargs):
                 return subprocess.CompletedProcess([], 1, b'', b'no wal') if command.endswith('-wal') else subprocess.CompletedProcess([],0,payload,b'')
@@ -46,11 +46,30 @@ class UiEvidenceTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as root:
             path = Path(root)/'modules.db'
             with sqlite3.connect(path) as connection:
-                connection.execute('CREATE TABLE modules(module_pkg_name TEXT, enabled INTEGER)')
-                connection.executemany('INSERT INTO modules VALUES(?,?)', [(smoke.MODULE,0), ('other',1)])
+                connection.execute('CREATE TABLE modules_state(module_pkg_name TEXT, user_id INTEGER, enabled INTEGER)')
+                connection.executemany('INSERT INTO modules_state VALUES(?,?,?)', [(smoke.MODULE,0,0), (smoke.MODULE,10,1), ('other',0,1)])
             before=path.read_bytes()
             self.assertIs(False, smoke.module_enabled_from_database(path))
             self.assertEqual(before, path.read_bytes())
+
+    def test_manager_state_reads_schema_and_enable_flag_from_wal(self):
+        import base64, sqlite3
+        with tempfile.TemporaryDirectory() as root:
+            path = Path(root) / 'source.db'
+            connection = sqlite3.connect(path)
+            try:
+                connection.execute('PRAGMA journal_mode=WAL')
+                connection.execute('CREATE TABLE modules_state(module_pkg_name TEXT, user_id INTEGER, enabled INTEGER)')
+                connection.execute('INSERT INTO modules_state VALUES(?,0,1)', (smoke.MODULE,))
+                connection.commit()
+                payloads = {suffix: base64.encodebytes(Path(str(path) + suffix).read_bytes()) for suffix in ('', '-wal')}
+                def read(command, **kwargs):
+                    suffix = '-wal' if command.endswith('-wal') else ''
+                    return subprocess.CompletedProcess([], 0, payloads[suffix], b'')
+                with patch.object(smoke, 'EVIDENCE', Path(root)), patch.object(smoke, 'su', side_effect=read):
+                    self.assertIs(True, smoke.manager_module_enabled())
+            finally:
+                connection.close()
 
     def test_module_package_scope_entry_and_display_metadata(self):
         root = Path(__file__).resolve().parents[1]
