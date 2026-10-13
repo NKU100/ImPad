@@ -48,7 +48,7 @@
       "signerSha256": "66896ae0aae48b9e963a3e034fa2ca813ca2f661f53619a92263a8a5c2e3f388"
     },
     "sourceUrl": "https://dldir1.qq.com/wework/work_weixin/WeCom_android_5.0.12.83835_arm64_100001.apk",
-    "verificationStatus": "static-verified",
+    "verificationStatus": "runtime-verified-hosted",
     "featureRulesVersion": 1,
     "hooks": [
       {
