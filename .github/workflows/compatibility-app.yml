@@ -614,6 +614,7 @@ jobs:
           github-token: ${{ github.token }}
 
       - name: Select the report pinned by the unfinished adaptation
+        id: selected-candidate
         env:
           PENDING_ADAPTATION: ${{ needs.prepare.outputs.pending_adaptation }}
           PENDING_CANDIDATE_KEY: ${{ needs.prepare.outputs.pending_candidate_key }}
@@ -705,8 +706,8 @@ jobs:
         if: steps.claim.outputs.claimed == 'true'
         uses: actions/cache@v6
         with:
-          path: ${{ needs.prepare.outputs.cache_dir }}
-          key: ${{ needs.prepare.outputs.cache_key }}
+          path: ${{ steps.selected-candidate.outputs.cache_dir }}
+          key: ${{ steps.selected-candidate.outputs.cache_key }}
 
       - name: Restore regression APK cache
         if: steps.claim.outputs.claimed == 'true'
@@ -720,7 +721,7 @@ jobs:
         id: prepare-checkout
         if: steps.claim.outputs.claimed == 'true'
         env:
-          WECHAT_APK_CACHE_DIR: ${{ needs.prepare.outputs.cache_dir }}
+          WECHAT_APK_CACHE_DIR: ${{ steps.selected-candidate.outputs.cache_dir }}
         run: |
           set -euo pipefail
           expected_sha256="$(jq -r .identity.apkSha256 compatibility-report/candidate-report.json)"

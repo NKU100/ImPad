@@ -1,6 +1,7 @@
 """Persist adaptation records and publish only validated adaptation patches."""
 
 import argparse
+import hashlib
 import json
 import os
 import re
@@ -115,6 +116,15 @@ def pending(repo, app_id):
     append_github_output(Path(os.environ["GITHUB_OUTPUT"]), result)
     print(json.dumps(result, sort_keys=True))
     return result
+
+
+def candidate_cache_settings(report):
+    policy = policy_for_report(report)
+    from scripts.ci.discover_latest_wechat import validate_official_apk_url
+    validate_official_apk_url(report['sourceUrl'], policy.official_apk_prefix)
+    digest = hashlib.sha256(report['sourceUrl'].encode('utf-8')).hexdigest()
+    return {'cache_dir':f'.cache/{policy.artifact_prefix}-{policy.app_id}-latest/{digest}',
+            'cache_key':f'{policy.artifact_prefix}-{policy.app_id}-latest-url-{digest}'}
 
 
 def select_candidate_report(current_report_path, checkpoint_directory, expected_key, destination):
@@ -542,8 +552,9 @@ def main():
     if args.stage == "pending":
         pending(repo, policy.app_id)
     elif args.stage == "select-report":
-        select_candidate_report(args.report, args.checkpoint_directory or args.directory,
-                                args.candidate_key or "", args.output_report)
+        report = select_candidate_report(args.report, args.checkpoint_directory or args.directory,
+                                         args.candidate_key or "", args.output_report)
+        append_github_output(Path(os.environ['GITHUB_OUTPUT']), candidate_cache_settings(report))
     elif args.stage == "claim":
         claim(repo, json.loads(args.report.read_text()), json.loads(args.targets.read_text()), args.directory, run_url, app_id=policy.app_id)
     elif args.stage == "publish":

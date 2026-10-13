@@ -87,6 +87,15 @@ class CodexTaskTest(unittest.TestCase):
         body = '<!-- impad-state\nRun: https://github.com/NKU100/ImPad/actions/runs/1234\n-->\n'
         self.assertEqual((None,None), checkpoint_reference(body, 'NKU100/ImPad', 'wecom'))
 
+    def test_pinned_report_provides_cache_identity_without_discovery(self):
+        from scripts.ci.codex_task import candidate_cache_settings
+        import hashlib
+        report = candidate_report()
+        values = candidate_cache_settings(report)
+        digest = hashlib.sha256(report['sourceUrl'].encode()).hexdigest()
+        self.assertEqual(f'.cache/impad-wechat-latest/{digest}', values['cache_dir'])
+        self.assertEqual(f'impad-wechat-latest-url-{digest}', values['cache_key'])
+
     def test_checkpoint_reference_reads_valid_run_and_artifact_from_issue(self):
         body = ('Status: `ADAPTATION_RUNNING`\n'
                 'Checkpoint run: https://github.com/owner/repo/actions/runs/1234\n'
