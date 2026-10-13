@@ -32,9 +32,35 @@ class AdaptationCheckpointTest(unittest.TestCase):
         self.assertIn('continue-on-error: true', shared)
         self.assertIn('scripts.test_adaptation_checkpoint', shared)
         self.assertIn('ram-size: 4096M', shared)
-        self.assertIn('checkpoint_interval_ms', (root / 'scripts/ci/codex_live.mjs').read_text())
+        self.assertIn('checkpoint-request.json', (root / 'scripts/ci/codex_live.mjs').read_text())
         self.assertIn('Match the latest APK to the unfinished adaptation', shared)
         self.assertIn('steps.candidate-checkpoint.outputs.same_candidate', shared)
+
+    def test_common_workflow_locks_before_any_jobs_for_both_entry_paths(self):
+        root = Path(__file__).resolve().parents[1]
+        shared = (root / '.github/workflows/compatibility-app.yml').read_text()
+        header, jobs = shared.split('\njobs:', 1)
+        self.assertIn('\nconcurrency:\n  group: impad-codex-managed-auth\n  cancel-in-progress: false', header)
+        self.assertNotIn('concurrency:', jobs)
+        self.assertIn('  workflow_dispatch:', header)
+        self.assertIn('  workflow_call:', header)
+        self.assertNotIn('queue: max', shared)
+        for app in ('wechat', 'wecom'):
+            shell = (root / f'.github/workflows/compatibility-{app}.yml').read_text()
+            self.assertIn('uses: ./.github/workflows/compatibility-app.yml', shell)
+            self.assertNotIn('concurrency:', shell)
+
+    def test_abrupt_exit_reuses_code_and_session_from_same_published_snapshot(self):
+        from scripts.ci.adaptation_checkpoint import reuse_published_checkpoint
+        with tempfile.TemporaryDirectory() as root:
+            directory = Path(root); snapshot = directory/'live-checkpoints/1/1';snapshot.mkdir(parents=True)
+            for name, contents in [('checkpoint.json','{"stage":"adaptation-in-progress"}'), ('checkpoint.patch','completed-turn-code'), ('handoff.json','{}'), ('native-session.tar.age','completed-turn-session')]:
+                (snapshot/name).write_text(contents)
+                (directory/name).write_text('interrupted-turn')
+            (directory/'last-published-checkpoint.json').write_text(json.dumps({'directory':str(snapshot)}))
+            reuse_published_checkpoint(directory)
+            self.assertEqual('completed-turn-code', (directory/'checkpoint.patch').read_text())
+            self.assertEqual('completed-turn-session', (directory/'native-session.tar.age').read_text())
 
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory()

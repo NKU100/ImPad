@@ -38,6 +38,55 @@ class CodexTaskTest(unittest.TestCase):
             self.assertTrue(candidate_matches_checkpoint(report_path, key))
             self.assertFalse(candidate_matches_checkpoint(report_path, 'wecom-other-candidate'))
 
+    def test_one_visible_outcome_per_run_and_new_issue_uses_body(self):
+        from scripts.ci.codex_task import publish_outcome
+        report = candidate_report()
+        for created in (True, False):
+            with self.subTest(created=created), tempfile.TemporaryDirectory() as root:
+                directory = Path(root)
+                state = {'body':'原结果' + ('\n<!-- impad-created-run:1234 -->' if created else ''), 'comments':[]}
+                def github(*args):
+                    if args[:2] == ('api','--paginate'):
+                        return json.dumps([state['comments']])
+                    if args[0] == 'api' and '--jq' in args:
+                        return state['body']
+                    if args[:2] == ('issue','edit'):
+                        state['body'] = Path(args[-1]).read_text()
+                    elif args[:2] == ('issue','comment'):
+                        state['comments'].append({'id':5,'user':{'login':'github-actions[bot]'},'body':Path(args[-1]).read_text()})
+                    elif args[:3] == ('api','--method','PATCH'):
+                        state['comments'][0]['body'] = args[-1].removeprefix('body=')
+                    return ''
+                with patch('scripts.ci.codex_task.gh', side_effect=github):
+                    for status in ('blocked','verified'):
+                        publish_outcome('NKU100/ImPad', 11, report, status, 'https://github.com/NKU100/ImPad/actions/runs/1234', directory)
+                self.assertEqual(0 if created else 1, len(state['comments']))
+                text = state['body'] if created else state['comments'][0]['body']
+                self.assertIn('适配成功', text)
+                self.assertNotIn('```json', text)
+                self.assertIn('<!-- impad-adaptation:', state['body'])
+
+    def test_orphan_checkpoint_from_lost_runner_creates_waiting_issue_without_ai(self):
+        report = candidate_report()
+        artifact = {'id':12, 'expired':False, 'name':'impad-wechat-codex-adaptation-live-1-2-' + 'a'*64,
+                    'workflow_run':{'id':1234,'head_branch':'main'}}
+        with tempfile.TemporaryDirectory() as root:
+            directory = Path(root)
+            def github(*args):
+                if 'actions/artifacts?' in str(args):
+                    return json.dumps([{'artifacts':[artifact]}])
+                return '[]'
+            with patch('scripts.ci.codex_task.eligible_candidate', return_value=True), patch('scripts.ci.codex_task.gh', side_effect=github), patch('scripts.ci.codex_task.create_outcome_issue', return_value=11) as create, patch.dict(os.environ, {'GITHUB_OUTPUT':str(directory/'output')}):
+                claim('NKU100/ImPad', report, [], directory, 'https://github.com/NKU100/ImPad/actions/runs/5678')
+            self.assertIn('claimed=false', (directory/'output').read_text())
+            self.assertIn('issue=11', (directory/'output').read_text())
+            self.assertEqual('interrupted', create.call_args.args[2])
+            self.assertEqual(artifact['name'], create.call_args.kwargs['artifact'])
+
+    def test_new_issue_without_uploaded_checkpoint_does_not_invent_pointer(self):
+        body = '<!-- impad-state\nRun: https://github.com/NKU100/ImPad/actions/runs/1234\n-->\n'
+        self.assertEqual((None,None), checkpoint_reference(body, 'NKU100/ImPad', 'wecom'))
+
     def test_checkpoint_reference_reads_valid_run_and_artifact_from_issue(self):
         body = ('Status: `ADAPTATION_RUNNING`\n'
                 'Checkpoint run: https://github.com/owner/repo/actions/runs/1234\n'
@@ -134,13 +183,13 @@ class CodexTaskTest(unittest.TestCase):
             output = directory / 'output'
             issue_body = ('Adaptation PR: https://github.com/NKU100/ImPad/pull/17\n'
                           'PR head: `' + 'c' * 40 + '`\n')
-            with patch('scripts.ci.codex_task.gh', return_value=issue_body), \
+            with patch('scripts.ci.codex_task.gh', side_effect=lambda *args: '[]' if 'comments?' in str(args) else issue_body), \
                     patch('scripts.ci.codex_task.write_issue') as write_issue_mock, \
                     patch.dict(os.environ, {'GITHUB_OUTPUT': str(output)}):
                 record_checkpoint('NKU100/ImPad', report_path, directory, 8,
                                   'https://github.com/NKU100/ImPad/actions/runs/1234', 'wechat')
             body = write_issue_mock.call_args.args[2]
-            self.assertIn('Status: `WAITING_RUNTIME`', body)
+            self.assertIn('Status: `INTERRUPTED`', body)
             self.assertIn('Checkpoint run: https://github.com/NKU100/ImPad/actions/runs/1234', body)
             self.assertIn('Checkpoint artifact: `impad-wechat-codex-adaptation`', body)
             self.assertIn('Adaptation PR: https://github.com/NKU100/ImPad/pull/17', body)
@@ -392,8 +441,8 @@ class CodexTaskTest(unittest.TestCase):
             with patch('scripts.ci.codex_task.eligible_candidate', return_value=True), patch('scripts.ci.codex_task.candidate_key', return_value='3200-abc'), patch('scripts.ci.codex_task.issue_body', return_value='running'), patch('scripts.ci.codex_task.gh', side_effect=fake_gh), patch('scripts.ci.codex_task.issue_body', return_value='running'), patch.dict(os.environ, {'GITHUB_OUTPUT': str(output)}):
                 claim('owner/repo', report, [], Path(root), 'run')
             self.assertIn('claimed=true', output.read_text())
-            self.assertIn('issue=4', output.read_text())
-            self.assertTrue(any(call[:2] == ('issue', 'create') and '--label' in call for call in calls))
+            self.assertIn('issue=0', output.read_text())
+            self.assertFalse(any(call[:2] == ('issue', 'create') for call in calls))
 
 
 if __name__ == '__main__':

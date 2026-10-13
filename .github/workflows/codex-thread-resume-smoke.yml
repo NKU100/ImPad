@@ -1,13 +1,11 @@
 name: Codex Thread Resume Smoke
 
 on:
-  push:
-    branches: [codex/codex-thread-resume-smoke]
   workflow_dispatch:
 
 permissions:
   contents: read
-  issues: write
+  actions: read
 
 concurrency:
   group: impad-codex-managed-auth
@@ -17,79 +15,104 @@ env:
   CODEX_CLI_VERSION: 0.162.0-alpha.17.2
 
 jobs:
-  attempt1:
-    name: Real Codex attempt 1
+  checkpoint:
+    name: Real Goal turn checkpoint and forced interruption
     runs-on: ubuntu-latest
-    timeout-minutes: 10
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-node@v7
         with:
           node-version: 24
-      - run: npm install --global "@openai/codex@$CODEX_CLI_VERSION"
-      - uses: actions/download-artifact@v8
-        with:
-          name: real-codex-checkpoint-1
-          path: ${{ runner.temp }}/issue-cycle
-          run-id: 38251678107
-          github-token: ${{ github.token }}
-      - uses: actions/upload-artifact@v7
-        if: always()
-        with:
-          name: real-codex-checkpoint-1
-          path: ${{ runner.temp }}/issue-cycle/
-          include-hidden-files: true
-          retention-days: 2
-  attempt2:
-    name: Real Codex attempt 2
-    needs: attempt1
-    runs-on: ubuntu-latest
-    timeout-minutes: 10
-    steps:
-      - uses: actions/checkout@v7
-      - uses: actions/setup-node@v7
-        with:
-          node-version: 24
-      - run: npm install --global "@openai/codex@$CODEX_CLI_VERSION"
-      - uses: actions/download-artifact@v8
-        with:
-          name: real-codex-checkpoint-2
-          path: ${{ runner.temp }}/issue-cycle
-          run-id: 38251909377
-          github-token: ${{ github.token }}
-      - uses: actions/upload-artifact@v7
-        if: always()
-        with:
-          name: real-codex-checkpoint-2
-          path: ${{ runner.temp }}/issue-cycle/
-          include-hidden-files: true
-          retention-days: 2
-  attempt3:
-    name: Real Codex attempt 3
-    needs: attempt2
-    runs-on: ubuntu-latest
-    timeout-minutes: 10
-    steps:
-      - uses: actions/checkout@v7
-      - uses: actions/setup-node@v7
-        with:
-          node-version: 24
-      - run: npm install --global "@openai/codex@$CODEX_CLI_VERSION"
-      - uses: actions/download-artifact@v8
-        with:
-          name: real-codex-checkpoint-2
-          path: ${{ runner.temp }}/issue-cycle
-      - name: Execute model turn and independently verify
+      - run: |
+          sudo apt-get update
+          sudo apt-get install -y age bubblewrap
+          npm install --global "@openai/codex@$CODEX_CLI_VERSION"
+          npm install --ignore-scripts @actions/artifact@6.3.1
+      - name: Execute real Goal and interrupt after acknowledged checkpoint
+        id: probe
+        continue-on-error: true
         env:
           CODEX_AUTH_JSON: ${{ secrets.CODEX_AUTH_JSON }}
-          OWNER_TOKEN: ${{ secrets.CODEX_AUTH_WRITE_TOKEN }}
-          GH_TOKEN: ${{ github.token }}
-          RUN_URL: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}
-        run: python3 scripts/ci/codex_issue_cycle_smoke.py 3
+          CODEX_CHECKPOINT_RECIPIENT: ${{ vars.CODEX_CHECKPOINT_RECIPIENT }}
+          CODEX_CHECKPOINT_IDENTITY: ${{ secrets.CODEX_CHECKPOINT_IDENTITY }}
+          CODEX_TRACE_RECIPIENT: ${{ vars.CODEX_TRACE_RECIPIENT }}
+          CONTROLLER_ROOT: ${{ github.workspace }}
+          CODEX_TASK_DIR: ${{ runner.temp }}/goal-smoke
+          CODEX_HOME: ${{ runner.temp }}/goal-smoke-auth
+          ADAPTATION_PROMPT: ${{ github.workspace }}/scripts/ci/codex_goal_checkpoint_smoke.py
+          CODEX_CONTROLLER_MODULE: scripts.ci.codex_goal_checkpoint_smoke
+          ADAPTATION_ISSUE: '0'
+          APP_ID: wecom
+          ARTIFACT_PREFIX: goal-smoke-1
+          SMOKE_INTERRUPT_AFTER_TURN: 'true'
+        run: |
+          mkdir -p "$CODEX_HOME" "$CODEX_TASK_DIR"
+          chmod 700 "$CODEX_HOME"
+          printf '%s' "$CODEX_AUTH_JSON" > "$CODEX_HOME/auth.json"
+          chmod 600 "$CODEX_HOME/auth.json"
+          node scripts/ci/codex_live_cli.mjs
+      - name: Confirm forced interruption retained an uploaded checkpoint
+        run: |
+          test '${{ steps.probe.outcome }}' = failure
+          test -f "$RUNNER_TEMP/goal-smoke/last-published-checkpoint.json"
+      - uses: actions/upload-artifact@v7
+        with:
+          name: goal-smoke-recovery-input
+          path: ${{ runner.temp }}/goal-smoke/live-checkpoints/
+          retention-days: 7
+      - name: Remove authentication
+        if: always()
+        run: rm -f "$RUNNER_TEMP/goal-smoke-auth/auth.json"
+
+  resume:
+    name: Resume same Goal and fix independent acceptance rejection
+    needs: checkpoint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+      - run: |
+          sudo apt-get update
+          sudo apt-get install -y age bubblewrap
+          npm install --global "@openai/codex@$CODEX_CLI_VERSION"
+          npm install --ignore-scripts @actions/artifact@6.3.1
+      - uses: actions/download-artifact@v8
+        with:
+          name: goal-smoke-recovery-input
+          path: ${{ runner.temp }}/goal-smoke-input
+      - name: Resume the real native thread and complete independent acceptance
+        env:
+          CODEX_AUTH_JSON: ${{ secrets.CODEX_AUTH_JSON }}
+          CODEX_CHECKPOINT_RECIPIENT: ${{ vars.CODEX_CHECKPOINT_RECIPIENT }}
+          CODEX_CHECKPOINT_IDENTITY: ${{ secrets.CODEX_CHECKPOINT_IDENTITY }}
+          CODEX_TRACE_RECIPIENT: ${{ vars.CODEX_TRACE_RECIPIENT }}
+          CONTROLLER_ROOT: ${{ github.workspace }}
+          CODEX_TASK_DIR: ${{ runner.temp }}/goal-smoke
+          CODEX_HOME: ${{ runner.temp }}/goal-smoke-auth
+          ADAPTATION_PROMPT: ${{ github.workspace }}/scripts/ci/codex_goal_checkpoint_smoke.py
+          CODEX_CONTROLLER_MODULE: scripts.ci.codex_goal_checkpoint_smoke
+          ADAPTATION_ISSUE: '0'
+          APP_ID: wecom
+          ARTIFACT_PREFIX: goal-smoke-2
+          SMOKE_RESTORE_DIRECTORY: ${{ runner.temp }}/goal-smoke-input
+        run: |
+          mkdir -p "$CODEX_HOME" "$CODEX_TASK_DIR"
+          chmod 700 "$CODEX_HOME"
+          printf '%s' "$CODEX_AUTH_JSON" > "$CODEX_HOME/auth.json"
+          chmod 600 "$CODEX_HOME/auth.json"
+          node scripts/ci/codex_live_cli.mjs
       - uses: actions/upload-artifact@v7
         if: always()
         with:
-          name: real-codex-checkpoint-3
-          path: ${{ runner.temp }}/issue-cycle/
-          include-hidden-files: true
-          retention-days: 2
+          name: goal-smoke-result
+          path: |
+            ${{ runner.temp }}/goal-smoke/smoke-result.json
+            ${{ runner.temp }}/goal-smoke/smoke-acceptance.json
+            ${{ runner.temp }}/goal-smoke/goal-diagnostics.json
+            ${{ runner.temp }}/goal-smoke/live-checkpoints/
+          retention-days: 7
+      - name: Remove authentication
+        if: always()
+        run: rm -f "$RUNNER_TEMP/goal-smoke-auth/auth.json"

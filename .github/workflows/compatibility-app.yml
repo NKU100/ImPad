@@ -1,6 +1,26 @@
 name: Run app compatibility pipeline
 
 on:
+  workflow_dispatch:
+    inputs:
+      app_id:
+        description: Registered application policy to check
+        type: choice
+        options: [wechat, wecom]
+        required: true
+        default: wechat
+      force_recheck:
+        description: Run static regression even when the exact APK is already supported
+        type: boolean
+        default: false
+      run_codex:
+        description: Adapt verified unknown builds with gpt-6-luna/xhigh
+        type: boolean
+        default: true
+      baseline_apk_sha256:
+        description: Select a runtime-verified baseline variant when the preferred version is ambiguous
+        type: string
+        default: ''
   workflow_call:
     inputs:
       app_id:
@@ -22,6 +42,10 @@ on:
 
 permissions:
   contents: read
+
+concurrency:
+  group: impad-codex-managed-auth
+  cancel-in-progress: false
 
 jobs:
   prepare:
@@ -76,7 +100,7 @@ jobs:
         run: sudo apt-get update && sudo apt-get install --yes age
 
       - name: Test Codex eligibility, edit guards, checkpointing, and issue continuation
-        run: python3 -m unittest scripts.test_adaptation_resume scripts.test_codex_session_checkpoint scripts.test_adaptation_checkpoint scripts.test_codex_adaptation scripts.test_codex_task scripts.test_codex_goal scripts.test_adb_device scripts.test_runtime_adaptation scripts.test_host_build
+        run: python3 -m unittest scripts.test_adaptation_resume scripts.test_codex_session_checkpoint scripts.test_adaptation_checkpoint scripts.test_codex_adaptation scripts.test_codex_task scripts.test_codex_goal scripts.test_adaptation_summary scripts.test_adb_device scripts.test_runtime_adaptation scripts.test_host_build
 
       - name: Validate target manifest
         id: validate
@@ -129,10 +153,11 @@ jobs:
           SOURCE_URL: ${{ steps.discover.outputs.source_url }}
           APK_SHA256: ${{ steps.discovery-download.outputs.apk_sha256 }}
           FORCE_RECHECK: ${{ inputs.force_recheck || false }}
+          PENDING_CANDIDATE_KEY: ${{ steps.pending-adaptation.outputs.pending_candidate_key }}
         run: |
           python3 -m scripts.ci.discovery_gate \
             --app-id "$APP_ID" --targets "$TARGETS_PATH" --source-url "$SOURCE_URL" \
-            --apk-sha256 "$APK_SHA256" --force-recheck "$FORCE_RECHECK" \
+            --apk-sha256 "$APK_SHA256" --force-recheck "$FORCE_RECHECK" --pending-candidate-key "$PENDING_CANDIDATE_KEY" \
             --github-output "$GITHUB_OUTPUT" --summary "$GITHUB_STEP_SUMMARY" \
             --report compatibility-report/discovery-result.json
 
@@ -496,14 +521,11 @@ jobs:
       ((needs.latest.result == 'success' && needs.latest.outputs.adaptation_eligible == 'true') ||
        needs.prepare.outputs.pending_adaptation == 'true')
     runs-on: ubuntu-latest
-    concurrency:
-      group: impad-codex-managed-auth
-      cancel-in-progress: false
     outputs:
       pipeline_status: ${{ steps.publish.outputs.pipeline_status || steps.adaptation-failure.outputs.pipeline_status }}
       pr_url: ${{ steps.publish.outputs.pr_url }}
       head_sha: ${{ steps.publish.outputs.head_sha }}
-      issue: ${{ steps.claim.outputs.issue }}
+      issue: ${{ steps.checkpoint-pointer.outputs.issue || steps.interruption-result.outputs.issue || steps.claim.outputs.issue }}
       consumed_comment_id: ${{ steps.checkpoint-pointer.outputs.consumed_comment_id }}
     permissions:
       contents: write
@@ -916,7 +938,7 @@ jobs:
         if: always() && steps.claim.outputs.claimed == 'true' && steps.prepare-checkout.outcome == 'success' && steps.restore-checkpoint.outcome == 'success'
         run: |
           cd "$CONTROLLER_ROOT"
-          python3 -m scripts.ci.adaptation_checkpoint capture --directory "$CODEX_TASK_DIR"
+          python3 -m scripts.ci.adaptation_checkpoint capture --directory "$CODEX_TASK_DIR" --last-published
 
       - name: Upload deterministic adaptation result
         id: checkpoint-artifact
@@ -946,6 +968,17 @@ jobs:
         run: |
           cd "$CONTROLLER_ROOT"
           python3 -m scripts.ci.codex_task checkpoint --app-id "$APP_ID" \
+            --report "$CODEX_TASK_DIR/candidate-report.json" \
+            --directory "$CODEX_TASK_DIR" --issue '${{ steps.claim.outputs.issue }}'
+
+      - name: Report interruption without a newly published checkpoint
+        id: interruption-result
+        if: always() && steps.claim.outputs.claimed == 'true' && steps.checkpoint-pointer.outcome != 'success'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          cd "$CONTROLLER_ROOT"
+          python3 -m scripts.ci.codex_task outcome --app-id "$APP_ID" \
             --report "$CODEX_TASK_DIR/candidate-report.json" \
             --directory "$CODEX_TASK_DIR" --issue '${{ steps.claim.outputs.issue }}'
 

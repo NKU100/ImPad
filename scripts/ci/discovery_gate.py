@@ -7,9 +7,11 @@ from scripts.ci.app_policy import get_policy
 from scripts.ci.discover_latest_wechat import append_github_output
 
 
-def discovery_decision(targets, source_url, apk_sha256, force_recheck):
+def discovery_decision(targets, source_url, apk_sha256, force_recheck, pending_candidate_key=""):
     matches = [target for target in targets if target.get('sourceUrl') == source_url
                and target['identity']['apkSha256'].lower() == apk_sha256.lower()]
+    if pending_candidate_key.lower().endswith('-' + apk_sha256.lower()):
+        return 'WAITING_FOR_INPUT'
     if force_recheck:
         return 'FORCE_RECHECK'
     if len(matches) > 1:
@@ -22,6 +24,7 @@ def discovery_decision(targets, source_url, apk_sha256, force_recheck):
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('--app-id', default='wechat')
+    parser.add_argument('--pending-candidate-key', default='')
     parser.add_argument('--targets', type=Path, required=True)
     parser.add_argument('--source-url', required=True)
     parser.add_argument('--apk-sha256', required=True)
@@ -32,8 +35,8 @@ def main():
     args = parser.parse_args()
     policy = get_policy(args.app_id)
     decision = discovery_decision(json.loads(args.targets.read_text()), args.source_url,
-                                  args.apk_sha256, args.force_recheck == 'true')
-    append_github_output(args.github_output, {'skip_heavy': str(decision == 'SKIP_SUPPORTED_BUILD').lower()})
+                                  args.apk_sha256, args.force_recheck == 'true', args.pending_candidate_key)
+    append_github_output(args.github_output, {'skip_heavy': str(decision in {'SKIP_SUPPORTED_BUILD', 'WAITING_FOR_INPUT'}).lower()})
     args.report.write_text(json.dumps({'appId': policy.app_id, 'decision': decision, 'sourceUrl': args.source_url,
                                       'apkSha256': args.apk_sha256,
                                       'checkedVersions': [], 'freshRuntimeVerification': False}, indent=2) + '\n')

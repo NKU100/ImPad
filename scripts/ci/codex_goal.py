@@ -1,10 +1,11 @@
-"""Drive one Codex continuation turn and independently verify its result."""
+"""Continue a durable Goal, publishing checkpoints before starting another turn."""
 import base64
 import json
 import os
 import re
 import signal
 import subprocess
+import time
 from collections import deque
 from pathlib import Path
 
@@ -190,7 +191,25 @@ def verification_error(directory, error):
     return redact(details, auth_secrets())
 
 
-def run_goal(client, directory, prompt, resume_context=None):
+def persist_turn(directory, client, sequence):
+    """Fence continuation until the trusted uploader acknowledges durable storage."""
+    if os.environ.get('CODEX_CHECKPOINT_HANDSHAKE') != 'true':
+        raise RuntimeError('Per-turn checkpoint uploader is required')
+    request = directory / 'checkpoint-request.json'
+    acknowledgement = directory / 'checkpoint-ack.json'
+    temporary = request.with_suffix('.tmp')
+    temporary.write_text(json.dumps({'sequence': sequence, 'threadId': client.thread_id}) + '\n')
+    temporary.replace(request)
+    while True:
+        ack = read_json(acknowledgement, {})
+        if ack.get('sequence') == sequence:
+            if not ack.get('saved'):
+                raise RuntimeError('Checkpoint publication failed: ' + str(ack.get('error', 'unknown')))
+            return
+        time.sleep(0.2)
+
+
+def run_goal(client, directory, prompt, resume_context=None, *, verifier=None, checkpoint=None, objective_override=None):
     workspace = directory / 'checkout'
     hidden_repository = str(Path(os.environ.get('GITHUB_WORKSPACE', '/unavailable-repository')) / '.git/HEAD')
     probe = ("from pathlib import Path; import json, tempfile; "
@@ -232,9 +251,12 @@ def run_goal(client, directory, prompt, resume_context=None):
     client.thread_id = thread
     (directory / 'native-thread.json').write_text(json.dumps({'threadId': thread}) + '\n')
     client.input_delivered = False
-    objective = 'Continue adapting the exact candidate APK using only the supplied clean inputs and full instructions. Preserve existing profiles and tests, obey allowed edit paths and isolation constraints, and never weaken checks. Work on the next concrete step in this run. If blocked, record the precise blocker and the next action; the next scheduled run will continue from the saved checkpoint. Do not claim completion without independent verification.'
+    objective = 'Continue adapting the exact candidate APK using only the supplied clean inputs and full instructions. Preserve existing profiles and tests, obey allowed edit paths and isolation constraints, and never weaken checks. Continue until your own tests demonstrate completion or an external blocker requires owner input. Before marking the Goal complete or blocked, write work/analysis/adaptation-summary.json with string-array fields completed, blockers, nextActions, questions, written in concise Chinese. Do not create a separate summary turn. Independent acceptance runs after completion; rejection will be returned to this same thread. Do not treat a recoverable test failure as an external blocker.'
     if state.get('runtime'):
-        objective += '\nThis Goal also requires independent AVD verification of installed hooks, the Phone & Tablet entry and a stable LoginAsExDeviceUI QR page. Use adb to debug the disposable emulator described in work/analysis/runtime-device.json. Static success alone is insufficient. Screenshots and runtime logs from rejected turns will be placed under work/analysis/runtime.'
+        objective += '\nThis Goal requires AVD verification of installed hooks and the application-policy-specific tablet login entry and stable login page. Use adb to debug the disposable emulator described in work/analysis/runtime-device.json. Static success alone is insufficient. Screenshots and runtime logs from rejected turns will be placed under work/analysis/runtime.'
+    objective = objective_override or objective
+    verifier = verifier or verify
+    checkpoint = checkpoint or persist_turn
     client.request('thread/goal/set', {'threadId': thread, 'objective': objective, 'status': 'paused'})
     feedback = prompt + '\n' + objective
     if resume_context:
@@ -251,24 +273,46 @@ def run_goal(client, directory, prompt, resume_context=None):
     status = 'continue'
     try:
         write_diagnostics(directory, iterations, client, 'running')
-        turn = client.request('turn/start', {'threadId': thread, 'model': MODEL, 'effort': REASONING,
-                              'input': [{'type': 'text', 'text': feedback}]})['turn']['id']
-        client.input_delivered = True
-        write_diagnostics(directory, iterations, client, 'running')
-        outcome = client.wait_turn(thread, turn)
-        client.pause(thread)
-        if outcome['status'] != 'completed':
-            iterations.append({'turn': turn, 'status': outcome['status'], 'error': outcome.get('error')})
-        else:
-            try:
-                verify(directory)
-            except (ValueError, OSError, RuntimeError, subprocess.SubprocessError, StopIteration) as error:
-                iterations.append({'turn': turn, 'status': 'verification-failed',
-                                   'error': verification_error(directory, error)})
+        while True:
+            turn = client.request('turn/start', {'threadId': thread, 'model': MODEL, 'effort': REASONING,
+                                  'input': [{'type': 'text', 'text': feedback}]})['turn']['id']
+            client.input_delivered = True
+            client.request('thread/goal/set', {'threadId': thread, 'status': 'active'})
+            write_diagnostics(directory, iterations, client, 'running')
+            outcome = client.wait_turn(thread, turn)
+            goal = client.request('thread/goal/get', {'threadId': thread}).get('goal') or {}
+            client.pause(thread)
+            goal_status = goal.get('status')
+            iterations.append({'turn': turn, 'status': outcome['status'], 'goalStatus': goal_status,
+                               'error': outcome.get('error')})
+            status = 'running'
+            if outcome['status'] != 'completed':
+                status = 'interrupted'
+            elif goal_status in {'blocked', 'usageLimited', 'budgetLimited'}:
+                status = 'blocked' if goal_status == 'blocked' else 'interrupted'
+            elif goal_status not in {'active', 'complete'}:
+                status = 'interrupted'
+            write_diagnostics(directory, iterations, client, status)
+            checkpoint(directory, client, len(iterations))
+            if status != 'running':
+                break
+            if goal_status == 'complete':
+                try:
+                    verifier(directory)
+                except (ValueError, OSError, RuntimeError, subprocess.SubprocessError, StopIteration) as error:
+                    details = verification_error(directory, error)
+                    iterations[-1].update(status='verification-failed', error=details)
+                    feedback = 'Independent acceptance rejected the result. Continue this same Goal, fix the cause without weakening checks, and update the terminal summary before completing or blocking.\n' + details
+                    (directory / 'checkout/work/analysis/adaptation-summary.json').unlink(missing_ok=True)
+                else:
+                    iterations[-1]['status'] = 'verified'
+                    status = 'verified'
+                    client.request('thread/goal/set', {'threadId': thread, 'status': 'complete'})
+                    write_diagnostics(directory, iterations, client, status)
+                    checkpoint(directory, client, len(iterations) + 1)
+                    break
             else:
-                iterations.append({'turn': turn, 'status': 'verified'})
-                client.request('thread/goal/set', {'threadId': thread, 'status': 'complete'})
-                status = 'verified'
+                feedback = 'Continue the same Goal from the saved turn. Complete the next necessary step; write a terminal summary only when complete or externally blocked.'
         return status
     finally:
         write_diagnostics(directory, iterations, client, status)

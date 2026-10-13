@@ -7,6 +7,7 @@ import re
 import subprocess
 from pathlib import Path
 
+from scripts.ci.adaptation_summary import read_summary, render_result
 from scripts.ci.app_policy import get_policy, policy_for_report
 from scripts.ci.codex_adaptation import candidate_key, eligible_candidate
 from scripts.ci.discover_latest_wechat import append_github_output
@@ -154,6 +155,8 @@ def checkpoint_reference(body, repo, app_id):
     policy = get_policy(app_id)
     run_match = re.search(r"^Checkpoint run: (\S+)$", body, re.MULTILINE)
     artifact_match = re.search(r"^Checkpoint artifact: `([^`]+)`$", body, re.MULTILINE)
+    if '<!-- impad-state' in body and not artifact_match:
+        return None, None
     if not run_match:
         run_match = re.search(r"^Run: (\S+)$", body, re.MULTILINE)
     run_id = action_run_id_from_url(run_match[1], repo) if run_match else None
@@ -170,7 +173,7 @@ def checkpoint_reference(body, repo, app_id):
 def validate_checkpoint_artifact(app_id, artifact):
     policy = get_policy(app_id)
     expected = f"{policy.artifact_prefix}-{policy.app_id}-codex-adaptation"
-    if artifact == expected or re.fullmatch(re.escape(expected) + r'-live-[1-9][0-9]*-[1-9][0-9]*', artifact):
+    if artifact == expected or re.fullmatch(re.escape(expected) + r'-live-[1-9][0-9]*-[1-9][0-9]*(?:-[a-f0-9]{64}(?:-(?:running|verified|blocked|interrupted))?)?', artifact):
         return artifact
     raise ValueError('Checkpoint artifact is not a trusted artifact for this application')
 
@@ -201,7 +204,7 @@ def issue_body(report, status, run_url, pr_url="", checkpoint_run_url="", checkp
              f"Source: {report['sourceUrl']}", f"Run: {run_url}"]
     if checkpoint_run_url and checkpoint_artifact:
         lines.extend([f"Checkpoint run: {checkpoint_run_url}", f"Checkpoint artifact: `{checkpoint_artifact}`"])
-    lines.extend(["", "Model: `gpt-6-luna`; reasoning: `xhigh`; unfinished adaptation resumes automatically from its latest checkpoint."])
+    lines.extend(["", "Model: `gpt-6-luna`; reasoning: `xhigh`; blocked adaptation waits for new owner input or a new APK."])
     for blocker in report.get("blockers", []):
         lines.append(f"Blocker: {blocker}")
     for blocker in previous_blockers:
@@ -214,7 +217,20 @@ def issue_body(report, status, run_url, pr_url="", checkpoint_run_url="", checkp
         lines.append("Hosted login-screen runtime evidence and merge are required before formal support.")
     if status == "RUNTIME_VERIFIED":
         lines.extend(["", "Static build and hosted runtime verification passed. Adaptation is complete."])
-    return "\n".join(lines) + "\n"
+    marker = lines.pop(0)
+    machine = "\n".join(lines)
+    state = {'RUNTIME_VERIFIED':'verified', 'BLOCKED':'blocked', 'INTERRUPTED':'interrupted', 'ADAPTATION_RUNNING':'running'}.get(status, 'pending')
+    visible = render_result(policy.display_name, identity['versionName'], state, run_url,
+                            checkpoint=('检查点已保存。' if checkpoint_artifact else ''))
+    return visible + "\n" + marker + "\n<!-- impad-state\n" + machine + "\n-->\n"
+
+
+def visible_issue_body(body, report, run_url):
+    if '<!-- impad-state' in body:
+        return re.sub(r'<!--.*?-->', '', body, flags=re.DOTALL).strip()
+    policy = policy_for_report(report)
+    status = 'verified' if issue_status({'body':body}) == 'RUNTIME_VERIFIED' else 'interrupted'
+    return render_result(policy.display_name, report['identity']['versionName'], status, run_url).strip()
 
 
 def write_issue(repo, issue, body, directory):
@@ -222,9 +238,43 @@ def write_issue(repo, issue, body, directory):
     context = json.loads((directory / 'resume-context.json').read_text()) if (directory / 'resume-context.json').exists() else {}
     cursor = context.get('consumedCommentId', context.get('issue', {}).get('consumedCommentId', int(os.environ.get('CONSUMED_COMMENT_ID', '0') or '0')))
     if cursor:
-        body += f"\nConsumed owner comment: `{cursor}`\n"
+        body += f"\n<!--\nConsumed owner comment: `{cursor}`\n-->\n"
+    current = gh('api', f'repos/{repo}/issues/{issue}', '--jq', '.body')
+    created = re.search(r'<!-- impad-created-run:[0-9]+ -->', current)
+    if created and created[0] not in body:
+        body += '\n' + created[0] + '\n'
     path.write_text(body)
     return gh("issue", "edit", str(issue), "--repo", repo, "--body-file", str(path))
+
+
+def create_outcome_issue(repo, report, status, run_url, directory, summary=None,
+                         checkpoint_run_url='', artifact=''):
+    policy = policy_for_report(report)
+    terminal = {'verified':'RUNTIME_VERIFIED', 'blocked':'BLOCKED', 'interrupted':'INTERRUPTED'}[status]
+    metadata = issue_body(report, terminal, run_url, checkpoint_run_url=checkpoint_run_url,
+                          checkpoint_artifact=artifact)
+    visible = render_result(policy.display_name, report['identity']['versionName'], status, run_url, summary,
+                            '检查点已保存，可恢复代码和会话。' if artifact else '')
+    body = Path(directory) / 'issue-body.md'
+    body.write_text(visible + '\n' + metadata[metadata.index('<!-- impad-adaptation'):] +
+                    f'\n<!-- impad-created-run:{action_run_id_from_url(run_url, repo)} -->\n')
+    url = gh('issue', 'create', '--repo', repo, '--title',
+             f"Adapt {policy.display_name} {report['identity']['versionName']} ({candidate_key(report)})",
+             '--body-file', str(body), '--label', ADAPTATION_LABEL)
+    return int(url.rsplit('/', 1)[1])
+
+
+def orphan_checkpoint(repo, report):
+    policy = policy_for_report(report)
+    prefix = f'{policy.artifact_prefix}-{policy.app_id}-codex-adaptation-live-'
+    digest = report['identity']['apkSha256'].lower()
+    pages = json.loads(gh('api', '--paginate', '--slurp', f'repos/{repo}/actions/artifacts?per_page=100') or '[]')
+    candidates = [a for page in pages if isinstance(page, dict) for a in page.get('artifacts', [])
+                  if not a.get('expired') and a.get('workflow_run', {}).get('head_branch') == 'main'
+                  and re.fullmatch(re.escape(prefix) + r'[1-9][0-9]*-[1-9][0-9]*-' + digest + r'(?:-(?:running|verified|blocked|interrupted))?', a.get('name', ''))]
+    if not candidates:
+        return None
+    return max(candidates, key=lambda a: a['id'])
 
 
 def claim(repo, report, targets, directory, run_url, app_id=None):
@@ -278,22 +328,33 @@ def claim(repo, report, targets, directory, run_url, app_id=None):
         (directory / "resume-context.json").write_text(json.dumps(context, indent=2) + "\n")
         if previous.get("state") == "closed":
             gh("issue", "reopen", str(previous["number"]), "--repo", repo)
-        write_issue(repo, previous["number"], issue_body(report, "ADAPTATION_RUNNING", run_url, pr_url,
+        metadata = issue_body(report, "ADAPTATION_RUNNING", run_url, pr_url,
                     checkpoint_run_url, checkpoint_artifact, pr_head_match[1] if pr_head_match else "",
-                    previous_blockers), directory)
+                    previous_blockers)
+        if '<!-- impad-adaptation' in metadata:
+            metadata = visible_issue_body(body_text, report, run_url) + '\n\n' + metadata[metadata.index('<!-- impad-adaptation'):]
+        write_issue(repo, previous["number"], metadata, directory)
         outputs = {"claimed": "true", "issue": str(previous["number"]), "checkpoint_run_id": checkpoint_run_id or "",
                    "checkpoint_artifact": checkpoint_artifact or "", "existing_pr": pr_url}
         append_github_output(Path(os.environ["GITHUB_OUTPUT"]), outputs)
         print(f"Resuming adaptation record #{previous['number']} from its latest available checkpoint.")
         return
-    body = directory / "issue-body.md"
-    body.write_text(issue_body(report, "ADAPTATION_RUNNING", run_url))
-    url = gh("issue", "create", "--repo", repo, "--title", f"Adapt {policy.display_name} {report['identity']['versionName']} ({key})", "--body-file", str(body), "--label", ADAPTATION_LABEL)
-    number = int(url.rsplit("/", 1)[1])
-    (directory / "resume-context.json").write_text(json.dumps({"status": "ADAPTATION_RUNNING"}, indent=2) + "\n")
-    append_github_output(Path(os.environ["GITHUB_OUTPUT"]), {"claimed": "true", "issue": str(number),
-                          "checkpoint_run_id": "", "checkpoint_artifact": "", "existing_pr": ""})
-    print(f"Claimed one adaptation attempt: #{number}")
+    orphan = orphan_checkpoint(repo, report)
+    if orphan and orphan['name'].endswith('-verified'):
+        append_github_output(Path(os.environ['GITHUB_OUTPUT']), {'claimed':'false', 'issue':'0', 'checkpoint_run_id':'', 'checkpoint_artifact':'', 'existing_pr':''})
+        print('The candidate has a completed controller checkpoint; no duplicate model run was started.')
+        return
+    if orphan:
+        checkpoint_url = f"https://github.com/{repo}/actions/runs/{orphan['workflow_run']['id']}"
+        number = create_outcome_issue(repo, report, 'interrupted', run_url, directory,
+                                      checkpoint_run_url=checkpoint_url, artifact=orphan['name'])
+        append_github_output(Path(os.environ['GITHUB_OUTPUT']), {'claimed':'false', 'issue':str(number),
+                            'checkpoint_run_id':str(orphan['workflow_run']['id']), 'checkpoint_artifact':orphan['name'], 'existing_pr':''})
+        return
+    (directory / 'resume-context.json').write_text(json.dumps({'status':'ADAPTATION_RUNNING'}) + '\n')
+    append_github_output(Path(os.environ['GITHUB_OUTPUT']), {'claimed':'true', 'issue':'0',
+                        'checkpoint_run_id':'', 'checkpoint_artifact':'', 'existing_pr':''})
+    print('Starting a new candidate; an issue will be created only if the run blocks or is interrupted.')
 
 
 def publish(repo, directory, issue, run_url, app_id=None):
@@ -347,7 +408,7 @@ def publish(repo, directory, issue, run_url, app_id=None):
     body.write_text(f"Adds the verified {policy.display_name} {report['identity']['versionName']} build as a static-verified profile.\n\n"
                     f"The shared checker passed for: {versions}. Shared-core and module tests and the debug APK build passed.\n\n"
                     f"Hosted runtime smoke will verify {policy.display_name} hook installation and the policy-specific login page before this PR is ready.\n\n"
-                    f"[Adaptation run]({run_url}); tracks #{issue}.\n")
+                    f"[Adaptation run]({run_url})" + (f"; tracks #{issue}.\n" if issue else ".\n"))
     title = f"feat: support {policy.display_name} {report['identity']['versionName']}"
     if previous_pr:
         url = existing_pr
@@ -359,10 +420,45 @@ def publish(repo, directory, issue, run_url, app_id=None):
     checkpoint_run_id = resume.get("checkpointRunId", "")
     checkpoint_artifact = resume.get("checkpointArtifact", "")
     checkpoint_url = f"https://github.com/{repo}/actions/runs/{checkpoint_run_id}" if checkpoint_run_id else ""
-    write_issue(repo, issue, issue_body(report, "WAITING_RUNTIME", run_url, url,
-                checkpoint_url, checkpoint_artifact, head_sha), directory)
+    if issue:
+        current = gh('api', f'repos/{repo}/issues/{issue}', '--jq', '.body')
+        metadata = issue_body(report, 'WAITING_RUNTIME', run_url, url, checkpoint_url, checkpoint_artifact, head_sha)
+        write_issue(repo, issue, visible_issue_body(current, report, run_url) + '\n\n' + metadata[metadata.index('<!-- impad-adaptation'):], directory)
     append_github_output(Path(os.environ["GITHUB_OUTPUT"]), {"pipeline_status": "WAITING_RUNTIME", "pr_url": url, "head_sha": subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=checkout).decode().strip()})
     print(url)
+
+
+def publish_outcome(repo, issue, report, status, run_url, directory, summary=None,
+                    checkpoint_run_url='', artifact='', pr_url='', pr_head=''):
+    directory = Path(directory)
+    policy = policy_for_report(report)
+    run_id = action_run_id_from_url(run_url, repo)
+    if run_id is None:
+        raise ValueError('Outcome requires a trusted CI run URL')
+    marker = f'<!-- impad-result:{run_id} -->'
+    current = gh('api', f'repos/{repo}/issues/{issue}', '--jq', '.body')
+    visible = render_result(policy.display_name, report['identity']['versionName'], status,
+                            run_url, summary, '检查点已保存，可恢复代码和会话。' if artifact else '')
+    terminal = {'verified':'RUNTIME_VERIFIED', 'blocked':'BLOCKED', 'interrupted':'INTERRUPTED'}[status]
+    metadata = issue_body(report, terminal, run_url, pr_url, checkpoint_run_url, artifact, pr_head)
+    hidden = metadata[metadata.index('<!-- impad-adaptation'):]
+    if f'<!-- impad-created-run:{run_id} -->' in current:
+        write_issue(repo, issue, visible + '\n' + marker + '\n' + hidden, directory)
+    else:
+        pages = json.loads(gh('api', '--paginate', '--slurp', f'repos/{repo}/issues/{issue}/comments?per_page=100'))
+        comments = [c for page in pages for c in page if c.get('user', {}).get('login') == 'github-actions[bot]' and marker in (c.get('body') or '')]
+        if len(comments) > 1:
+            raise ValueError('Multiple outcome comments exist for this CI run')
+        path = directory / 'attempt-result.md'
+        path.write_text(visible + '\n' + marker + '\n')
+        if comments:
+            gh('api', '--method', 'PATCH', f"repos/{repo}/issues/comments/{comments[0]['id']}", '-f', 'body=' + path.read_text())
+        else:
+            gh('issue', 'comment', str(issue), '--repo', repo, '--body-file', str(path))
+        previous_visible = visible_issue_body(current, report, run_url)
+        write_issue(repo, issue, previous_visible + '\n\n' + hidden, directory)
+    if status == 'verified':
+        gh('issue', 'close', str(issue), '--repo', repo)
 
 
 def record_checkpoint(repo, report_path, directory, issue, run_url, app_id=None,
@@ -389,24 +485,46 @@ def record_checkpoint(repo, report_path, directory, issue, run_url, app_id=None,
     if comments and diagnostics.get('inputDelivered'):
         context['consumedCommentId'] = max(c['id'] for c in comments)
         context_path.write_text(json.dumps(context, indent=2) + '\n')
+    if not issue:
+        outcome = diagnostics.get('status', 'interrupted')
+        if live or outcome == 'verified':
+            append_github_output(Path(os.environ['GITHUB_OUTPUT']), {'checkpoint_saved':'true', 'issue':'0', 'consumed_comment_id':str(context.get('consumedCommentId', 0))})
+            return
+        outcome = 'blocked' if outcome == 'blocked' else 'interrupted'
+        summary = read_summary(directory / 'checkout/work/analysis/adaptation-summary.json')
+        issue = create_outcome_issue(repo, report, outcome, run_url, directory, summary, run_url, expected_artifact)
+    append_github_output(Path(os.environ['GITHUB_OUTPUT']), {'issue':str(issue)})
     current_body = gh("api", f"repos/{repo}/issues/{issue}", "--jq", ".body")
     pr_url = adaptation_pr_reference(current_body, repo)
     pr_head_match = re.search(r"^PR head: `([a-f0-9]{40})`$", current_body, re.MULTILINE)
     status = ("WAITING_RUNTIME" if manifest.get("stage") == "static-verified-pending-runtime"
               else "ADAPTATION_RUNNING")
-    diagnostics_summary = json.dumps(diagnostics, ensure_ascii=False, indent=2)[-12000:]
-    result_path = directory / 'attempt-result.md'
-    result_path.write_text(f"Adaptation result: `{status}`\nRun: {run_url}\n\n```json\n{diagnostics_summary}\n```\n")
-    if not live:
-        gh('issue', 'comment', str(issue), '--repo', repo, '--body-file', str(result_path))
-    write_issue(repo, issue, issue_body(report, status, run_url, pr_url, run_url,
-                expected_artifact, pr_head_match[1] if pr_head_match else ""), directory)
+    if live:
+        # Preserve the visible result; only machine metadata moves at turn boundaries.
+        metadata = issue_body(report, status, run_url, pr_url, run_url,
+                              expected_artifact, pr_head_match[1] if pr_head_match else "")
+        hidden = metadata[metadata.index('<!-- impad-adaptation'):]
+        visible = visible_issue_body(current_body, report, run_url)
+        write_issue(repo, issue, visible + '\n\n' + hidden, directory)
+    else:
+        outcome = diagnostics.get('status', 'interrupted')
+        if outcome == 'verified' and pr_url:
+            metadata = issue_body(report, 'WAITING_RUNTIME', run_url, pr_url, run_url, expected_artifact, pr_head_match[1] if pr_head_match else '')
+            visible_body = visible_issue_body(current_body, report, run_url)
+            write_issue(repo, issue, visible_body + '\n\n' + metadata[metadata.index('<!-- impad-adaptation'):], directory)
+            append_github_output(Path(os.environ['GITHUB_OUTPUT']), {'checkpoint_saved':'true', 'consumed_comment_id':str(context.get('consumedCommentId', 0))})
+            return
+        if outcome not in {'verified', 'blocked'}:
+            outcome = 'interrupted'
+        summary = read_summary(directory / 'checkout/work/analysis/adaptation-summary.json')
+        publish_outcome(repo, issue, report, outcome, run_url, directory, summary,
+                        run_url, expected_artifact, pr_url, pr_head_match[1] if pr_head_match else '')
     append_github_output(Path(os.environ["GITHUB_OUTPUT"]), {"checkpoint_saved": "true", "consumed_comment_id": str(context.get("consumedCommentId", 0))})
 
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument("stage", choices=["pending", "select-report", "claim", "publish", "fail", "checkpoint"])
+    parser.add_argument("stage", choices=["pending", "select-report", "claim", "publish", "fail", "checkpoint", "outcome"])
     parser.add_argument("--report", type=Path)
     parser.add_argument("--targets", type=Path)
     parser.add_argument("--directory", type=Path, required=True)
@@ -432,6 +550,18 @@ def main():
         state = json.loads((args.directory / "state.json").read_text())
         policy = get_policy(state.get("appId"))
         publish(repo, args.directory, args.issue, run_url, policy.app_id)
+    elif args.stage == 'outcome':
+        report_file = args.directory / 'candidate-report.json'
+        report = json.loads((report_file if report_file.is_file() else args.report).read_text())
+        if not args.issue:
+            number = create_outcome_issue(repo, report, 'interrupted', run_url, args.directory)
+            append_github_output(Path(os.environ['GITHUB_OUTPUT']), {'issue':str(number)})
+            return
+        current = gh('api', f'repos/{repo}/issues/{args.issue}', '--jq', '.body')
+        checkpoint_run_id, artifact = checkpoint_reference(current, repo, policy.app_id)
+        publish_outcome(repo, args.issue, report, 'interrupted', run_url, args.directory,
+                        checkpoint_run_url=f'https://github.com/{repo}/actions/runs/{checkpoint_run_id}' if checkpoint_run_id else '',
+                        artifact=artifact or '', pr_url=adaptation_pr_reference(current, repo))
     elif args.stage == "checkpoint":
         record_checkpoint(repo, args.report, args.directory, args.issue, run_url, policy.app_id,
                           args.artifact_name, args.live)
@@ -445,9 +575,10 @@ def main():
         checkpoint_run_id = resume.get("checkpointRunId", "")
         checkpoint_artifact = resume.get("checkpointArtifact", "")
         checkpoint_url = f"https://github.com/{repo}/actions/runs/{checkpoint_run_id}" if checkpoint_run_id else ""
-        write_issue(repo, args.issue, issue_body(report, "ADAPTATION_RUNNING", run_url,
-                    resume.get("existingPr", ""), checkpoint_url, checkpoint_artifact,
-                    resume.get("existingPrHead", ""), resume.get("previousBlockers", [])), args.directory)
+        if args.issue:
+            write_issue(repo, args.issue, issue_body(report, "ADAPTATION_RUNNING", run_url,
+                        resume.get("existingPr", ""), checkpoint_url, checkpoint_artifact,
+                        resume.get("existingPrHead", ""), resume.get("previousBlockers", [])), args.directory)
         append_github_output(Path(os.environ["GITHUB_OUTPUT"]), {"pipeline_status": "ADAPTATION_RUNNING"})
 
 

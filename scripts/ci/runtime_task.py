@@ -7,7 +7,7 @@ import subprocess
 from pathlib import Path
 
 from scripts.ci.app_policy import policy_for_report, validate_targets
-from scripts.ci.codex_task import gh, issue_body, write_issue
+from scripts.ci.codex_task import gh, issue_body, write_issue, publish_outcome, create_outcome_issue
 from scripts.ci.discover_latest_wechat import append_github_output
 
 
@@ -102,13 +102,16 @@ def main():
     policy = policy_for_report(result, args.app_id)
     checkpoint_artifact = f'{policy.artifact_prefix}-{policy.app_id}-codex-adaptation'
     accepted_head = commit if result['status'] == 'RUNTIME_VERIFIED' else pr['headRefOid']
-    write_issue(repo, args.issue, issue_body(result, issue_status, run_url, args.pr,
-                run_url, checkpoint_artifact, accepted_head), directory)
-    result_note = directory / 'runtime-issue-result.md'
-    result_note.write_text(f"Hosted runtime result: `{result['status']}`\nRun: {run_url}\n")
-    if result['status'] in {'RUNTIME_VERIFIED', 'RUNTIME_REJECTED'}:
-        gh('issue', 'comment', str(args.issue), '--repo', repo, '--body-file', str(result_note))
-    close_issue_if_complete(repo, args.issue, result['status'])
+    if args.issue == '0' and result['status'] == 'RUNTIME_REJECTED':
+        args.issue = str(create_outcome_issue(repo, result, 'interrupted', run_url, directory,
+                                              checkpoint_run_url=run_url, artifact=checkpoint_artifact))
+    if args.issue != '0' and result['status'] in {'RUNTIME_VERIFIED', 'RUNTIME_REJECTED'}:
+        outcome = 'verified' if result['status'] == 'RUNTIME_VERIFIED' else 'interrupted'
+        publish_outcome(repo, args.issue, result, outcome, run_url, directory,
+                        result.get('adaptationSummary'), run_url, checkpoint_artifact, args.pr, accepted_head)
+    elif args.issue != '0':
+        write_issue(repo, args.issue, issue_body(result, issue_status, run_url, args.pr,
+                    run_url, checkpoint_artifact, accepted_head), directory)
     (directory / 'runtime-candidate-report.json').write_text(json.dumps(result, indent=2) + '\n')
     append_github_output(Path(os.environ['GITHUB_OUTPUT']), {'pipeline_status': result['status']})
     with Path(os.environ['GITHUB_STEP_SUMMARY']).open('a') as output:

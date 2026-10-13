@@ -243,6 +243,8 @@ def validate(directory):
                         "selectedDescriptor": h["expectedDescriptor"], "candidateDescriptors": [h["expectedDescriptor"]],
                         "message": "Verified against the adapted profile by the shared checker"}
                        for h in report["suggestedProfile"]["hooks"]]
+    from scripts.ci.adaptation_summary import read_summary
+    report["adaptationSummary"] = read_summary(worktree / "work/analysis/adaptation-summary.json")
     (directory / "candidate-report.json").write_text(json.dumps(report, indent=2) + "\n")
 
 

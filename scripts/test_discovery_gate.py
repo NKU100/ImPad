@@ -9,6 +9,10 @@ class DiscoveryGateTest(unittest.TestCase):
         self.profile = {'sourceUrl': self.url, 'verificationStatus': 'runtime-verified-local',
                         'identity': {'apkSha256': self.digest, 'versionCode': 3200}}
 
+    def test_failed_candidate_without_new_input_waits(self):
+        self.assertEqual('WAITING_FOR_INPUT', discovery_decision([], self.url, self.digest, False, 'wecom-package-arm64-83835-' + self.digest))
+        self.assertEqual('ANALYZE_CANDIDATE', discovery_decision([], self.url, 'b'*64, False, 'wecom-package-arm64-83835-' + self.digest))
+
     def test_exact_supported_apk_skips_heavy_jobs(self):
         for status in ('runtime-verified-local', 'runtime-verified-hosted'):
             self.profile['verificationStatus'] = status

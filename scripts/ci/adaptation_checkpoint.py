@@ -87,7 +87,9 @@ def capture_checkpoint(directory, issue_context=None):
     issue_resume = resume.get('issue', resume) if isinstance(resume, dict) else {}
     issue_fields = ('status', 'checkpointRunId', 'checkpointArtifact', 'existingPr', 'existingPrHead',
                     'previousRun', 'previousBlockers', 'ownerComments', 'consumedCommentId')
+    from scripts.ci.adaptation_summary import read_summary
     handoff = {
+        'summary': read_summary(worktree / 'work/analysis/adaptation-summary.json'),
         'issue': {key: issue_resume[key] for key in issue_fields if key in issue_resume}
         if isinstance(issue_resume, dict) else {},
         'diagnostics': diagnostics if diagnostics is not None else prior_handoff.get('diagnostics', {}),
@@ -159,6 +161,10 @@ def restore_checkpoint(directory, checkpoint_directory, issue_context=None):
     if any((worktree / path).is_symlink() for path in tracked + untracked):
         raise ValueError('Checkpoint must not restore symbolic links')
 
+    if handoff.get('summary'):
+        summary_path = worktree / 'work/analysis/adaptation-summary.json'
+        summary_path.parent.mkdir(parents=True, exist_ok=True)
+        summary_path.write_text(json.dumps(handoff['summary']) + '\n')
     issue_status = context.get('status')
     needs_model = not (manifest.get('stage') == 'static-verified-pending-runtime'
                        and issue_status != 'RUNTIME_REJECTED' and not context.get('ownerComments'))
@@ -190,14 +196,33 @@ def restore_checkpoint(directory, checkpoint_directory, issue_context=None):
     return {'needsModel': needs_model, 'stage': manifest.get('stage')}
 
 
+def reuse_published_checkpoint(directory):
+    """Never combine interrupted code with an earlier native-session snapshot."""
+    directory = Path(directory).resolve()
+    pointer = _read_json(directory / 'last-published-checkpoint.json', {})
+    source = Path(pointer.get('directory', '/unavailable')).resolve()
+    if directory not in source.parents or not (source / 'checkpoint.json').is_file():
+        return None
+    for name in ('checkpoint.json', 'checkpoint.patch', 'handoff.json', 'native-session.tar.age'):
+        shutil.copyfile(source / name, directory / name)
+    return json.loads((directory / 'checkpoint.json').read_text())
+
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('stage', choices=['capture', 'restore'])
     parser.add_argument('--directory', type=Path, required=True)
+    parser.add_argument('--last-published', action='store_true')
     parser.add_argument('--checkpoint-directory', type=Path)
     args = parser.parse_args()
     if args.stage == 'capture':
-        manifest = capture_checkpoint(args.directory)
+        manifest = reuse_published_checkpoint(args.directory) if args.last_published else capture_checkpoint(args.directory)
+        if manifest is None:
+            result = {'checkpoint_ready': 'false'}
+            if os.environ.get('GITHUB_OUTPUT'):
+                append_github_output(Path(os.environ['GITHUB_OUTPUT']), result)
+            print(json.dumps(result))
+            return
         result = {'checkpoint_ready': 'true', 'checkpoint_stage': manifest['stage']}
     else:
         result = restore_checkpoint(args.directory, args.checkpoint_directory or args.directory)

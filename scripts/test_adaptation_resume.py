@@ -41,6 +41,28 @@ class ResumeTest(unittest.TestCase):
                              result['pending_checkpoint_artifact'])
             self.assertIn('pending_adaptation=false', output.read_text())
 
+    def test_selected_app_reads_only_its_issues_comments_and_checkpoint(self):
+        issues = []
+        for number, app in ((10,'wechat'), (11,'wecom')):
+            issues.append({'number':number, 'state':'open', 'created_at':'2026-10-10',
+                           'user':{'login':'github-actions[bot]', 'type':'Bot'},
+                           'labels':[{'name':'impad-adaptation'}],
+                           'body':f'<!-- impad-adaptation:{app}-candidate -->\nStatus: `BLOCKED`\nCheckpoint run: https://github.com/NKU100/ImPad/actions/runs/{number}\nCheckpoint artifact: `impad-{app}-codex-adaptation-live-1-2`\n'})
+        for number, app in ((10,'wechat'), (11,'wecom')):
+            reads = []
+            def github(*args):
+                endpoint = args[-1]
+                if '/comments?' not in endpoint:
+                    return json.dumps([issues])
+                reads.append(endpoint)
+                return json.dumps([[{'id':number*100, 'body':'continue ' + app,
+                                    'user':{'login':'NKU100', 'type':'User'}}]])
+            with self.subTest(app=app), tempfile.TemporaryDirectory() as root, patch('scripts.ci.codex_task.gh', side_effect=github), patch.dict(os.environ, {'GITHUB_OUTPUT':str(Path(root)/'output')}), redirect_stdout(io.StringIO()):
+                result = codex_task.pending('NKU100/ImPad', app)
+                self.assertEqual([f'repos/NKU100/ImPad/issues/{number}/comments?per_page=100'], reads)
+                self.assertEqual(str(number), result['pending_issue'])
+                self.assertEqual(f'impad-{app}-codex-adaptation-live-1-2', result['pending_checkpoint_artifact'])
+
     def test_owner_comments_are_consumed_once_and_in_order(self):
         comments = [dict(id=i, body=b, user={'login':u,'type':'User'})
                     for i,b,u in [(4,'later','NKU100'),(2,'first','NKU100'),
@@ -53,7 +75,7 @@ class ResumeTest(unittest.TestCase):
         self.assertIsNone(codex_task.pending_attempt([issue],'wecom'))
 
     def test_native_resume_does_not_start_a_new_thread(self):
-        client=FakeClient()
+        client=FakeClient("complete")
         original=client.request
         def request(method,params):
             if method=='thread/resume':
@@ -61,7 +83,7 @@ class ResumeTest(unittest.TestCase):
                 return {'thread':{'id':'saved-thread'}}
             return original(method,params)
         client.request=request
-        with tempfile.TemporaryDirectory() as tmp, patch('scripts.ci.codex_goal.verify'), patch('scripts.ci.codex_goal.write_diagnostics'):
+        with tempfile.TemporaryDirectory() as tmp, patch('scripts.ci.codex_goal.persist_turn'), patch('scripts.ci.codex_goal.verify'), patch('scripts.ci.codex_goal.write_diagnostics'):
             run_goal(client,Path(tmp),'adapt',{'nativeThreadId':'saved-thread','ownerComments':[{'body':'fix'}]})
         self.assertFalse(any(m=='thread/start' for m,p in client.calls))
         self.assertTrue(any(m=='thread/resume' for m,p in client.calls))

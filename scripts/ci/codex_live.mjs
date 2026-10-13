@@ -1,5 +1,5 @@
 import {spawn, execFileSync} from 'node:child_process';
-import {readFile, readdir, mkdir, writeFile, copyFile, statfs} from 'node:fs/promises';
+import {readFile, readdir, mkdir, writeFile, copyFile, statfs, rename} from 'node:fs/promises';
 import path from 'node:path';
 import {pathToFileURL} from 'node:url';
 
@@ -17,10 +17,10 @@ export async function run(core) {
   let checkpointSequence = 0;
   let stopping = false;
   let signal = null;
-  const checkpoint_interval_ms = 10 * 60 * 1000;
-  let nextCheckpoint = Date.now() + checkpoint_interval_ms;
-  const child = spawn('python3', ['-m', 'scripts.ci.codex_adaptation', 'model',
-    '--directory', task, '--prompt', prompt], {cwd: controller, stdio: 'inherit'});
+  let acknowledged = 0;
+  let nextDiagnostics = 0;
+  const child = spawn('python3', ['-m', process.env.CODEX_CONTROLLER_MODULE || 'scripts.ci.codex_adaptation', 'model',
+    '--directory', task, '--prompt', prompt], {cwd: controller, stdio: 'inherit', env: {...process.env, CODEX_CHECKPOINT_HANDSHAKE: 'true'}});
   const finished = new Promise(resolve => {
     child.once('error', error => resolve({error: String(error)}));
     child.once('exit', (code, received) => resolve({code, signal: received}));
@@ -56,12 +56,18 @@ export async function run(core) {
         !files.includes(path.join(output, 'checkpoint.json'))) {
       throw new Error('Live native-session checkpoint is incomplete');
     }
-    const artifactName = `${process.env.ARTIFACT_PREFIX || 'impad'}-${process.env.APP_ID || 'wechat'}-codex-adaptation-live-${process.env.GITHUB_RUN_ATTEMPT || '1'}-${checkpointSequence}`;
+    const report = JSON.parse(await readFile(path.join(task, 'candidate-report.json'), 'utf8'));
+    const diagnostics = JSON.parse(await readFile(path.join(task, 'goal-diagnostics.json'), 'utf8'));
+    const checkpointStatus = ['running', 'verified', 'blocked', 'interrupted'].includes(diagnostics.status) ? diagnostics.status : 'interrupted';
+    const artifactName = `${process.env.ARTIFACT_PREFIX || 'impad'}-${process.env.APP_ID || 'wechat'}-codex-adaptation-live-${process.env.GITHUB_RUN_ATTEMPT || '1'}-${checkpointSequence}-${report.identity.apkSha256.toLowerCase()}-${checkpointStatus}`;
     await artifacts.uploadArtifact(artifactName, files, output, {retentionDays: 90});
-    execFileSync('python3', ['-m', 'scripts.ci.codex_task', 'checkpoint', '--app-id', process.env.APP_ID,
+    if (process.env.ADAPTATION_ISSUE !== '0') execFileSync('python3', ['-m', 'scripts.ci.codex_task', 'checkpoint', '--app-id', process.env.APP_ID,
       '--report', path.join(task, 'candidate-report.json'), '--directory', task,
       '--issue', process.env.ADAPTATION_ISSUE, '--artifact-name', artifactName, '--live'],
       {cwd: controller, stdio: 'pipe'});
+    const pointer = path.join(task, 'last-published-checkpoint.json');
+    await writeFile(pointer + '.tmp', JSON.stringify({directory: output, artifact: artifactName}), {mode: 0o600});
+    await rename(pointer + '.tmp', pointer);
     core.info(`Saved resumable checkpoint ${checkpointSequence} as ${artifactName}.`);
     return true;
   }
@@ -128,20 +134,31 @@ export async function run(core) {
   let outcome;
   try {
     while (!stopping) {
-      try {await snapshot();} catch (error) {core.warning(`Live diagnostic upload failed: ${error.message}`);}
-      if (Date.now() >= nextCheckpoint) {
-        try {await checkpoint();} catch (error) {core.warning(`Live adaptation checkpoint failed: ${error.message}`);}
-        nextCheckpoint = Date.now() + checkpoint_interval_ms;
+      if (Date.now() >= nextDiagnostics) {
+        try {await snapshot();} catch (error) {core.warning(`Live diagnostic upload failed: ${error.message}`);}
+        nextDiagnostics = Date.now() + 60000;
+      }
+      const request = await readFile(path.join(task, 'checkpoint-request.json'), 'utf8')
+        .then(JSON.parse).catch(() => null);
+      if (request && request.sequence > acknowledged) {
+        let error;
+        let saved = false;
+        for (let attempt = 0; attempt < 3 && !saved; attempt++) {
+          try {saved = await checkpoint();} catch (failure) {error = failure.message;}
+        }
+        const ack = path.join(task, 'checkpoint-ack.json');
+        await writeFile(ack + '.tmp', JSON.stringify({sequence: request.sequence, saved, error}), {mode: 0o600});
+        await rename(ack + '.tmp', ack);
+        acknowledged = request.sequence;
       }
       let timer;
-      const tick = new Promise(resolve => {timer = setTimeout(() => resolve(null), 60000);});
+      const tick = new Promise(resolve => {timer = setTimeout(() => resolve(null), 1000);});
       outcome = await Promise.race([finished, tick]);
       clearTimeout(timer);
       if (outcome) break;
     }
     outcome ??= await finished;
     try {await snapshot();} catch (error) {core.warning(`Final diagnostic upload failed: ${error.message}`);}
-    try {await checkpoint();} catch (error) {core.warning(`Final live adaptation checkpoint failed: ${error.message}`);}
     if (outcome.code !== 0) core.setFailed(`Codex controller exited: ${JSON.stringify(outcome)}`);
   } finally {
     process.off('SIGTERM', term);

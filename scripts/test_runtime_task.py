@@ -78,7 +78,7 @@ class RuntimeTaskTest(unittest.TestCase):
                    'GITHUB_OUTPUT': str(root / 'output'), 'GITHUB_STEP_SUMMARY': str(root / 'summary')}
             with patch.dict(os.environ, env), patch('sys.argv', ['runtime_task', '--directory', str(root),
                       '--smoke', str(root / 'missing.json'), '--conclusion', 'cancelled', '--pr', '1',
-                      '--head', 'tested', '--issue', '2']), patch('scripts.ci.runtime_task.gh', side_effect=github), patch('scripts.ci.runtime_task.write_issue'):
+                      '--head', 'tested', '--issue', '2']), patch('scripts.ci.runtime_task.gh', side_effect=github), patch('scripts.ci.runtime_task.write_issue'), patch('scripts.ci.runtime_task.publish_outcome'):
                 main()
             result = json.loads((root / 'runtime-candidate-report.json').read_text())
             self.assertEqual(result['status'], 'STATIC_VERIFIED_PENDING_RUNTIME')
@@ -123,7 +123,7 @@ class RuntimeTaskTest(unittest.TestCase):
                 os.chdir(checkout)
                 with patch.dict(os.environ, env), patch('sys.argv', ['runtime_task', '--directory', str(directory),
                            '--smoke', str(evidence), '--conclusion', 'success', '--pr', 'https://github.com/owner/repo/pull/1',
-                           '--head', head, '--issue', '2']), patch('scripts.ci.runtime_task.gh', side_effect=[json.dumps(pr), '', '', '', '']), patch('scripts.ci.runtime_task.write_issue'):
+                           '--head', head, '--issue', '2']), patch('scripts.ci.runtime_task.gh', side_effect=[json.dumps(pr), '', '', '', '']), patch('scripts.ci.runtime_task.write_issue'), patch('scripts.ci.runtime_task.publish_outcome'):
                     main()
             finally:
                 os.chdir(previous)
