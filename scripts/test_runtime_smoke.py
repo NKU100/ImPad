@@ -28,6 +28,19 @@ class UiEvidenceTest(unittest.TestCase):
             smoke.configure_manager()
         tap.assert_called_once_with(node)
 
+    def test_manager_state_survives_text_adb_transport(self):
+        import base64,sqlite3
+        with tempfile.TemporaryDirectory() as root:
+            path=Path(root)/'db'
+            with sqlite3.connect(path) as connection:
+                connection.execute('CREATE TABLE modules(module_pkg_name TEXT, enabled INTEGER)')
+                connection.execute('INSERT INTO modules VALUES(?,1)', (smoke.MODULE,))
+            payload=base64.encodebytes(path.read_bytes()).replace(b'\n', b'\r\n')
+            def read(command, **kwargs):
+                return subprocess.CompletedProcess([], 1, b'', b'no wal') if command.endswith('-wal') else subprocess.CompletedProcess([],0,payload,b'')
+            with patch.object(smoke,'EVIDENCE',Path(root)), patch.object(smoke,'su',side_effect=read):
+                self.assertIs(True, smoke.manager_module_enabled())
+
     def test_manager_database_state_is_package_specific_and_read_only(self):
         import sqlite3
         with tempfile.TemporaryDirectory() as root:

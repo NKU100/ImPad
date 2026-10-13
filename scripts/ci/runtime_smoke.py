@@ -1,6 +1,7 @@
 """Verify official LSPosed and WeChat login UI on a disposable hosted AVD."""
 
 import hashlib
+import base64
 import json
 import importlib
 import csv
@@ -227,21 +228,28 @@ def module_enabled_from_database(path):
 def manager_module_enabled():
     # Compose Manager exposes no switch state through the hierarchy dump.
     # Read a local database snapshot; all changes still use the official UI.
+    state_path = EVIDENCE / 'manager-module-state.json'
+    def unavailable(reason):
+        state_path.write_text(json.dumps({'module':MODULE, 'enabled':None, 'reason':reason}) + '\n')
+        return None
     with tempfile.TemporaryDirectory(prefix='impad-manager-state-') as temporary:
         db = Path(temporary) / 'modules_config.db'
         for suffix in ('', '-wal'):
-            command = MAGISK + ' su -c ' + shlex.quote('cat /data/adb/lspd/config/modules_config.db' + suffix)
-            result = adb('exec-out', command, check=False)
+            result = su('base64 /data/adb/lspd/config/modules_config.db' + suffix, check=False)
             if result.returncode:
                 if not suffix:
-                    return None
+                    return unavailable(result.stderr.decode(errors='replace')[-1000:])
                 continue
-            Path(str(db) + suffix).write_bytes(result.stdout)
+            try:
+                payload = base64.b64decode(b''.join(result.stdout.split()), validate=True)
+            except ValueError:
+                return unavailable('Invalid base64 database transport')
+            Path(str(db) + suffix).write_bytes(payload)
         try:
             value = module_enabled_from_database(db)
-        except (sqlite3.Error, ValueError):
-            return None
-        (EVIDENCE / 'manager-module-state.json').write_text(json.dumps({'module':MODULE, 'enabled':value}) + '\n')
+        except (sqlite3.Error, ValueError) as error:
+            return unavailable(str(error))
+        state_path.write_text(json.dumps({'module':MODULE, 'enabled':value}) + '\n')
         return value
 
 
