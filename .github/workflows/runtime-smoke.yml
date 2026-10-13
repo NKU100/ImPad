@@ -15,6 +15,14 @@ on:
         description: Successful Build module APK run to reuse
         type: string
         required: true
+      module_artifact:
+        description: Module APK artifact to reuse from the specified run
+        type: string
+        default: ''
+      candidate_artifact:
+        description: Statically verified candidate artifact to replay from the specified run
+        type: string
+        default: ''
 
   workflow_call:
     inputs:

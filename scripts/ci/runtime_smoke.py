@@ -10,6 +10,8 @@ from pathlib import Path
 import re
 import shlex
 import subprocess
+import sqlite3
+import tempfile
 import sys
 import time
 import xml.etree.ElementTree as ET
@@ -209,9 +211,46 @@ def bootstrap_magisk():
     adb('install', '-r', str(ROOT / 'magisk.apk'), timeout=120)
 
 
+def module_enabled_from_database(path):
+    connection = sqlite3.connect(Path(path).resolve().as_uri() + '?mode=ro', uri=True)
+    try:
+        rows = connection.execute('SELECT enabled FROM modules WHERE module_pkg_name=?', (MODULE,)).fetchall()
+    finally:
+        connection.close()
+    if not rows:
+        return None
+    if len(rows) != 1 or rows[0][0] not in (0,1):
+        raise ValueError('Unexpected LSPosed module enabled state')
+    return bool(rows[0][0])
+
+
+def manager_module_enabled():
+    # Compose Manager exposes no switch state through the hierarchy dump.
+    # Read a local database snapshot; all changes still use the official UI.
+    with tempfile.TemporaryDirectory(prefix='impad-manager-state-') as temporary:
+        db = Path(temporary) / 'modules_config.db'
+        for suffix in ('', '-wal'):
+            command = MAGISK + ' su -c ' + shlex.quote('cat /data/adb/lspd/config/modules_config.db' + suffix)
+            result = adb('exec-out', command, check=False)
+            if result.returncode:
+                if not suffix:
+                    return None
+                continue
+            Path(str(db) + suffix).write_bytes(result.stdout)
+        try:
+            value = module_enabled_from_database(db)
+        except (sqlite3.Error, ValueError):
+            return None
+        (EVIDENCE / 'manager-module-state.json').write_text(json.dumps({'module':MODULE, 'enabled':value}) + '\n')
+        return value
+
+
 def configure_manager():
     adb('shell', 'am', 'start', '-n', 'org.lsposed.manager/.ui.activity.MainActivity')
     for _ in range(10):
+        state = manager_module_enabled()
+        if state is True:
+            return
         _, ui = snapshot('manager-current')
         enabled = unique_node(ui, lambda n: 'Switch' in n.get('class', '') and n.get('checkable') == 'true')
         if enabled is not None and any(n.get('text') == MODULE_LABEL for n in nodes(ui)):
@@ -225,10 +264,16 @@ def configure_manager():
         tsv = manager_ocr()
         enable = ocr_target(tsv, 'Enable module')
         if enable is not None:
+            if state is None:
+                time.sleep(2)
+                continue
             tap(enable)
             snapshot('manager-enable-requested')
-            # The final hook logs and QR page verify that enabling took effect.
-            return
+            for _ in range(3):
+                if manager_module_enabled() is True:
+                    return
+                time.sleep(1)
+            raise RuntimeError('Manager enable action did not persist the enabled state')
         node = unique_node(ui, lambda n: n.get('text') == MODULE_LABEL)
         if node is None:
             node = ocr_target(tsv, MODULE_LABEL)

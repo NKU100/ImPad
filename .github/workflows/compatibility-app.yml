@@ -1010,7 +1010,7 @@ jobs:
   runtime:
     name: Smoke adapted candidate on hosted AVD
     needs: [prepare, adapt]
-    if: needs.adapt.outputs.pr_url != ''
+    if: ${{ !cancelled() && needs.adapt.outputs.pr_url != '' }}
     permissions:
       contents: read
       actions: read

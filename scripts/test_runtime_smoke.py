@@ -17,6 +17,28 @@ spec.loader.exec_module(smoke)
 
 
 class UiEvidenceTest(unittest.TestCase):
+    def test_already_enabled_manager_is_not_toggled_off(self):
+        with patch.object(smoke, 'adb'), patch.object(smoke, 'manager_module_enabled', return_value=True), patch.object(smoke, 'tap') as tap:
+            smoke.configure_manager()
+        tap.assert_not_called()
+
+    def test_disabled_manager_is_enabled_once_and_state_confirmed(self):
+        node=ET.Element('node', {'bounds':'[1,1][5,5]'})
+        with patch.object(smoke, 'adb'), patch.object(smoke, 'manager_module_enabled', side_effect=[False,True]), patch.object(smoke, 'snapshot', return_value=('', '<hierarchy/>')), patch.object(smoke, 'manager_ocr', return_value='Enable module'), patch.object(smoke, 'ocr_target', return_value=node), patch.object(smoke, 'tap') as tap:
+            smoke.configure_manager()
+        tap.assert_called_once_with(node)
+
+    def test_manager_database_state_is_package_specific_and_read_only(self):
+        import sqlite3
+        with tempfile.TemporaryDirectory() as root:
+            path = Path(root)/'modules.db'
+            with sqlite3.connect(path) as connection:
+                connection.execute('CREATE TABLE modules(module_pkg_name TEXT, enabled INTEGER)')
+                connection.executemany('INSERT INTO modules VALUES(?,?)', [(smoke.MODULE,0), ('other',1)])
+            before=path.read_bytes()
+            self.assertIs(False, smoke.module_enabled_from_database(path))
+            self.assertEqual(before, path.read_bytes())
+
     def test_module_package_scope_entry_and_display_metadata(self):
         root = Path(__file__).resolve().parents[1]
         resources = ET.parse(root / 'app/src/main/res/values/strings.xml').getroot()

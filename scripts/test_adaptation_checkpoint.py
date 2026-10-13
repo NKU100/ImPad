@@ -52,6 +52,11 @@ class AdaptationCheckpointTest(unittest.TestCase):
         self.assertIn("steps.pending-adaptation.outputs.pending_adaptation != 'true'", step)
         self.assertIn("targets: ${{ steps.targets.outputs.matrix || '[]' }}", shared)
 
+    def test_runtime_replay_is_not_suppressed_by_skipped_discovery_dependencies(self):
+        shared = (Path(__file__).resolve().parents[1]/'.github/workflows/compatibility-app.yml').read_text()
+        runtime = shared.split('\n  runtime:', 1)[1].split('\n  runtime-result:', 1)[0]
+        self.assertIn("if: ${{ !cancelled() && needs.adapt.outputs.pr_url != '' }}", runtime)
+
     def test_common_workflow_locks_before_any_jobs_for_both_entry_paths(self):
         root = Path(__file__).resolve().parents[1]
         shared = (root / '.github/workflows/compatibility-app.yml').read_text()
