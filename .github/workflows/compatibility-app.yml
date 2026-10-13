@@ -57,7 +57,7 @@ jobs:
       targets_path: ${{ steps.policy.outputs.targets_path }}
       artifact_prefix: ${{ steps.policy.outputs.artifact_prefix }}
       adaptation_prompt: ${{ steps.policy.outputs.adaptation_prompt }}
-      targets: ${{ steps.targets.outputs.matrix }}
+      targets: ${{ steps.targets.outputs.matrix || '[]' }}
       skip_heavy: ${{ steps.pending-adaptation.outputs.pending_adaptation == 'true' && 'true' || steps.discovery-gate.outputs.skip_heavy }}
       source_url: ${{ steps.discover.outputs.source_url }}
       expected_sha256: ${{ steps.discover.outputs.expected_sha256 }}
@@ -171,7 +171,7 @@ jobs:
           retention-days: 14
 
       - name: Select the latest-three regression window
-        if: steps.discovery-gate.outputs.skip_heavy != 'true'
+        if: steps.pending-adaptation.outputs.pending_adaptation != 'true' && steps.discovery-gate.outputs.skip_heavy != 'true'
         id: targets
         env:
           WECHAT_CANDIDATE_VERSION_CODE: ${{ steps.discover.outputs.version_code_hint }}

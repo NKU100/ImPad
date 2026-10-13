@@ -46,6 +46,12 @@ class AdaptationCheckpointTest(unittest.TestCase):
             self.assertIn('ACTIONS_RESULTS_URL', workflow)
         self.assertEqual(4, smoke.count('apparmor_restrict_unprivileged_userns'))
 
+    def test_owner_feedback_resume_skips_discovery_based_window_selection(self):
+        shared = (Path(__file__).resolve().parents[1]/'.github/workflows/compatibility-app.yml').read_text()
+        step = shared.split('      - name: Select the latest-three regression window', 1)[1].split('      - name:', 1)[0]
+        self.assertIn("steps.pending-adaptation.outputs.pending_adaptation != 'true'", step)
+        self.assertIn("targets: ${{ steps.targets.outputs.matrix || '[]' }}", shared)
+
     def test_common_workflow_locks_before_any_jobs_for_both_entry_paths(self):
         root = Path(__file__).resolve().parents[1]
         shared = (root / '.github/workflows/compatibility-app.yml').read_text()
