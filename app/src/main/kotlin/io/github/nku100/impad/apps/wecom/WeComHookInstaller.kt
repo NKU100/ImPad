@@ -17,15 +17,27 @@ class WeComHookInstaller(
         deviceTypeMethod: Method,
         applicationPadMethod: Method,
         servicePadMethod: Method,
-    ): InstallOutcome = installer.install(
-        listOf(
-            HookSpec(deviceTypeMethod, DEVICE_TYPE_HOOK_ID, HookCallback(callbacks::deviceType)),
-            HookSpec(applicationPadMethod, APPLICATION_PAD_HOOK_ID, HookCallback(callbacks::applicationIsPad)),
-            HookSpec(servicePadMethod, SERVICE_PAD_HOOK_ID, HookCallback(callbacks::serviceIsPad)),
-        ),
-    )
+    ): InstallOutcome {
+        val deviceTypeCallback = if (
+            deviceTypeMethod.name == SERVICE_DEVICE_TYPE_METHOD &&
+            deviceTypeMethod.parameterTypes.isEmpty() &&
+            deviceTypeMethod.returnType == Int::class.javaPrimitiveType
+        ) {
+            HookCallback(callbacks::serviceDeviceType)
+        } else {
+            HookCallback(callbacks::deviceType)
+        }
+        return installer.install(
+            listOf(
+                HookSpec(deviceTypeMethod, DEVICE_TYPE_HOOK_ID, deviceTypeCallback),
+                HookSpec(applicationPadMethod, APPLICATION_PAD_HOOK_ID, HookCallback(callbacks::applicationIsPad)),
+                HookSpec(servicePadMethod, SERVICE_PAD_HOOK_ID, HookCallback(callbacks::serviceIsPad)),
+            ),
+        )
+    }
 
     private companion object {
+        const val SERVICE_DEVICE_TYPE_METHOD = "getDeviceType"
         const val DEVICE_TYPE_HOOK_ID = "impad_wecom_device_type"
         const val APPLICATION_PAD_HOOK_ID = "impad_wecom_app_pad"
         const val SERVICE_PAD_HOOK_ID = "impad_wecom_service_pad"
