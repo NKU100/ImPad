@@ -78,7 +78,7 @@ jobs:
       - uses: android-actions/setup-android@v4
         with:
           packages: ''
-      - name: Prepare pinned QQ independent observer
+      - name: Build trusted QQ kernel packet collector
         if: env.APP_ID == 'qq'
         run: python3 -m scripts.ci.apps.qq.prepare_probe --root work/runtime-smoke --abi x86_64
       - name: Reuse module build

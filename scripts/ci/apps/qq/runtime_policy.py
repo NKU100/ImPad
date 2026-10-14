@@ -34,8 +34,7 @@ def hook_diagnostics(logs):
 
 
 def validate_request_evidence(proof, apk_sha256, module_sha256, expectation):
-    from pathlib import Path
-    import hashlib
+    from scripts.ci.apps.qq.packet_capture import CAPTURE_KIND, observer_source_digest
     from scripts.ci.apps.qq.request_protocol import CONTRACT, SECURITY_COMMANDS
     digest = lambda value: isinstance(value, str) and re.fullmatch(r'[a-f0-9]{64}', value) is not None
     if not isinstance(proof, dict) or not digest(apk_sha256) or not digest(module_sha256):
@@ -52,7 +51,9 @@ def validate_request_evidence(proof, apk_sha256, module_sha256, expectation):
     phone, tablet = proof.get('phoneAppId'), proof.get('tabletAppId')
     if type(phone) is not int or type(tablet) is not int or not 0 < phone <= 0x7fffffff or not 0 < tablet <= 0x7fffffff or phone == tablet:
         return False
-    observer = hashlib.sha256(Path(__file__).with_name('probe').joinpath('agent.js').read_bytes()).hexdigest()
+    observer = observer_source_digest()
+    uids = set()
+    binaries = set()
     commands = []
     for key, enabled, expected in [('disabled', False, phone), ('enabled', True, tablet)]:
         value = proof.get(key)
@@ -63,6 +64,20 @@ def validate_request_evidence(proof, apk_sha256, module_sha256, expectation):
                 or value.get('apkSha256') != apk_sha256 or value.get('moduleApkSha256') != module_sha256
                 or value.get('observerSha256') != observer or value.get('processName') != 'com.tencent.mobileqq:MSF'):
             return False
+        if (value.get('ndkVersion') != '29.0.14206865' or value.get('captureKind') != CAPTURE_KIND or value.get('ownershipVerified') is not True
+                or type(value.get('kernelDrops')) is not int or value['kernelDrops'] != 0
+                or type(value.get('partialStreams')) is not int or value['partialStreams'] != 0
+                or type(value.get('appUid')) is not int or not 10000 <= value['appUid'] <= 0x7fffffff
+                or not digest(value.get('collectorBinarySha256'))):
+            return False
+        owners = value.get('owners')
+        if not isinstance(owners, list) or not 1 <= len(owners) <= 64:
+            return False
+        for owner in owners:
+            if (not isinstance(owner, dict) or any(type(owner.get(k)) is not int or not 0 < owner[k] <= 0xffffffffffffffff for k in ('pid', 'uid', 'started', 'inode'))
+                    or owner['uid'] != value['appUid'] or owner['pid'] > 0x7fffffff):
+                return False
+        uids.add(value['appUid']); binaries.add(value['collectorBinarySha256'])
         frames = value.get('frames')
         if not isinstance(frames, list) or not 1 <= len(frames) <= 2048:
             return False
@@ -74,4 +89,4 @@ def validate_request_evidence(proof, apk_sha256, module_sha256, expectation):
                 return False
             seen.add(frame['command'])
         commands.append(seen)
-    return bool(commands[0] & commands[1])
+    return len(uids) == len(binaries) == 1 and bool(commands[0] & commands[1])

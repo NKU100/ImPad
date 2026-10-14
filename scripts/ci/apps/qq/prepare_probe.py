@@ -1,45 +1,40 @@
-"""Prepare pinned QQ observation tools in the trusted controller's runtime directory."""
+"""Compile the trusted external collector for the AVD's native ABI."""
 import argparse
 import hashlib
-import lzma
+import json
+import os
 from pathlib import Path
-import shutil
+import platform
 import subprocess
-from urllib.request import urlopen
-import venv
+from scripts.ci.apps.qq.packet_capture import observer_source_digest
 
-VERSION = '17.23.1'
-SERVER_DIGESTS = {
-    'arm64': '3f490e9812dae7f050c0132f2b734612e823cc273e92bcc40874082f01b92f1f',
-    'x86_64': '612a1036adee065aa4434511c4024b4b0e0c815c7b8f63b4997b288a10669ade',
-}
+NDK_VERSION = '29.0.14206865'
+TARGETS = {'arm64':'aarch64-linux-android29', 'x86_64':'x86_64-linux-android29'}
 
 
 def prepare(root, abi):
-    tool = root / 'qq-probe'
-    tool.mkdir(parents=True, exist_ok=True)
-    archive = tool / 'server.xz'
-    expected = SERVER_DIGESTS[abi]
-    if not archive.is_file() or hashlib.sha256(archive.read_bytes()).hexdigest() != expected:
-        url = f'https://github.com/frida/frida/releases/download/{VERSION}/frida-server-{VERSION}-android-{abi}.xz'
-        with urlopen(url, timeout=120) as response:
-            body = response.read(60_000_001)
-        if len(body) > 60_000_000 or hashlib.sha256(body).hexdigest() != expected:
-            raise ValueError('Frida server archive does not match its pinned SHA-256')
-        archive.write_bytes(body)
-    (tool / 'frida-server').write_bytes(lzma.decompress(archive.read_bytes()))
-    venv.EnvBuilder(with_pip=True).create(tool / 'venv')
-    subprocess.run([str(tool / 'venv/bin/python'), '-m', 'pip', 'install', f'frida=={VERSION}'], check=True)
-    shutil.copyfile(Path(__file__).parent / 'probe/agent.js', tool / 'agent.js')
+    if abi not in TARGETS:
+        raise ValueError('Unsupported collector ABI')
+    sdk=Path(os.environ.get('ANDROID_HOME') or os.environ.get('ANDROID_SDK_ROOT',''))
+    ndk=sdk/'ndk'/NDK_VERSION
+    if not ndk.is_dir():
+        subprocess.run(['sdkmanager','ndk;'+NDK_VERSION],check=True,timeout=600)
+    host={'Darwin':'darwin-x86_64','Linux':'linux-x86_64'}.get(platform.system())
+    if host is None:
+        raise ValueError('Unsupported collector build host')
+    compiler=ndk/'toolchains/llvm/prebuilt'/host/'bin'/(TARGETS[abi]+'-clang')
+    tool=Path(root)/'qq-probe';tool.mkdir(parents=True,exist_ok=True)
+    binary=tool/'collector'
+    subprocess.run([str(compiler),'-O2','-Wall','-Wextra','-Werror','-fPIE','-pie',
+                    '-Wl,-z,max-page-size=16384',str(Path(__file__).parent/'probe/collector.c'),'-o',str(binary)],check=True,timeout=120)
+    (tool/'collector.json').write_text(json.dumps(dict(abi=abi,ndkVersion=NDK_VERSION,
+                    observerSha256=observer_source_digest(),binarySha256=hashlib.sha256(binary.read_bytes()).hexdigest()),indent=2)+'\n')
 
 
 def main():
-    parser = argparse.ArgumentParser()
-    parser.add_argument('--root', type=Path, required=True)
-    parser.add_argument('--abi', choices=SERVER_DIGESTS, required=True)
-    args = parser.parse_args()
-    prepare(args.root.resolve(), args.abi)
+    parser=argparse.ArgumentParser();parser.add_argument('--root',type=Path,required=True)
+    parser.add_argument('--abi',choices=TARGETS,required=True);args=parser.parse_args()
+    prepare(args.root.resolve(),args.abi)
 
 
-if __name__ == '__main__':
-    main()
+if __name__=='__main__':main()

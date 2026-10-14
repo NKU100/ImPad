@@ -40,10 +40,13 @@ def packet(appid=10, command=None, account=b'0', flag=2):
 
 
 def proof(apk='a'*64, module='b'*64):
-    observer = hashlib.sha256(Path('scripts/ci/apps/qq/probe/agent.js').read_bytes()).hexdigest()
+    from scripts.ci.apps.qq.packet_capture import observer_source_digest, CAPTURE_KIND
+    observer = observer_source_digest()
     base = dict(contract=CONTRACT, captureHealthy=True, errors=[], apkSha256=apk,
                 moduleApkSha256=module, observerSha256=observer,
-                processName='com.tencent.mobileqq:MSF', scopeVerified=True)
+                processName='com.tencent.mobileqq:MSF', scopeVerified=True, captureKind=CAPTURE_KIND,
+                ndkVersion='29.0.14206865', ownershipVerified=True, kernelDrops=0, partialStreams=0, appUid=10232, collectorBinarySha256='c'*64,
+                owners=[dict(pid=123,uid=10232,started=44,inode=55)])
     cmd = sorted(SECURITY_COMMANDS)[0]
     return dict(contract=CONTRACT, phoneAppId=10, tabletAppId=20,
                 disabled=dict(base, moduleEnabled=False, frames=[dict(command=cmd, packetAppId=10, sequence=1)]),
@@ -114,6 +117,16 @@ class QqRequestTest(unittest.TestCase):
         bad = copy.deepcopy(good);bad['enabled']['frames'].append(dict(command=sorted(SECURITY_COMMANDS)[1], packetAppId=10, sequence=3))
         self.assertFalse(validate_request_evidence(bad, 'a'*64, 'b'*64, expectation()))
 
+
+
+    def test_kernel_ownership_and_capture_contract_are_required(self):
+        for key,value in [('captureKind','FRIDA'),('ownershipVerified',False),('kernelDrops',1),
+                          ('kernelDrops',False),('partialStreams',1),('appUid',False),('owners',[]),
+                          ('collectorBinarySha256','bad')]:
+            p=proof();p['enabled'][key]=value
+            self.assertFalse(validate_request_evidence(p,'a'*64,'b'*64,expectation()))
+        p=proof();p['enabled']['owners'][0]['uid']=123
+        self.assertFalse(validate_request_evidence(p,'a'*64,'b'*64,expectation()))
 
 if __name__ == '__main__':
     unittest.main()

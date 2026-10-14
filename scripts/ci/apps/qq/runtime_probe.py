@@ -9,6 +9,8 @@ import sqlite3
 import subprocess
 import tempfile
 import time
+import shlex
+import threading
 import xml.etree.ElementTree as ET
 from scripts.ci.apps.qq.request_protocol import CONTRACT, SECURITY_COMMANDS
 
@@ -90,10 +92,14 @@ def navigate(smoke):
         labels |= {'Agree', '\u540c\u610f'}
         if welcome:
             labels |= {'\u767b\u5f55', 'Log in', 'Login'}
-    target = smoke.unique_node(xml, lambda n: n.get('package') == smoke.APP_PACKAGE and
-                              n.get('enabled') != 'false' and n.get('text', '').strip() in labels)
-    if target is not None:
-        smoke.tap(target)
+    priority = ['QID/邮箱登录', '账密登录', 'Log in with password', '其他方式登录', 'Other login methods', '同意', 'Agree', '登录', 'Log in', 'Login']
+    for label in priority:
+        if label not in labels:
+            continue
+        target = smoke.unique_node(xml, lambda n: n.get('package') == smoke.APP_PACKAGE and n.get('enabled') != 'false' and n.get('text', '').strip() == label)
+        if target is not None:
+            smoke.tap(target)
+            return
 
 
 def configure_manager(smoke, enabled):
@@ -106,9 +112,9 @@ def configure_manager(smoke, enabled):
 
 
 def observe(smoke, enabled):
+    from scripts.ci.apps.qq.packet_capture import TcpCapture, observer_source_digest
+    from scripts.ci.apps.qq.prepare_probe import NDK_VERSION
     root = smoke.ROOT
-    system_abi = smoke.adb('shell', 'getprop', 'ro.product.cpu.abi').stdout.decode().strip()
-    realm = 'emulated' if system_abi in ('x86', 'x86_64') else 'native'
     expected_hash = smoke.apk_digest(root / 'qq.apk')
     if installed_hash(smoke, smoke.APP_PACKAGE) != expected_hash:
         raise ValueError('Installed QQ differs from the exact candidate')
@@ -116,106 +122,113 @@ def observe(smoke, enabled):
     state = manager_state(smoke)
     if state['moduleEnabled'] is not enabled:
         raise RuntimeError('LSPosed did not persist the requested module state')
+    package = smoke.adb('shell', 'cmd', 'package', 'list', 'packages', '-U', smoke.APP_PACKAGE).stdout.decode()
+    matches = re.findall(r'^package:com\.tencent\.mobileqq uid:([0-9]+)$', package, re.MULTILINE)
+    if len(matches) != 1 or not 10000 <= int(matches[0]) <= 0x7fffffff:
+        raise RuntimeError('Cannot independently resolve QQ UID')
+    uid = int(matches[0])
+    abi = smoke.adb('shell', 'getprop', 'ro.product.cpu.abi').stdout.decode().strip()
+    metadata = json.loads((root / 'qq-probe/collector.json').read_text())
+    binary = root / 'qq-probe/collector'
+    digest = hashlib.sha256(binary.read_bytes()).hexdigest()
+    if (metadata.get('ndkVersion') != NDK_VERSION or metadata.get('observerSha256') != observer_source_digest() or metadata.get('binarySha256') != digest
+            or metadata.get('abi') != {'arm64-v8a':'arm64','x86_64':'x86_64'}.get(abi)):
+        raise ValueError('Prepared collector differs from trusted sources or device ABI')
+    smoke.enable_page_size_backcompat()
     smoke.adb('shell', 'am', 'force-stop', smoke.APP_PACKAGE)
     for _ in range(30):
         if not smoke.adb('shell', 'pidof', 'com.tencent.mobileqq:MSF', check=False).stdout.strip():
             break
-        time.sleep(0.2)
+        time.sleep(.2)
     else:
         raise RuntimeError('Previous QQ MSF did not stop')
-    smoke.adb('shell', 'am', 'start', '-n', smoke.UI_STRATEGY.launcher_component)
-    previous_pid = None
-    stable = 0
-    for _ in range(30):
-        pids = smoke.adb('shell', 'pidof', 'com.tencent.mobileqq:MSF', check=False).stdout.decode().split()
-        if len(pids) == 1:
-            stable = stable + 1 if pids[0] == previous_pid else 1
-            previous_pid = pids[0]
-            if stable >= 6:
-                break
-        else:
-            previous_pid, stable = None, 0
-        time.sleep(1)
-    else:
-        raise RuntimeError('QQ MSF did not start')
-    remote = '/data/local/tmp/impad-qq-wire-server'
-    if smoke.su('pidof impad-qq-wire-server', check=False).stdout.strip():
-        raise RuntimeError('An unowned QQ wire observer is already running')
-    smoke.adb('push', str(root / 'qq-probe/frida-server'), remote)
-    smoke.su('chmod 700 ' + remote)
-    pid_file = '/data/local/tmp/impad-qq-wire.pid'
-    smoke.su('rm -f ' + pid_file)
-    port = server_pid = client = None
-    ready = smoke.EVIDENCE / 'qq-wire-ready'
-    ready.unlink(missing_ok=True)
+    remote = '/data/local/tmp/impad-qq-collector'
+    if smoke.su('pidof impad-qq-collector', check=False).stdout.strip():
+        raise RuntimeError('An unowned QQ collector is already running')
+    pid_file = remote + '.pid'
+    capture = TcpCapture(uid)
+    ready = threading.Event()
+    client = reader = None
+    (smoke.EVIDENCE / 'qq-collector-error.txt').unlink(missing_ok=True)
+    errors = tempfile.TemporaryFile()
     try:
-        server_pid = smoke.su(f'{remote} -l 127.0.0.1:27043 </dev/null >/data/local/tmp/impad-qq-wire.log 2>&1 & echo $! >{pid_file}; cat {pid_file}').stdout.decode().strip()
-        if not re.fullmatch(r'[1-9][0-9]*', server_pid) or int(server_pid) <= 1:
-            raise RuntimeError('Observer server PID is invalid')
-        port = smoke.adb('forward', 'tcp:0', 'tcp:27043').stdout.decode().strip()
-        if not port.isdigit() or not 0 < int(port) < 65536:
-            raise RuntimeError('Observer forwarding port is invalid')
-        output = tempfile.TemporaryFile()
-        errors = tempfile.TemporaryFile()
-        try:
-            client = subprocess.Popen([str(root / 'qq-probe/venv/bin/python'), '-m',
-                                       'scripts.ci.apps.qq.probe_client', '--port', port,
-                                       '--pid', pids[0], '--agent', str(root / 'qq-probe/agent.js'),
-                                       '--realm', realm,
-                                       '--ready', str(ready), '--seconds', '30'], stdout=output, stderr=errors)
-            deadline = time.monotonic() + 45
-            while not ready.exists():
-                if client.poll() is not None or time.monotonic() > deadline:
-                    raise RuntimeError('Network observer did not become ready')
-                time.sleep(0.2)
-            while client.poll() is None:
-                if time.monotonic() > deadline:
-                    raise RuntimeError('Network observer timed out')
-                navigate(smoke)
-                time.sleep(1)
-            output.seek(0)
-            if client.returncode:
-                errors.seek(0)
-                diagnostic = errors.read().decode(errors='replace')[-2000:]
-                (smoke.EVIDENCE / 'qq-wire-client-error.txt').write_text(diagnostic)
-                raise RuntimeError('Network observer failed: ' + diagnostic.splitlines()[-1] if diagnostic.splitlines() else 'Network observer failed')
-            observed = json.loads(output.read())
-        except Exception:
-            errors.seek(0)
-            diagnostic = errors.read().decode(errors='replace')[-4000:]
-            if diagnostic:
-                (smoke.EVIDENCE / 'qq-wire-client-error.txt').write_text(diagnostic)
-            raise
-        finally:
-            if client is not None and client.poll() is None:
-                client.terminate()
-                try:
-                    client.wait(timeout=5)
-                except subprocess.TimeoutExpired:
-                    client.kill()
-                    client.wait(timeout=5)
-            output.close()
-            errors.close()
+        smoke.adb('push', str(binary), remote)
+        smoke.su('chmod 700 ' + remote)
+        remote_hash = smoke.su('sha256sum ' + remote).stdout.decode().split()[0]
+        if remote_hash != digest:
+            raise ValueError('Installed collector differs from prepared binary')
+        smoke.su('rm -f ' + pid_file)
+        command = 'exec ' + remote + ' ' + str(uid) + ' 45 ' + pid_file
+        serial = os.environ.get('ANDROID_SERIAL')
+        adb_args = ['adb'] + (['-s', serial] if serial else [])
+        shell = smoke.MAGISK + ' su -c ' + shlex.quote(command)
+        client = subprocess.Popen(adb_args + ['shell', '-T', shell], stdout=subprocess.PIPE, stderr=errors)
+        def read_events():
+            try:
+                while True:
+                    line = client.stdout.readline(132000)
+                    if not line:
+                        break
+                    if not line.endswith(b'\n'):
+                        capture.errors.append('Kernel capture record exceeded limit')
+                        break
+                    capture.feed(json.loads(line))
+                    if capture.ready:
+                        ready.set()
+            except (ValueError, OSError):
+                capture.errors.append('Invalid kernel capture stream')
+        reader = threading.Thread(target=read_events, daemon=True)
+        reader.start()
+        deadline = time.monotonic() + 60
+        while not ready.wait(.2):
+            if client.poll() is not None or time.monotonic() > deadline:
+                raise RuntimeError('Kernel collector did not become ready')
+        smoke.adb('shell', 'am', 'start', '-n', smoke.UI_STRATEGY.launcher_component)
+        while client.poll() is None:
+            if time.monotonic() > deadline:
+                raise RuntimeError('Kernel collector timed out')
+            navigate(smoke)
+            time.sleep(1)
+        reader.join(timeout=5)
+        if reader.is_alive() or client.returncode:
+            raise RuntimeError('Kernel collector failed or did not drain')
+        observed = capture.result()
+        (smoke.EVIDENCE / ('qq-capture-enabled.json' if enabled else 'qq-capture-disabled.json')).write_text(json.dumps(observed, indent=2) + '\n')
+        if not observed['captureHealthy']:
+            raise RuntimeError('Kernel capture incomplete: ' + '; '.join(observed['errors']))
         if manager_state(smoke) != state or installed_hash(smoke, smoke.APP_PACKAGE) != expected_hash:
             raise ValueError('QQ state or APK changed during capture')
-        if not observed.get('captureHealthy'):
-            (smoke.EVIDENCE / 'qq-wire-incomplete.json').write_text(json.dumps(observed, indent=2) + '\n')
-            raise RuntimeError('Network capture was incomplete: ' + '; '.join(observed.get('errors', [])))
-        agent_hash = hashlib.sha256(Path(__file__).with_name('probe').joinpath('agent.js').read_bytes()).hexdigest()
-        if hashlib.sha256((root / 'qq-probe/agent.js').read_bytes()).hexdigest() != agent_hash:
-            raise ValueError('Staged observer differs from the trusted source')
-        return dict(observed, **state, observerSha256=agent_hash, apkSha256=expected_hash,
+        if smoke.su('sha256sum ' + remote).stdout.decode().split()[0] != digest:
+            raise ValueError('Collector changed during capture')
+        return dict(observed, **state, observerSha256=observer_source_digest(),
+                    collectorBinarySha256=digest, ndkVersion=NDK_VERSION, apkSha256=expected_hash, appUid=uid,
                     moduleApkSha256=installed_hash(smoke, smoke.MODULE), processName='com.tencent.mobileqq:MSF')
     finally:
-        server_log = smoke.su('tail -c 4000 /data/local/tmp/impad-qq-wire.log', check=False)
-        (smoke.EVIDENCE / ('qq-wire-server-enabled.txt' if enabled else 'qq-wire-server-disabled.txt')).write_text(server_log.stdout.decode(errors='replace'))
-        if port and port.isdigit():
-            smoke.adb('forward', '--remove', 'tcp:' + port, check=False)
         recovered = smoke.su('cat ' + pid_file, check=False).stdout.decode().strip()
-        if re.fullmatch(r'[1-9][0-9]*', recovered) and int(recovered) > 1:
-            smoke.su('kill ' + recovered, check=False)
-        smoke.su('rm -f ' + pid_file, check=False)
-        ready.unlink(missing_ok=True)
+        identity = re.fullmatch(r'([1-9][0-9]*) ([1-9][0-9]*)', recovered)
+        if identity and int(identity[1]) > 1:
+            pid, birth = identity.groups()
+            executable = smoke.su('readlink /proc/' + pid + '/exe', check=False).stdout.decode().strip()
+            stat = smoke.su('cat /proc/' + pid + '/stat', check=False).stdout.decode()
+            fields = stat.rsplit(')', 1)[-1].split()
+            if executable == remote and len(fields) > 19 and fields[19] == birth:
+                smoke.su('kill ' + pid, check=False)
+        if client is not None and client.poll() is None:
+            client.terminate()
+            try:
+                client.wait(timeout=5)
+            except subprocess.TimeoutExpired:
+                client.kill(); client.wait(timeout=5)
+        if reader is not None:
+            reader.join(timeout=5)
+        if client is not None and client.stdout is not None:
+            client.stdout.close()
+        errors.seek(0)
+        diagnostic = errors.read().decode(errors='replace')[-2000:]
+        if diagnostic:
+            (smoke.EVIDENCE / 'qq-collector-error.txt').write_text(diagnostic)
+        errors.close()
+        smoke.su('rm -f ' + pid_file + ' ' + remote, check=False)
 
 
 def observe_pair(smoke):

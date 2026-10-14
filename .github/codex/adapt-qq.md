@@ -14,9 +14,9 @@ QQ Hook code only when actual inspected behavior requires it; never weaken
 matching or invent an anchor. Do not register an AppID Getter or use one as
 an observation point. Trace actual request consumers, not a convenient helper.
 
-The trusted controller owns native socket capture and the fixed protocol
+The trusted controller owns external kernel packet capture and the fixed protocol
 contract QQ_SSO_REQUEST_IDENTITY_V1. It checks the installed APK, module state,
-QQ LSPosed scope, and actual request header identities. You cannot select or
+QQ LSPosed scope, MSF socket ownership, TCP capture completeness and actual request header identities. You cannot select or
 change its command criteria, decoder, observer, expected values or verdicts.
 Missing or undecodable requests cannot pass. This verifies request identity
 only, not account authentication, server acceptance or phone coexistence.
