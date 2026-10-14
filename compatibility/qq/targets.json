@@ -9,7 +9,7 @@
       "signerSha256": "ea6e97ad6c34f7039a9c6daba732c97d0e098e83ede2b4d52c76eb0184ac7a38"
     },
     "sourceUrl": "https://downv6.qq.com/qqweb/QQ_1/android_apk/9.3.1_877e277185fb829c.apk",
-    "verificationStatus": "static-verified",
+    "verificationStatus": "runtime-verified-hosted",
     "featureRulesVersion": 1,
     "hooks": [
       {
