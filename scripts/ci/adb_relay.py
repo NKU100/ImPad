@@ -11,7 +11,7 @@ import threading
 import time
 from scripts.ci.app_policy import get_policy
 
-COMMANDS = {'app-launch', 'wechat-launch', 'verify-build', 'shell', 'exec-out', 'push', 'pull', 'install', 'uninstall', 'logcat',
+COMMANDS = {'app-launch', 'wechat-launch', 'verify-build', 'verify-runtime', 'shell', 'exec-out', 'push', 'pull', 'install', 'uninstall', 'logcat',
             'reboot', 'root', 'unroot', 'wait-for-device', 'get-state', 'version', 'help'}
 
 
@@ -24,7 +24,7 @@ def validate_request(request, workspace):
     cwd = Path(request['cwd']).resolve()
     if not cwd.is_relative_to(workspace):
         raise ValueError('Device command must run inside the adaptation workspace')
-    if args[0] in {'app-launch', 'wechat-launch', 'verify-build'} and len(args) != 1:
+    if args[0] in {'app-launch', 'wechat-launch', 'verify-build', 'verify-runtime'} and len(args) != 1:
         raise ValueError('Managed launch/build commands do not accept arguments')
     def local_path(value):
         if not (cwd / value).resolve().is_relative_to(workspace):
@@ -71,7 +71,7 @@ class DeviceRelay:
         with os.fdopen(fd, 'wb') as stream:
             stream.write(data)
 
-    def execute(self, command, cwd, request, timeout):
+    def execute(self, command, cwd, request, timeout, *, cleanup_grace=3):
         with self.process_lock:
             if self.stop.is_set():
                 raise InterruptedError('Runtime relay stopped')
@@ -92,7 +92,7 @@ class DeviceRelay:
                     except ProcessLookupError:
                         pass
                     try:
-                        stdout, stderr = self.process.communicate(timeout=3)
+                        stdout, stderr = self.process.communicate(timeout=cleanup_grace)
                     except subprocess.TimeoutExpired:
                         os.killpg(self.process.pid, signal.SIGKILL)
                         stdout, stderr = self.process.communicate()
@@ -108,6 +108,11 @@ class DeviceRelay:
                 self.process = None
 
     def dispatch(self, args, cwd, request):
+        if args[0] == 'verify-runtime':
+            if self.policy.app_id != 'qq':
+                raise ValueError('Managed request identity smoke is available only for QQ')
+            return self.execute([sys.executable, str(Path(__file__).with_name('host_runtime.py')),
+                                 str(self.directory)], cwd, request, 900, cleanup_grace=60)
         if args[0] == 'verify-build':
             return self.execute([sys.executable, str(Path(__file__).with_name('host_build.py')),
                                  str(self.directory)], cwd, request, 900)

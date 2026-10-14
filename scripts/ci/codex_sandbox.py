@@ -90,6 +90,9 @@ def model_command(directory, env, command):
         builder.chmod(0o755)
         if env.get('APP_ID') == 'qq':
             prepare_qq_java(tools, env)
+            smoke = tools / 'bin/impad-smoke'
+            shutil.copyfile(Path(__file__).with_name('host-runtime.sh'), smoke)
+            smoke.chmod(0o755)
         bind(tools)
         env['PATH'] = str(tools / 'bin') + ':' + env['PATH']
         env['IMPAD_ADB_RELAY'] = str(workspace / 'work/analysis/adb-relay')

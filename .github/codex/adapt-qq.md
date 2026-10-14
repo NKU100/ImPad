@@ -22,6 +22,9 @@ Missing or undecodable requests cannot pass. This verifies request identity
 only, not account authentication, server acceptance or phone coexistence.
 
 Use the managed jadx launcher, impad-build and fixed-device adb launcher.
+After adding the profile, run impad-smoke for guarded static validation and
+the fixed request identity smoke on the trusted host. It accepts no arguments;
+do not run the observer through ordinary model-side adb shell calls.
 After install, clear or reboot use adb app-launch to restore managed runtime
 settings. Inspect fresh UI/log evidence under work/analysis/runtime. Navigate
 to login pages without submitting credentials, requesting SMS or scanning QR.

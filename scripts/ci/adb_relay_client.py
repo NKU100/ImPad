@@ -8,6 +8,12 @@ import time
 import uuid
 
 
+def request_timeout(arguments):
+    if arguments == ['verify-runtime']:
+        return 1080
+    return 960 if arguments == ['verify-build'] else 300
+
+
 def main():
     def interrupted(number, frame):
         raise KeyboardInterrupt
@@ -18,7 +24,7 @@ def main():
     try:
         temporary.write_text(json.dumps({'args': sys.argv[1:], 'cwd': os.getcwd()}))
         temporary.replace(root / (key + '.request'))
-        deadline = time.monotonic() + (960 if sys.argv[1:] == ['verify-build'] else 300)
+        deadline = time.monotonic() + request_timeout(sys.argv[1:])
         while time.monotonic() < deadline:
             result = root / (key + '.result')
             if result.exists():
