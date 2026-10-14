@@ -84,8 +84,17 @@ def verify_runtime(directory):
         # Reinstall the controller's immutable exact candidate before every independent probe.
         if sha256(root / f'{policy.app_id}.apk') != state['report']['identity']['apkSha256']:
             raise ValueError('Runtime candidate changed after preparation')
+        module_apk = root / 'module/app-debug.apk'
+        module_apk.parent.mkdir(parents=True, exist_ok=True)
+        temporary = module_apk.with_suffix('.partial')
+        try:
+            shutil.copyfile(apk, temporary)
+            temporary.replace(module_apk)
+        finally:
+            temporary.unlink(missing_ok=True)
+        module_sha = sha256(module_apk)
         smoke.adb('install', '-r', '-g', str(root / f'{policy.app_id}.apk'), timeout=240)
-        result = smoke.adb('install', '-r', str(apk), timeout=120)
+        result = smoke.adb('install', '-r', str(module_apk), timeout=120)
         (smoke.EVIDENCE / 'module-install.txt').write_bytes(result.stdout + result.stderr)
         smoke.reboot()
         smoke.configure_manager()
@@ -101,8 +110,11 @@ def verify_runtime(directory):
     evidence = workspace / 'work/analysis/runtime' / smoke.EVIDENCE.name
     shutil.copytree(smoke.EVIDENCE, evidence, dirs_exist_ok=True)
     report = json.loads((smoke.EVIDENCE / 'smoke-report.json').read_text())
-    report['moduleApkSha256'] = sha256(apk)
+    report.setdefault('moduleApkSha256', module_sha)
     (directory / 'runtime-report.json').write_text(json.dumps(report, indent=2) + '\n')
+    if (report['moduleApkSha256'] != module_sha or sha256(module_apk) != module_sha
+            or sha256(apk) != module_sha):
+        raise ValueError('Runtime evidence does not match the verified module APK')
     if result:
         diagnostic = report.get('runtimeDiagnostics', {})
         summary = {key: diagnostic.get(key, 'NOT_OBSERVED')
