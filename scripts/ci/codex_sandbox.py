@@ -6,6 +6,30 @@ import sys
 from pathlib import Path
 
 
+def prepare_qq_java(tools, env):
+    real_home = (Path(env['IMPAD_REAL_JAVA']).parent.parent if env.get('IMPAD_REAL_JAVA') else Path(env['JAVA_HOME'])).resolve()
+    def link(source, target):
+        if target.is_symlink() and target.resolve() == source.resolve():
+            return
+        target.symlink_to(source, target_is_directory=source.is_dir())
+    shadow = tools / 'java-home'
+    (shadow / 'bin').mkdir(parents=True, exist_ok=True)
+    for entry in real_home.iterdir():
+        if entry.name != 'bin':
+            link(entry, shadow / entry.name)
+    for entry in (real_home / 'bin').iterdir():
+        if entry.name != 'java':
+            link(entry, shadow / 'bin' / entry.name)
+    launcher = tools / 'bin' / 'java'
+    launcher.parent.mkdir(parents=True, exist_ok=True)
+    shutil.copyfile(Path(__file__).with_name('java-analysis.py'), launcher)
+    launcher.chmod(0o755)
+    link(launcher, shadow / 'bin' / 'java')
+    env['IMPAD_REAL_JAVA'] = str(real_home / 'bin' / 'java')
+    env['IMPAD_JAVA_LOCK'] = str(Path(env['IMPAD_JADX_LOCK']).with_name('java-analysis.lock'))
+    env['JAVA_HOME'] = str(shadow)
+
+
 def model_command(directory, env, command):
     if sys.platform != 'linux':
         return command
@@ -64,6 +88,8 @@ def model_command(directory, env, command):
         builder = tools / 'bin/impad-build'
         shutil.copyfile(Path(__file__).with_name('host-build.sh'), builder)
         builder.chmod(0o755)
+        if env.get('APP_ID') == 'qq':
+            prepare_qq_java(tools, env)
         bind(tools)
         env['PATH'] = str(tools / 'bin') + ':' + env['PATH']
         env['IMPAD_ADB_RELAY'] = str(workspace / 'work/analysis/adb-relay')
