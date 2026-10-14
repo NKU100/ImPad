@@ -6,10 +6,24 @@ import android.os.Looper;
 import android.util.Xml;
 import android.view.accessibility.AccessibilityNodeInfo;
 import java.io.FileOutputStream;
+import java.util.ArrayList;
+import java.util.List;
 import org.xmlpull.v1.XmlSerializer;
 
 /** Read the current accessibility tree without requiring an idle animation loop. */
 public final class UiHierarchy {
+    private static void matchingButtons(AccessibilityNodeInfo item, String packageName,
+                                        String label, List<AccessibilityNodeInfo> matches, int depth) {
+        if (depth > 64) return;
+        if (item.isVisibleToUser() && item.isEnabled() && item.isClickable()
+                && packageName.equals(text(item.getPackageName()))
+                && label.equals(text(item.getText()).trim())) matches.add(item);
+        for (int i = 0; i < item.getChildCount(); i++) {
+            AccessibilityNodeInfo child = item.getChild(i);
+            if (child != null) matchingButtons(child, packageName, label, matches, depth + 1);
+        }
+    }
+
     private static String text(CharSequence value) {
         return value == null ? "" : value.toString();
     }
@@ -62,6 +76,16 @@ public final class UiHierarchy {
                 if (root == null) Thread.sleep(200);
             }
             if (root == null) throw new IllegalStateException("No active accessibility root");
+            if (args.length == 4 && args[1].equals("click")) {
+                List<AccessibilityNodeInfo> matches = new ArrayList<>();
+                matchingButtons(root, args[2], args[3], matches, 0);
+                if (matches.size() != 1) throw new IllegalStateException(
+                        "Expected exactly one visible enabled button; found " + matches.size());
+                if (!matches.get(0).performAction(AccessibilityNodeInfo.ACTION_CLICK))
+                    throw new IllegalStateException("Accessibility click was rejected");
+            } else if (args.length != 1) {
+                throw new IllegalArgumentException("Expected output or output click package label");
+            }
             try (FileOutputStream output = new FileOutputStream(args[0])) {
                 XmlSerializer xml = Xml.newSerializer();
                 xml.setOutput(output, "UTF-8");

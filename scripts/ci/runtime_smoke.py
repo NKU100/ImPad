@@ -144,12 +144,27 @@ def snapshot(label):
     return activity.stdout.decode(errors='replace'), ui.stdout.decode(errors='replace')
 
 
-def tap(node):
+def tap(node, accessibility=False):
     bounds = [int(part) for part in re.findall(r'\d+', node.get('bounds', ''))]
     if len(bounds) != 4 or bounds[2] <= bounds[0] or bounds[3] <= bounds[1]:
         raise RuntimeError('Selected UI element has no visible bounds')
-    adb('shell', 'input', 'tap', str((bounds[0] + bounds[2]) // 2), str((bounds[1] + bounds[3]) // 2))
+    if accessibility:
+        label = node.get('text', '').strip()
+        if (APP_ID != 'qq' or node.get('package') != APP_PACKAGE
+                or node.get('enabled') == 'false' or node.get('clickable') != 'true'
+                or not UI_STRATEGY.is_login_navigation_label(label)):
+            raise ValueError('Accessibility navigation requires a QQ login navigation button')
+        result = adb('shell', 'env', 'CLASSPATH=/data/local/tmp/ui-hierarchy.jar',
+                     'app_process', '/system/bin', 'UiHierarchy',
+                     '/data/local/tmp/login-click.xml', 'click', APP_PACKAGE, label,
+                     timeout=25, check=False)
+        save('login-click.txt', result)
+        if result.returncode:
+            return False
+    else:
+        adb('shell', 'input', 'tap', str((bounds[0] + bounds[2]) // 2), str((bounds[1] + bounds[3]) // 2))
     time.sleep(2)
+    return True
 
 
 def enable_page_size_backcompat():
@@ -177,8 +192,10 @@ def mobile_input(label):
             ready = 0
             node = unique_node(ui, lambda n: UI_STRATEGY.is_login_navigation_label(n.get('text', '')))
             if node is not None:
-                tap(node)
+                tap(node, accessibility=APP_ID == 'qq')
         time.sleep(2)
+    for service in ('input', 'window', 'display', 'power'):
+        save(label + '-' + service + '.txt', adb('shell', 'dumpsys', service, timeout=25, check=False))
     raise RuntimeError(f'{APP_ID} did not reach a stable, rendered login input UI')
 
 

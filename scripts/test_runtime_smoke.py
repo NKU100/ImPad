@@ -10,6 +10,7 @@ import zipfile
 import xml.etree.ElementTree as ET
 from contextlib import ExitStack, redirect_stdout
 import io
+from scripts.ci.apps.qq import runtime_policy as qq_ui
 
 spec = importlib.util.spec_from_file_location('smoke', Path(__file__).parent / 'ci/runtime_smoke.py')
 smoke = importlib.util.module_from_spec(spec)
@@ -17,6 +18,34 @@ spec.loader.exec_module(smoke)
 
 
 class UiEvidenceTest(unittest.TestCase):
+    def test_qq_navigation_uses_accessibility_and_rejects_failed_actions(self):
+        button = ET.fromstring('<node package="com.tencent.mobileqq" text="同意" clickable="true" enabled="true" bounds="[540,1418][939,1564]"/>')
+        for code in (0, 1):
+            with self.subTest(code=code), patch.object(smoke, 'APP_ID', 'qq'), \
+                 patch.object(smoke, 'APP_PACKAGE', 'com.tencent.mobileqq'), \
+                 patch.object(smoke, 'UI_STRATEGY', qq_ui), patch.object(smoke, 'save'), \
+                 patch.object(smoke.time, 'sleep'), patch.object(smoke, 'adb',
+                    return_value=subprocess.CompletedProcess([], code, b'', b'')) as adb:
+                self.assertEqual(code == 0, smoke.tap(button, accessibility=True))
+                self.assertEqual(('click', 'com.tencent.mobileqq', '同意'), adb.call_args.args[-3:])
+                self.assertNotIn('input', adb.call_args.args)
+                button.set('text', '发送验证码')
+                with self.assertRaises(ValueError):
+                    smoke.tap(button, accessibility=True)
+                button.set('text', '同意')
+
+    def test_qq_navigation_timeout_saves_input_window_display_and_power(self):
+        xml = '<hierarchy><node package="com.tencent.mobileqq" text="同意"/></hierarchy>'
+        with patch.object(smoke, 'APP_ID', 'qq'), patch.object(smoke, 'APP_PACKAGE', 'com.tencent.mobileqq'), \
+             patch.object(smoke, 'UI_STRATEGY', qq_ui), patch.object(smoke, 'enable_page_size_backcompat'), \
+             patch.object(smoke, 'snapshot', return_value=('SplashActivity', xml)), \
+             patch.object(smoke, 'tap'), patch.object(smoke.time, 'sleep'), \
+             patch.object(smoke, 'save') as save, patch.object(smoke, 'adb'):
+            with self.assertRaisesRegex(RuntimeError, 'stable, rendered login input UI'):
+                smoke.mobile_input('module-mobile')
+            self.assertEqual(['module-mobile-' + service + '.txt' for service in ('input', 'window', 'display', 'power')],
+                             [call.args[0] for call in save.call_args_list])
+
     def test_already_enabled_manager_is_not_toggled_off(self):
         with patch.object(smoke, 'adb'), patch.object(smoke, 'manager_module_enabled', return_value=True), patch.object(smoke, 'tap') as tap:
             smoke.configure_manager()
