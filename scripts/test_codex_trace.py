@@ -3,6 +3,9 @@ import subprocess
 import tempfile
 import unittest
 import io
+import time
+import threading
+from unittest.mock import patch
 from pathlib import Path
 
 from scripts.ci.codex_trace import EncryptedTrace
@@ -10,6 +13,66 @@ from scripts.ci.codex_goal import AppServer
 
 
 class EncryptedTraceTest(unittest.TestCase):
+    def test_background_sealing_does_not_hold_event_recording_lock(self):
+        with tempfile.TemporaryDirectory() as root:
+            directory = Path(root)
+            key = directory / 'identity'
+            subprocess.run(['age-keygen', '-o', str(key)], check=True, capture_output=True)
+            recipient = subprocess.check_output(['age-keygen', '-y', str(key)], text=True).strip()
+            trace = EncryptedTrace(directory, recipient, flush_interval=0.02)
+            entered, release = threading.Event(), threading.Event()
+            original_run = subprocess.run
+            def slow_encrypt(*args, **kwargs):
+                entered.set()
+                if not release.wait(5):
+                    raise RuntimeError('Test encryption barrier expired')
+                return original_run(*args, **kwargs)
+            try:
+                with patch('scripts.ci.codex_trace.subprocess.run', side_effect=slow_encrypt):
+                    trace.record('response', {'number': 1})
+                    self.assertTrue(entered.wait(5))
+                    completed = threading.Event()
+                    def record():
+                        trace.record('response', {'number': 2})
+                        completed.set()
+                    writer = threading.Thread(target=record)
+                    writer.start()
+                    try:
+                        self.assertTrue(completed.wait(1), 'Recording blocked behind encryption')
+                    finally:
+                        release.set()
+                        writer.join()
+            finally:
+                release.set()
+                trace.close()
+            records = subprocess.check_output(['age', '-d', '-i', str(key), str(trace.path)], text=True)
+            self.assertEqual([1, 2], [json.loads(line)['message']['number'] for line in records.splitlines()])
+
+    def test_idle_trace_seals_below_threshold_without_closing_stream(self):
+        with tempfile.TemporaryDirectory() as root:
+            directory = Path(root)
+            key = directory / 'identity'
+            subprocess.run(['age-keygen', '-o', str(key)], check=True, capture_output=True)
+            recipient = subprocess.check_output(['age-keygen', '-y', str(key)], text=True).strip()
+            trace = EncryptedTrace(directory, recipient, flush_interval=0.02)
+            try:
+                trace.record('response', {'method': 'item/started', 'private': 'tool details'})
+                deadline = time.monotonic() + 5
+                chunks = []
+                while not chunks and time.monotonic() < deadline:
+                    chunks = list(trace.chunks.glob('*.age'))
+                    time.sleep(0.01)
+                self.assertEqual(1, len(chunks))
+                self.assertIsNone(trace.process.poll())
+                records = subprocess.check_output(['age', '-d', '-i', str(key), str(chunks[0])], text=True)
+                self.assertEqual('tool details', json.loads(records)['message']['private'])
+                self.assertNotIn(b'tool details', chunks[0].read_bytes())
+                trace.record('response', {'method': 'item/completed'})
+            finally:
+                trace.close()
+            records = subprocess.check_output(['age', '-d', '-i', str(key), str(trace.path)], text=True)
+            self.assertEqual(2, len(records.splitlines()))
+
     def test_app_server_records_requests_and_successful_tool_events(self):
         with tempfile.TemporaryDirectory() as root:
             directory = Path(root)
@@ -66,6 +129,9 @@ class EncryptedTraceTest(unittest.TestCase):
             trace = EncryptedTrace(directory, recipient)
             for number in range(32):
                 trace.record('response', {'number': number, 'text': 'private output'})
+            deadline = time.monotonic() + 5
+            while not list(trace.chunks.glob('*.age')) and time.monotonic() < deadline:
+                time.sleep(0.01)
             chunk = next((directory / 'trace-chunks').glob('*.age'))
             self.assertNotIn(b'private output', chunk.read_bytes())
             trace.process.kill()

@@ -100,7 +100,7 @@ jobs:
         run: sudo apt-get update && sudo apt-get install --yes age
 
       - name: Test Codex eligibility, edit guards, checkpointing, and issue continuation
-        run: python3 -m unittest scripts.test_adaptation_resume scripts.test_codex_session_checkpoint scripts.test_adaptation_checkpoint scripts.test_codex_adaptation scripts.test_codex_task scripts.test_codex_goal scripts.test_adaptation_summary scripts.test_adb_device scripts.test_runtime_adaptation scripts.test_host_build
+        run: python3 -m unittest scripts.test_adaptation_resume scripts.test_codex_session_checkpoint scripts.test_codex_observation scripts.test_codex_trace scripts.test_adaptation_checkpoint scripts.test_codex_adaptation scripts.test_codex_task scripts.test_codex_goal scripts.test_adaptation_summary scripts.test_adb_device scripts.test_runtime_adaptation scripts.test_host_build
 
       - name: Validate target manifest
         id: validate

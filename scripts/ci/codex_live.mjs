@@ -1,4 +1,5 @@
-import {spawn, execFileSync} from 'node:child_process';
+import {spawn, execFile, execFileSync} from 'node:child_process';
+import {promisify} from 'node:util';
 import {readFile, readdir, mkdir, writeFile, copyFile, statfs, rename} from 'node:fs/promises';
 import path from 'node:path';
 import {pathToFileURL} from 'node:url';
@@ -19,6 +20,7 @@ export async function run(core) {
   let signal = null;
   let acknowledged = 0;
   let nextDiagnostics = 0;
+  let diagnosticsUpload = null;
   const child = spawn('python3', ['-m', process.env.CODEX_CONTROLLER_MODULE || 'scripts.ci.codex_adaptation', 'model',
     '--directory', task, '--prompt', prompt], {cwd: controller, stdio: 'inherit', env: {...process.env, CODEX_CHECKPOINT_HANDSHAKE: 'true'}});
   const finished = new Promise(resolve => {
@@ -73,7 +75,6 @@ export async function run(core) {
   }
   async function snapshot() {
     const chunks = path.join(task, 'trace-chunks');
-    const names = (await readdir(chunks).catch(() => [])).filter(name => /^\d+\.jsonl\.age$/.test(name) && !uploaded.has(name)).sort();
     const root = path.join(task, 'live', String(++sequence));
     await mkdir(root, {recursive: true, mode: 0o700});
     const read = name => readFile(name, 'utf8').catch(() => 'unavailable');
@@ -122,6 +123,16 @@ export async function run(core) {
     const logFile = path.join(root, 'runner-logs.json.age');
     await writeFile(logFile, encryptedLogs, {mode: 0o600});
     files.push(logFile);
+    try {
+      const observation = path.join(root, 'session-observation.tar.age');
+      const result = await promisify(execFile)('python3', ['-m', 'scripts.ci.codex_observation',
+        '--directory', task, '--home', process.env.CODEX_HOME, '--destination', observation],
+        {cwd: controller, timeout: 120000, maxBuffer: 1024 * 1024});
+      if (JSON.parse(result.stdout).saved) files.push(observation);
+    } catch (error) {
+      core.warning(`Session observation capture failed: ${error.message}`);
+    }
+    const names = (await readdir(chunks).catch(() => [])).filter(name => /^\d+\.jsonl\.age$/.test(name) && !uploaded.has(name)).sort();
     for (const name of names) {
       const target = path.join(root, name);
       await copyFile(path.join(chunks, name), target);
@@ -134,9 +145,11 @@ export async function run(core) {
   let outcome;
   try {
     while (!stopping) {
-      if (Date.now() >= nextDiagnostics) {
-        try {await snapshot();} catch (error) {core.warning(`Live diagnostic upload failed: ${error.message}`);}
+      if (!diagnosticsUpload && Date.now() >= nextDiagnostics) {
         nextDiagnostics = Date.now() + 60000;
+        diagnosticsUpload = snapshot()
+          .catch(error => core.warning(`Live diagnostic upload failed: ${error.message}`))
+          .finally(() => {diagnosticsUpload = null;});
       }
       const request = await readFile(path.join(task, 'checkpoint-request.json'), 'utf8')
         .then(JSON.parse).catch(() => null);
@@ -158,6 +171,7 @@ export async function run(core) {
       if (outcome) break;
     }
     outcome ??= await finished;
+    if (diagnosticsUpload) await diagnosticsUpload;
     try {await snapshot();} catch (error) {core.warning(`Final diagnostic upload failed: ${error.message}`);}
     if (outcome.code !== 0) core.setFailed(`Codex controller exited: ${JSON.stringify(outcome)}`);
   } finally {

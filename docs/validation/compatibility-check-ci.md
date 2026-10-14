@@ -102,8 +102,10 @@ age --decrypt --identity ~/.config/impad/ci-trace.agekey \
 
 勾选 `rebuild_ramdisk` 可同时从官方输入重建 root ramdisk，校验与 Release 产物逐字节一致，再执行冒烟。制作步骤及本地命令见 [AVD root ramdisk 制作](../environment/ramdisk-build.md)。
 
-会话记录另按最多 32 条事件或 1 MiB 明文缓冲划分为独立 age 密文分段，不落地明文。
-可信 action 在模型运行期间每分钟上传 `impad-codex-live-*` artifact，包含本轮新增的完整密文分段与 runner 的内存、磁盘、进程名和 cgroup 计数；上传凭据不会传给模型。
+会话记录在后台封存为独立 age 密文分段：32 条事件、1 MiB 缓冲或 15 秒间隔均可触发；后台调度繁忙时分段可能超过数量或大小阈值。协议分段不落地明文，封存加密不占用控制器读取事件的锁。
+可信 action 在模型运行期间约每分钟上传 `impad-codex-live-*` artifact，包含本轮新增的完整密文分段与 runner 的内存、磁盘、进程名和 cgroup 计数；上传凭据不会传给模型。诊断采集与上传在后台执行，不要求 Codex 暂停，也不等待模型轮次完成；同一时刻仅运行一次诊断上传，较慢的上传会延迟下一次快照。
+周期快照另外包含 `session-observation.tar.age`，使用 `CODEX_TRACE_RECIPIENT` 加密。归档保留原生会话目录、SQLite 状态及 Goal 数据库和最近 256 KiB 的 app-server stderr，排除认证、配置和符号链接。SQLite 使用在线备份；追加中的 JSONL 只保存采集开始时文件长度以内的完整行。`observation.json` 记录采集起止时间、thread ID、文件大小及省略的尾部字节数，并标注 `resumable: false`。不同文件的采集时刻可能不同，原生会话中尚未落盘的事件不会出现。
+观察归档通过临时目录组装后加密，临时明文只存在于 runner 的私有临时目录中；上传完成后仍以现有的 turn 检查点作为自动恢复依据，观察归档不更新检查点指针。观察采集失败仅发出警告，Codex 继续运行。会话增长会增加压缩与上传开销；单份原生状态上限为 256 MiB，采集子进程最多运行 120 秒。
 正常结束仍保留完整 `session.jsonl.age`。异常结束时按分段文件名排序分别解密即可恢复已上传的前缀，未形成完整分段或尚未上传的尾部可能丢失。
 SIGTERM/SIGINT 会触发控制器诊断和加密收尾；SIGKILL、runner 丢失或平台终止整个 action 时，只能依靠此前已上传的快照，不保证最后一次上传成功。
 
