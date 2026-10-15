@@ -3,6 +3,10 @@ name: Run ImPad runtime smoke
 on:
   workflow_dispatch:
     inputs:
+      stock_qq_diagnostic:
+        description: Diagnose QQ crashes on an unmodified AVD
+        type: boolean
+        default: false
       rebuild_ramdisk:
         description: Rebuild pinned ramdisk and verify reproduction
         type: boolean
@@ -57,6 +61,7 @@ jobs:
     runs-on: ubuntu-24.04
     env:
       APP_ID: ${{ inputs.app_id || 'wechat' }}
+      STOCK_QQ_DIAGNOSTIC: ${{ inputs.stock_qq_diagnostic || false }}
       REBUILD_RAMDISK: ${{ inputs.rebuild_ramdisk }}
     steps:
       - uses: actions/checkout@v7
@@ -79,9 +84,10 @@ jobs:
         with:
           packages: ''
       - name: Build trusted QQ kernel packet collector
-        if: env.APP_ID == 'qq'
+        if: env.APP_ID == 'qq' && env.STOCK_QQ_DIAGNOSTIC != 'true'
         run: python3 -m scripts.ci.apps.qq.prepare_probe --root work/runtime-smoke --abi x86_64
       - name: Reuse module build
+        if: env.STOCK_QQ_DIAGNOSTIC != 'true'
         uses: actions/download-artifact@v8
         with:
           name: ${{ inputs.module_artifact || format('{0}-{1}-adapted-module', steps.policy.outputs.artifact_prefix, steps.policy.outputs.app_id) }}
@@ -89,6 +95,7 @@ jobs:
           run-id: ${{ inputs.module_run_id }}
           github-token: ${{ github.token }}
       - name: Download pinned root and official LSPosed
+        if: env.STOCK_QQ_DIAGNOSTIC != 'true'
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
@@ -169,14 +176,19 @@ jobs:
           disk-size: 6144M
           # The API 37 gralloc mapper requires color-buffer DMA for CPU readback.
           emulator-options: -no-window -gpu swiftshader_indirect -feature GLDirectMem,HasSharedSlotsHostMemoryAllocator -noaudio -no-boot-anim -camera-back none -camera-front none -no-snapshot
-          pre-emulator-launch-script: bash scripts/ci/prepare_avd_ramdisk.sh
+          pre-emulator-launch-script: if [ "$STOCK_QQ_DIAGNOSTIC" != true ]; then bash scripts/ci/prepare_avd_ramdisk.sh; fi
           script: |
-            bash scripts/ci/verify_avd_root.sh
+            if [ "$STOCK_QQ_DIAGNOSTIC" != true ]; then bash scripts/ci/verify_avd_root.sh; fi
             mkdir -p work/runtime-smoke/ui-classes
             javac --release 17 -cp "$ANDROID_HOME/platforms/android-37.2/android.jar" -d work/runtime-smoke/ui-classes scripts/ci/UiHierarchy.java
             "$ANDROID_HOME/build-tools/37.0.0/d8" --min-api 37 --lib "$ANDROID_HOME/platforms/android-37.2/android.jar" --output work/runtime-smoke/ui-hierarchy.jar work/runtime-smoke/ui-classes/UiHierarchy.class
-            python3 scripts/ci/runtime_smoke.py --app-id "$APP_ID"
-            python3 scripts/ci/runtime_tooling_probe.py
+            if [ "$STOCK_QQ_DIAGNOSTIC" = true ]; then
+              test "$APP_ID" = qq
+              python3 -m scripts.ci.qq_sigbus_diagnostic
+            else
+              python3 scripts/ci/runtime_smoke.py --app-id "$APP_ID"
+              python3 scripts/ci/runtime_tooling_probe.py
+            fi
       - name: Upload runtime evidence
         if: always()
         uses: actions/upload-artifact@v7
