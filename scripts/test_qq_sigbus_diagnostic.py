@@ -65,3 +65,19 @@ class ZygiskNextStateTest(unittest.TestCase):
                               CompletedProcess([], 0, b'uid=0'), CompletedProcess([], 0, b'value=0')] + [CompletedProcess([], 0, b'')] * 45
             with self.assertRaisesRegex(RuntimeError, 'library absent from zygote64'):
                 diagnostic.prepare_layer('zygisk-next')
+
+
+class NextRuntimePreparationTest(unittest.TestCase):
+    def test_full_runtime_uses_next_framework(self):
+        from unittest.mock import patch
+        from subprocess import CompletedProcess
+        from scripts.ci import runtime_smoke as runtime
+        with patch.dict('os.environ', {'QQ_DIAGNOSTIC_LAYER': 'zygisk-next-lsposed'}), \
+                patch.object(runtime, 'APP_ID', 'qq'), patch.object(runtime, 'adb', return_value=CompletedProcess([], 0, b'package:/data/app/module/base.apk')), \
+                patch.object(runtime, 'save'), patch.object(runtime, 'enable_page_size_backcompat'), \
+                patch.object(runtime, 'mobile_input', return_value='<hierarchy/>'), \
+                patch.object(runtime, 'reboot'), patch.object(runtime, 'configure_manager'), \
+                patch.object(runtime, 'su', return_value=CompletedProcess([], 0, b'701')), \
+                patch('scripts.ci.qq_sigbus_diagnostic.prepare_layer') as prepare:
+            runtime.prepare_environment({})
+            prepare.assert_called_once_with('zygisk-next-lsposed', runtime=runtime)
