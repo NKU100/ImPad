@@ -176,7 +176,7 @@ jobs:
           disk-size: 6144M
           # The API 37 gralloc mapper requires color-buffer DMA for CPU readback.
           emulator-options: -no-window -gpu swiftshader_indirect -feature GLDirectMem,HasSharedSlotsHostMemoryAllocator -noaudio -no-boot-anim -camera-back none -camera-front none -no-snapshot
-          pre-emulator-launch-script: if [ "$STOCK_QQ_DIAGNOSTIC" != true ]; then bash scripts/ci/prepare_avd_ramdisk.sh; fi
+          pre-emulator-launch-script: bash scripts/ci/prepare_diagnostic_avd.sh
           script: |
             if [ "$STOCK_QQ_DIAGNOSTIC" != true ]; then bash scripts/ci/verify_avd_root.sh; fi
             mkdir -p work/runtime-smoke/ui-classes
