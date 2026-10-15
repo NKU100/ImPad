@@ -1,5 +1,6 @@
 """Reproduce QQ MSF native crashes on a stock, unmodified hosted AVD."""
 import json
+import os
 import re
 import time
 from datetime import datetime, timezone
@@ -26,32 +27,73 @@ def outcome(records, completed):
     return 'NOT_REPRODUCED'
 
 
+def layer_contract(layer):
+    layers = {'stock': (False, False, False), 'magisk': (True, False, False),
+              'zygisk': (True, True, False), 'lsposed': (True, True, True)}
+    if layer not in layers:
+        raise ValueError('Unknown diagnostic layer')
+    return layers[layer]
+
+
+def prepare_layer(layer):
+    magisk, zygisk, lsposed = layer_contract(layer)
+    if not magisk:
+        smoke.save('adb-root.txt', smoke.adb('root'))
+        smoke.adb('wait-for-device')
+        if 'uid=0' not in smoke.adb('shell', 'id').stdout.decode():
+            raise RuntimeError('Stock image did not provide diagnostic root')
+        for path in ('/debug_ramdisk/magisk', '/data/adb/lspd', '/data/adb/modules/zygisk_lsposed'):
+            if smoke.adb('shell', 'test', '-e', path, check=False).returncode == 0:
+                raise RuntimeError('Stock environment contains ' + path)
+        return
+    smoke.bootstrap_magisk()
+    setting = 'REPLACE INTO settings (key,value) VALUES (\'zygisk\',' + str(int(zygisk)) + ')'
+    smoke.save('zygisk-setting.txt', smoke.su(smoke.MAGISK + ' --sqlite "' + setting + '"'))
+    if lsposed:
+        smoke.adb('push', str(smoke.ROOT / 'lsposed.zip'), '/data/local/tmp/lsposed.zip')
+        smoke.save('lsposed-install.txt', smoke.su('export PATH=/debug_ramdisk:/data/adb/magisk:$PATH; magisk --install-module /data/local/tmp/lsposed.zip', timeout=240))
+        smoke.adb('install', '-r', str(smoke.ROOT / 'manager.apk'))
+    smoke.reboot()
+    if 'uid=0' not in smoke.su('id').stdout.decode():
+        raise RuntimeError('Magisk root unavailable after reboot')
+    if lsposed:
+        for _ in range(45):
+            if smoke.su('pidof lspd', check=False).stdout.strip():
+                break
+            time.sleep(2)
+        else:
+            raise RuntimeError('LSPosed daemon unavailable')
+    elif smoke.su('test -e /data/adb/modules/zygisk_lsposed', check=False).returncode == 0:
+        raise RuntimeError('Unexpected LSPosed installation')
+    smoke.save('layer-processes.txt', smoke.su('ps -A; ' + smoke.MAGISK + ' --sqlite "SELECT * FROM settings"'))
+
+
 def main():
     smoke.configure_app_id('qq')
     root = smoke.ROOT
     smoke.EVIDENCE.mkdir(parents=True, exist_ok=True)
-    report = dict(status='INCONCLUSIVE', environment='STOCK_NO_MODULE', iterations=[], events=[])
+    layer = os.environ.get('QQ_DIAGNOSTIC_LAYER', 'stock')
+    report = dict(status='INCONCLUSIVE', environment=layer, iterations=[], events=[])
     def event(phase, **details):
         report['events'].append(dict(time=datetime.now(timezone.utc).isoformat(), phase=phase, **details))
         (smoke.EVIDENCE / 'diagnostic-report.json').write_text(json.dumps(report, indent=2) + '\n')
     try:
         event('ENVIRONMENT_CHECK')
         smoke.save('device-properties.txt', smoke.adb('shell', 'getprop'))
-        smoke.save('adb-root.txt', smoke.adb('root'))
-        smoke.adb('wait-for-device')
+        prepare_layer(layer)
         smoke.save('shell-identity.txt', smoke.adb('shell', 'id'))
-        if 'uid=0' not in smoke.adb('shell', 'id').stdout.decode():
-            raise RuntimeError('Stock image did not provide diagnostic root')
-        for path in ('/debug_ramdisk/magisk', '/data/adb/lspd', '/data/adb/modules/zygisk_lsposed'):
-            result = smoke.adb('shell', 'test', '-e', path, check=False)
-            if result.returncode == 0:
-                raise RuntimeError('Stock environment contains ' + path)
         packages = smoke.adb('shell', 'pm', 'list', 'packages').stdout.decode()
         smoke.save('packages.txt', smoke.adb('shell', 'pm', 'list', 'packages'))
-        if any(p in packages for p in ('io.github.nku100.impad', 'org.lsposed.manager', 'com.topjohnwu.magisk')):
-            raise RuntimeError('Stock environment contains framework/module packages')
-        smoke.adb('shell', 'setprop', 'bionic.linker.16kb.app_compat.enabled', 'true')
-        smoke.adb('shell', 'setprop', 'pm.16kb.app_compat.disabled', 'false')
+        forbidden = ['io.github.nku100.impad']
+        if layer == 'stock':
+            forbidden += ['org.lsposed.manager', 'com.topjohnwu.magisk']
+        if any(p in packages for p in forbidden):
+            raise RuntimeError('Unexpected framework/module package')
+        if layer == 'stock':
+            smoke.adb('shell', 'setprop', 'bionic.linker.16kb.app_compat.enabled', 'true')
+            smoke.adb('shell', 'setprop', 'pm.16kb.app_compat.disabled', 'false')
+        else:
+            smoke.enable_page_size_backcompat()
         smoke.adb('push', str(root / 'ui-hierarchy.jar'), '/data/local/tmp/ui-hierarchy.jar')
         smoke.save('qq-install.txt', smoke.adb('install', '-r', str(root / 'qq.apk'), timeout=120))
         from scripts.ci.apps.qq.runtime_probe import installed_hash
@@ -103,6 +145,9 @@ def main():
                                              status=outcome(records, ready)))
             event('ITERATION_COMPLETE', iteration=iteration)
         report['status'] = outcome(all_records, completed)
+        if layer != 'stock':
+            smoke.adb('root', check=False)
+            smoke.adb('wait-for-device')
         smoke.adb('pull', '/data/tombstones', str(root / 'evidence/tombstones'), check=False)
     except Exception as error:
         report['error'] = str(error)

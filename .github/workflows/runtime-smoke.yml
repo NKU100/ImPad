@@ -7,6 +7,11 @@ on:
         description: Diagnose QQ crashes on an unmodified AVD
         type: boolean
         default: false
+      diagnostic_layer:
+        description: Framework layer for QQ diagnostic mode
+        type: choice
+        options: [stock, magisk, zygisk, lsposed]
+        default: stock
       rebuild_ramdisk:
         description: Rebuild pinned ramdisk and verify reproduction
         type: boolean
@@ -62,6 +67,7 @@ jobs:
     env:
       APP_ID: ${{ inputs.app_id || 'wechat' }}
       STOCK_QQ_DIAGNOSTIC: ${{ inputs.stock_qq_diagnostic || false }}
+      QQ_DIAGNOSTIC_LAYER: ${{ inputs.diagnostic_layer || 'stock' }}
       REBUILD_RAMDISK: ${{ inputs.rebuild_ramdisk }}
     steps:
       - uses: actions/checkout@v7
@@ -95,7 +101,7 @@ jobs:
           run-id: ${{ inputs.module_run_id }}
           github-token: ${{ github.token }}
       - name: Download pinned root and official LSPosed
-        if: env.STOCK_QQ_DIAGNOSTIC != 'true'
+        if: env.STOCK_QQ_DIAGNOSTIC != 'true' || env.QQ_DIAGNOSTIC_LAYER != 'stock'
         env:
           GH_TOKEN: ${{ github.token }}
         run: |

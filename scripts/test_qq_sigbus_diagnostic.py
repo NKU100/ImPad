@@ -24,3 +24,13 @@ ApplicationExitInfo #2:
 
 if __name__ == '__main__':
     unittest.main()
+
+class DiagnosticLayerTest(unittest.TestCase):
+    def test_layer_contract(self):
+        from scripts.ci.qq_sigbus_diagnostic import layer_contract
+        self.assertEqual((False, False, False), layer_contract('stock'))
+        self.assertEqual((True, False, False), layer_contract('magisk'))
+        self.assertEqual((True, True, False), layer_contract('zygisk'))
+        self.assertEqual((True, True, True), layer_contract('lsposed'))
+        with self.assertRaises(ValueError):
+            layer_contract('module')
