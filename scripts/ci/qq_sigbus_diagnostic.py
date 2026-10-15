@@ -131,6 +131,7 @@ def main():
             seen = {(r['pid'], r['timestamp']) for r in before}
             smoke.adb('shell', 'pm', 'clear', smoke.APP_PACKAGE)
             smoke.adb('logcat', '-c')
+            smoke.save('memory-before.txt', smoke.adb('shell', 'cat', '/proc/meminfo'))
             event('QQ_LAUNCH', iteration=iteration)
             smoke.adb('shell', 'am', 'start', '-n', smoke.UI_STRATEGY.launcher_component)
             deadline = time.monotonic() + 90
@@ -158,6 +159,7 @@ def main():
                         smoke.tap(deny)
                 time.sleep(2)
             exits = smoke.adb('shell', 'dumpsys', 'activity', 'exit-info', smoke.APP_PACKAGE)
+            smoke.save('memory-after.txt', smoke.adb('shell', 'cat', '/proc/meminfo'))
             smoke.save('exit-info.txt', exits)
             smoke.save('logcat.txt', smoke.adb('logcat', '-d', '-v', 'threadtime'))
             smoke.snapshot('final')

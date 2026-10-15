@@ -12,6 +12,11 @@ on:
         type: choice
         options: [stock, magisk, zygisk, zygisk-next, zygisk-next-lsposed, lsposed]
         default: stock
+      diagnostic_ram:
+        description: AVD memory in MB for manual diagnostics
+        type: choice
+        options: ['4096', '6144']
+        default: '4096'
       rebuild_ramdisk:
         description: Rebuild pinned ramdisk and verify reproduction
         type: boolean
@@ -184,7 +189,7 @@ jobs:
           arch: x86_64
           profile: pixel_5
           cores: 4
-          ram-size: 4096M
+          ram-size: ${{ inputs.diagnostic_ram || '4096' }}M
           disk-size: 6144M
           # The API 37 gralloc mapper requires color-buffer DMA for CPU readback.
           emulator-options: -no-window -gpu swiftshader_indirect -feature GLDirectMem,HasSharedSlotsHostMemoryAllocator -noaudio -no-boot-anim -camera-back none -camera-front none -no-snapshot
