@@ -1,4 +1,4 @@
-"""Reproduce QQ MSF native crashes on a stock, unmodified hosted AVD."""
+"""Compare QQ MSF native crashes across isolated framework layers."""
 import json
 import os
 import re
@@ -29,7 +29,8 @@ def outcome(records, completed):
 
 def layer_contract(layer):
     layers = {'stock': (False, False, False), 'magisk': (True, False, False),
-              'zygisk': (True, True, False), 'lsposed': (True, True, True)}
+              'zygisk': (True, True, False), 'zygisk-next': (True, False, False),
+              'lsposed': (True, True, True)}
     if layer not in layers:
         raise ValueError('Unknown diagnostic layer')
     return layers[layer]
@@ -49,6 +50,12 @@ def prepare_layer(layer):
     smoke.bootstrap_magisk()
     setting = 'REPLACE INTO settings (key,value) VALUES (\'zygisk\',' + str(int(zygisk)) + ')'
     smoke.save('zygisk-setting.txt', smoke.su(smoke.MAGISK + ' --sqlite "' + setting + '"'))
+    if layer == 'zygisk-next':
+        package = smoke.ROOT / 'zygisk-next.zip'
+        if smoke.apk_digest(package) != 'ce50b13fecb9e4456db69ef17b715f7cfbc094004dd9f30f7d6348dfab619a96':
+            raise RuntimeError('Zygisk Next package mismatch')
+        smoke.adb('push', str(package), '/data/local/tmp/zygisk-next.zip')
+        smoke.save('zygisk-next-install.txt', smoke.su('export PATH=/debug_ramdisk:/data/adb/magisk:$PATH; magisk --install-module /data/local/tmp/zygisk-next.zip', timeout=240))
     if lsposed:
         smoke.adb('push', str(smoke.ROOT / 'lsposed.zip'), '/data/local/tmp/lsposed.zip')
         smoke.save('lsposed-install.txt', smoke.su('export PATH=/debug_ramdisk:/data/adb/magisk:$PATH; magisk --install-module /data/local/tmp/lsposed.zip', timeout=240))
@@ -56,6 +63,20 @@ def prepare_layer(layer):
     smoke.reboot()
     if 'uid=0' not in smoke.su('id').stdout.decode():
         raise RuntimeError('Magisk root unavailable after reboot')
+    if layer == 'zygisk-next':
+        setting = smoke.su(smoke.MAGISK + ' --sqlite "SELECT value FROM settings WHERE key=\'zygisk\'"')
+        smoke.save('builtin-zygisk-after-reboot.txt', setting)
+        if setting.stdout.strip() != b'value=0':
+            raise RuntimeError('Built-in Zygisk is not disabled')
+        for _ in range(45):
+            maps = smoke.su('for p in $(pidof zygote64); do cat /proc/$p/maps; done')
+            if b'/data/adb/modules/zygisksu/lib64/libzygisk.so' in maps.stdout:
+                smoke.save('zygote-maps.txt', maps)
+                break
+            time.sleep(2)
+        else:
+            raise RuntimeError('Zygisk Next library absent from zygote64')
+        smoke.save('zygisk-next-state.txt', smoke.su('cat /data/adb/modules/zygisksu/module.prop; cat /data/adb/zygisksu/znctx; ps -A'))
     if lsposed:
         for _ in range(45):
             if smoke.su('pidof lspd', check=False).stdout.strip():
@@ -120,6 +141,8 @@ def main():
                     if not ready:
                         event('LOGIN_INPUT_VISIBLE', iteration=iteration)
                         ready = True
+                        if layer == 'zygisk-next':
+                            smoke.save('msf-maps.txt', smoke.su('for p in $(pidof com.tencent.mobileqq:MSF); do echo PID=$p; cat /proc/$p/maps; done'))
                 else:
                     button = smoke.unique_node(xml, lambda n: n.get('package') == smoke.APP_PACKAGE
                                               and n.get('clickable') == 'true' and n.get('enabled') != 'false'
@@ -155,7 +178,7 @@ def main():
     finally:
         smoke.EVIDENCE = root / 'evidence'
         event('COMPLETE')
-        (smoke.EVIDENCE / 'summary.md').write_text('# QQ stock AVD crash diagnosis\n\n' + json.dumps(report, indent=2) + '\n')
+        (smoke.EVIDENCE / 'summary.md').write_text('# QQ framework crash diagnosis\n\n' + json.dumps(report, indent=2) + '\n')
         print(json.dumps(report))
     return 0 if report['status'] == 'NOT_REPRODUCED' else 1
 

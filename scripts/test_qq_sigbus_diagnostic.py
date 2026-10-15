@@ -31,6 +31,36 @@ class DiagnosticLayerTest(unittest.TestCase):
         self.assertEqual((False, False, False), layer_contract('stock'))
         self.assertEqual((True, False, False), layer_contract('magisk'))
         self.assertEqual((True, True, False), layer_contract('zygisk'))
+        self.assertEqual((True, False, False), layer_contract('zygisk-next'))
         self.assertEqual((True, True, True), layer_contract('lsposed'))
         with self.assertRaises(ValueError):
             layer_contract('module')
+
+
+class ZygiskNextStateTest(unittest.TestCase):
+    def test_requires_builtin_zygisk_off(self):
+        from unittest.mock import patch
+        from subprocess import CompletedProcess
+        from scripts.ci import qq_sigbus_diagnostic as diagnostic
+        with patch.object(diagnostic.smoke, 'bootstrap_magisk'), patch.object(diagnostic.smoke, 'adb'), \
+                patch.object(diagnostic.smoke, 'save'), patch.object(diagnostic.smoke, 'reboot'), \
+                patch.object(diagnostic.smoke, 'apk_digest', return_value='ce50b13fecb9e4456db69ef17b715f7cfbc094004dd9f30f7d6348dfab619a96'), \
+                patch.object(diagnostic.smoke, 'su') as su:
+            su.side_effect = [CompletedProcess([], 0, b''), CompletedProcess([], 0, b''),
+                              CompletedProcess([], 0, b'uid=0'), CompletedProcess([], 0, b'value=1')]
+            with self.assertRaisesRegex(RuntimeError, 'Built-in Zygisk is not disabled'):
+                diagnostic.prepare_layer('zygisk-next')
+
+    def test_requires_next_library_in_zygote(self):
+        from unittest.mock import patch
+        from subprocess import CompletedProcess
+        from scripts.ci import qq_sigbus_diagnostic as diagnostic
+        with patch.object(diagnostic.smoke, 'bootstrap_magisk'), patch.object(diagnostic.smoke, 'adb'), \
+                patch.object(diagnostic.smoke, 'save'), patch.object(diagnostic.smoke, 'reboot'), \
+                patch.object(diagnostic.time, 'sleep'), \
+                patch.object(diagnostic.smoke, 'apk_digest', return_value='ce50b13fecb9e4456db69ef17b715f7cfbc094004dd9f30f7d6348dfab619a96'), \
+                patch.object(diagnostic.smoke, 'su') as su:
+            su.side_effect = [CompletedProcess([], 0, b''), CompletedProcess([], 0, b''),
+                              CompletedProcess([], 0, b'uid=0'), CompletedProcess([], 0, b'value=0')] + [CompletedProcess([], 0, b'')] * 45
+            with self.assertRaisesRegex(RuntimeError, 'library absent from zygote64'):
+                diagnostic.prepare_layer('zygisk-next')

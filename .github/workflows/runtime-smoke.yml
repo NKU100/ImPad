@@ -10,7 +10,7 @@ on:
       diagnostic_layer:
         description: Framework layer for QQ diagnostic mode
         type: choice
-        options: [stock, magisk, zygisk, lsposed]
+        options: [stock, magisk, zygisk, zygisk-next, lsposed]
         default: stock
       rebuild_ramdisk:
         description: Rebuild pinned ramdisk and verify reproduction
@@ -116,6 +116,12 @@ jobs:
           curl --fail --location --silent --show-error --retry 2 --connect-timeout 20 --max-time 180 \
             --proto '=https' --proto-redir '=https' https://github.com/topjohnwu/Magisk/releases/download/v31.0/Magisk-v31.0.apk -o work/runtime-smoke/magisk.apk
           echo '2c8a488b9a5293e578e95ae4f07e3c57aba4feec4a52ca4dd852a2692d6dd4e8  work/runtime-smoke/magisk.apk' | sha256sum --check
+      - name: Download pinned official Zygisk Next
+        if: env.STOCK_QQ_DIAGNOSTIC == 'true' && env.QQ_DIAGNOSTIC_LAYER == 'zygisk-next'
+        run: |
+          curl --fail --location --silent --show-error --retry 2 --connect-timeout 20 --max-time 180 \
+            --proto '=https' --proto-redir '=https' https://github.com/LSPosed/ZygiskNext/releases/download/v1.5.2/Zygisk-Next-1.5.2-864-a4a72ce-release.zip -o work/runtime-smoke/zygisk-next.zip
+          echo 'ce50b13fecb9e4456db69ef17b715f7cfbc094004dd9f30f7d6348dfab619a96  work/runtime-smoke/zygisk-next.zip' | sha256sum --check
       - name: Reuse statically verified candidate
         if: inputs.candidate_artifact != ''
         uses: actions/download-artifact@v8
