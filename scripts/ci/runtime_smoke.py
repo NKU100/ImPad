@@ -364,13 +364,17 @@ def prepare_environment(report):
         raise RuntimeError(f'Policy entry already exists without module; baseline does not establish module effect')
     report['baseline'] = APP_POLICY.runtime_baseline
     stage = 'FRAMEWORK_INSTALL'
-    bootstrap_magisk()
-    adb('push', str(ROOT / 'lsposed.zip'), '/data/local/tmp/lsposed.zip')
-    save('zygisk-setting.txt', su(MAGISK + ' --sqlite "REPLACE INTO settings (key,value) VALUES (\'zygisk\',1)"'))
-    result = su('export PATH=/debug_ramdisk:/data/adb/magisk:$PATH; magisk --install-module /data/local/tmp/lsposed.zip', timeout=240, check=False)
-    save('lsposed-install.txt', result)
-    if result.returncode:
-        raise RuntimeError('Official LSPosed installer failed; see lsposed-install.txt')
+    if APP_ID == 'qq' and os.environ.get('QQ_DIAGNOSTIC_LAYER') == 'zygisk-next-lsposed':
+        from scripts.ci.qq_sigbus_diagnostic import prepare_layer
+        prepare_layer('zygisk-next-lsposed', runtime=sys.modules[__name__])
+    else:
+        bootstrap_magisk()
+        adb('push', str(ROOT / 'lsposed.zip'), '/data/local/tmp/lsposed.zip')
+        save('zygisk-setting.txt', su(MAGISK + ' --sqlite "REPLACE INTO settings (key,value) VALUES (\'zygisk\',1)"'))
+        result = su('export PATH=/debug_ramdisk:/data/adb/magisk:$PATH; magisk --install-module /data/local/tmp/lsposed.zip', timeout=240, check=False)
+        save('lsposed-install.txt', result)
+        if result.returncode:
+            raise RuntimeError('Official LSPosed installer failed; see lsposed-install.txt')
     module_install = adb('install', '-r', str(ROOT / 'module/app-debug.apk'), timeout=120)
     save('module-install.txt', module_install)
     module_path = adb('shell', 'pm', 'path', MODULE, check=False)

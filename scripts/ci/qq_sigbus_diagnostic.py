@@ -30,63 +30,63 @@ def outcome(records, completed):
 def layer_contract(layer):
     layers = {'stock': (False, False, False), 'magisk': (True, False, False),
               'zygisk': (True, True, False), 'zygisk-next': (True, False, False),
-              'lsposed': (True, True, True)}
+              'zygisk-next-lsposed': (True, False, True), 'lsposed': (True, True, True)}
     if layer not in layers:
         raise ValueError('Unknown diagnostic layer')
     return layers[layer]
 
 
-def prepare_layer(layer):
+def prepare_layer(layer, runtime=smoke):
     magisk, zygisk, lsposed = layer_contract(layer)
     if not magisk:
-        smoke.save('adb-root.txt', smoke.adb('root'))
-        smoke.adb('wait-for-device')
-        if 'uid=0' not in smoke.adb('shell', 'id').stdout.decode():
+        runtime.save('adb-root.txt', runtime.adb('root'))
+        runtime.adb('wait-for-device')
+        if 'uid=0' not in runtime.adb('shell', 'id').stdout.decode():
             raise RuntimeError('Stock image did not provide diagnostic root')
         for path in ('/debug_ramdisk/magisk', '/data/adb/lspd', '/data/adb/modules/zygisk_lsposed'):
-            if smoke.adb('shell', 'test', '-e', path, check=False).returncode == 0:
+            if runtime.adb('shell', 'test', '-e', path, check=False).returncode == 0:
                 raise RuntimeError('Stock environment contains ' + path)
         return
-    smoke.bootstrap_magisk()
+    runtime.bootstrap_magisk()
     setting = 'REPLACE INTO settings (key,value) VALUES (\'zygisk\',' + str(int(zygisk)) + ')'
-    smoke.save('zygisk-setting.txt', smoke.su(smoke.MAGISK + ' --sqlite "' + setting + '"'))
-    if layer == 'zygisk-next':
-        package = smoke.ROOT / 'zygisk-next.zip'
-        if smoke.apk_digest(package) != 'ce50b13fecb9e4456db69ef17b715f7cfbc094004dd9f30f7d6348dfab619a96':
+    runtime.save('zygisk-setting.txt', runtime.su(runtime.MAGISK + ' --sqlite "' + setting + '"'))
+    if layer in {'zygisk-next', 'zygisk-next-lsposed'}:
+        package = runtime.ROOT / 'zygisk-next.zip'
+        if runtime.apk_digest(package) != 'ce50b13fecb9e4456db69ef17b715f7cfbc094004dd9f30f7d6348dfab619a96':
             raise RuntimeError('Zygisk Next package mismatch')
-        smoke.adb('push', str(package), '/data/local/tmp/zygisk-next.zip')
-        smoke.save('zygisk-next-install.txt', smoke.su('export PATH=/debug_ramdisk:/data/adb/magisk:$PATH; magisk --install-module /data/local/tmp/zygisk-next.zip', timeout=240))
+        runtime.adb('push', str(package), '/data/local/tmp/zygisk-next.zip')
+        runtime.save('zygisk-next-install.txt', runtime.su('export PATH=/debug_ramdisk:/data/adb/magisk:$PATH; magisk --install-module /data/local/tmp/zygisk-next.zip', timeout=240))
     if lsposed:
-        smoke.adb('push', str(smoke.ROOT / 'lsposed.zip'), '/data/local/tmp/lsposed.zip')
-        smoke.save('lsposed-install.txt', smoke.su('export PATH=/debug_ramdisk:/data/adb/magisk:$PATH; magisk --install-module /data/local/tmp/lsposed.zip', timeout=240))
-        smoke.adb('install', '-r', str(smoke.ROOT / 'manager.apk'))
-    smoke.reboot()
-    if 'uid=0' not in smoke.su('id').stdout.decode():
+        runtime.adb('push', str(runtime.ROOT / 'lsposed.zip'), '/data/local/tmp/lsposed.zip')
+        runtime.save('lsposed-install.txt', runtime.su('export PATH=/debug_ramdisk:/data/adb/magisk:$PATH; magisk --install-module /data/local/tmp/lsposed.zip', timeout=240))
+        runtime.adb('install', '-r', str(runtime.ROOT / 'manager.apk'))
+    runtime.reboot()
+    if 'uid=0' not in runtime.su('id').stdout.decode():
         raise RuntimeError('Magisk root unavailable after reboot')
-    if layer == 'zygisk-next':
-        setting = smoke.su(smoke.MAGISK + ' --sqlite "SELECT value FROM settings WHERE key=\'zygisk\'"')
-        smoke.save('builtin-zygisk-after-reboot.txt', setting)
+    if layer in {'zygisk-next', 'zygisk-next-lsposed'}:
+        setting = runtime.su(runtime.MAGISK + ' --sqlite "SELECT value FROM settings WHERE key=\'zygisk\'"')
+        runtime.save('builtin-zygisk-after-reboot.txt', setting)
         if setting.stdout.strip() != b'value=0':
             raise RuntimeError('Built-in Zygisk is not disabled')
         for _ in range(45):
-            maps = smoke.su('for p in $(pidof zygote64); do cat /proc/$p/maps; done')
+            maps = runtime.su('for p in $(pidof zygote64); do cat /proc/$p/maps; done')
             if b'/data/adb/modules/zygisksu/lib64/libzygisk.so' in maps.stdout:
-                smoke.save('zygote-maps.txt', maps)
+                runtime.save('zygote-maps.txt', maps)
                 break
             time.sleep(2)
         else:
             raise RuntimeError('Zygisk Next library absent from zygote64')
-        smoke.save('zygisk-next-state.txt', smoke.su('cat /data/adb/modules/zygisksu/module.prop; cat /data/adb/zygisksu/znctx; ps -A'))
+        runtime.save('zygisk-next-state.txt', runtime.su('cat /data/adb/modules/zygisksu/module.prop; cat /data/adb/zygisksu/znctx; ps -A'))
     if lsposed:
         for _ in range(45):
-            if smoke.su('pidof lspd', check=False).stdout.strip():
+            if runtime.su('pidof lspd', check=False).stdout.strip():
                 break
             time.sleep(2)
         else:
             raise RuntimeError('LSPosed daemon unavailable')
-    elif smoke.su('test -e /data/adb/modules/zygisk_lsposed', check=False).returncode == 0:
+    elif runtime.su('test -e /data/adb/modules/zygisk_lsposed', check=False).returncode == 0:
         raise RuntimeError('Unexpected LSPosed installation')
-    smoke.save('layer-processes.txt', smoke.su('ps -A; ' + smoke.MAGISK + ' --sqlite "SELECT * FROM settings"'))
+    runtime.save('layer-processes.txt', runtime.su('ps -A; ' + runtime.MAGISK + ' --sqlite "SELECT * FROM settings"'))
 
 
 def main():
@@ -141,7 +141,7 @@ def main():
                     if not ready:
                         event('LOGIN_INPUT_VISIBLE', iteration=iteration)
                         ready = True
-                        if layer == 'zygisk-next':
+                        if layer in {'zygisk-next', 'zygisk-next-lsposed'}:
                             smoke.save('msf-maps.txt', smoke.su('for p in $(pidof com.tencent.mobileqq:MSF); do echo PID=$p; cat /proc/$p/maps; done'))
                 else:
                     button = smoke.unique_node(xml, lambda n: n.get('package') == smoke.APP_PACKAGE

@@ -32,6 +32,7 @@ class DiagnosticLayerTest(unittest.TestCase):
         self.assertEqual((True, False, False), layer_contract('magisk'))
         self.assertEqual((True, True, False), layer_contract('zygisk'))
         self.assertEqual((True, False, False), layer_contract('zygisk-next'))
+        self.assertEqual((True, False, True), layer_contract('zygisk-next-lsposed'))
         self.assertEqual((True, True, True), layer_contract('lsposed'))
         with self.assertRaises(ValueError):
             layer_contract('module')
