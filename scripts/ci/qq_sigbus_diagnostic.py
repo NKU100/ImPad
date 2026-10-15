@@ -48,6 +48,8 @@ def prepare_third_party(selected):
     if state['moduleEnabled'] is not True:
         raise RuntimeError('Third-party module is not enabled')
     smoke.reboot()
+    smoke.enable_page_size_backcompat()
+    smoke.save('third-party-page-size-properties.txt', smoke.adb('shell', 'getprop'))
     state = manager_state(smoke)
     smoke.save('third-party-state.txt', smoke.su('ps -A'))
     return dict(module, **state)
