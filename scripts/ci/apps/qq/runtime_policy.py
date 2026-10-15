@@ -1,5 +1,6 @@
 """QQ no-account request identity acceptance, independent of candidate Hook locators."""
 import re
+import xml.etree.ElementTree as ET
 from scripts.ci.apps.wecom.runtime_policy import has_app_ui
 
 hook_installation_log = 'installed 1 QQ hooks'
@@ -12,7 +13,20 @@ def tablet_entry_visible(text):
 
 
 def login_input_ready(activity, xml, package_name):
-    return ('LoginActivity' in activity or 'RegisterGuideActivity' in activity) and has_app_ui(xml, package_name)
+    if not ('LoginActivity' in activity or 'RegisterGuideActivity' in activity):
+        return False
+    try:
+        nodes = ET.fromstring(xml).iter('node')
+    except ET.ParseError:
+        return False
+    for node in nodes:
+        bounds = re.findall(r'\d+', node.get('bounds', ''))
+        if (node.get('package') == package_name and node.get('visible') != 'false'
+                and node.get('enabled') != 'false'
+                and ('EditText' in node.get('class', '') or 'AutoCompleteTextView' in node.get('class', ''))
+                and len(bounds) == 4 and int(bounds[2]) > int(bounds[0]) and int(bounds[3]) > int(bounds[1])):
+            return True
+    return False
 
 
 def is_login_navigation_label(text):

@@ -9,6 +9,16 @@ from scripts.test_qq_requests import proof, expectation
 
 
 class QqPolicyTest(unittest.TestCase):
+    def test_login_activity_without_visible_inputs_is_not_ready(self):
+        from scripts.ci.apps.qq.runtime_policy import login_input_ready
+        package = 'com.tencent.mobileqq'
+        activity = 'com.tencent.mobileqq/.activity.LoginActivity'
+        welcome = '<hierarchy><node package="com.tencent.mobileqq" class="android.widget.Button" text="登录"/></hierarchy>'
+        self.assertFalse(login_input_ready(activity, welcome, package))
+        for visible, expected in [('false', False), ('true', True)]:
+            xml = '<hierarchy><node package="com.tencent.mobileqq" class="android.widget.EditText" visible="' + visible + '" bounds="[0,10][100,50]"/></hierarchy>'
+            self.assertEqual(expected, login_input_ready(activity, xml, package))
+
     def test_official_config_selects_arm64_download(self):
         config = {'android': {'version': '9.3.70', 'x64Link':
             'https://downv6.qq.com/qqweb/QQ_1/android_apk/9.3.70.41925_2a98ecf56e5ef04b.apk',

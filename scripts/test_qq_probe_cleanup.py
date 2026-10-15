@@ -6,11 +6,31 @@ import tempfile
 from types import SimpleNamespace
 import unittest
 from unittest.mock import patch
-from scripts.ci.apps.qq.runtime_probe import observe
+from scripts.ci.apps.qq.runtime_probe import observe, collect_process_diagnostics, navigate
 from scripts.ci.apps.qq.packet_capture import observer_source_digest
 
 
 class QqProbeCleanupTest(unittest.TestCase):
+    def test_log_access_prompt_is_denied_without_granting_access(self):
+        from unittest.mock import Mock
+        import xml.etree.ElementTree as ET
+        xml = '<hierarchy><node package="android" text="Allow QQ to access all device logs?"/><node package="android" text="Don’t allow" clickable="true" enabled="true"/><node package="android" text="Allow one-time access"/></hierarchy>'
+        smoke = SimpleNamespace(snapshot=lambda label: ('', xml), nodes=lambda xml: list(ET.fromstring(xml).iter('node')),
+                                unique_node=lambda xml, predicate: next((n for n in ET.fromstring(xml).iter('node') if predicate(n)), None),
+                                APP_PACKAGE='com.tencent.mobileqq', tap=Mock())
+        navigate(smoke)
+        self.assertEqual('Don’t allow', smoke.tap.call_args.args[0].get('text'))
+
+    def test_process_diagnostics_preserve_each_module_state(self):
+        from unittest.mock import Mock
+        smoke = SimpleNamespace(APP_PACKAGE='com.tencent.mobileqq', adb=Mock(), save=Mock())
+        for enabled, label in [(False, 'disabled'), (True, 'enabled')]:
+            collect_process_diagnostics(smoke, enabled)
+            self.assertEqual('qq-process-' + label + '.txt', smoke.save.call_args_list[-2].args[0])
+            self.assertEqual('qq-signals-' + label + '.txt', smoke.save.call_args_list[-1].args[0])
+        self.assertIn(unittest.mock.call('shell', 'dumpsys', 'activity', 'exit-info',
+                                        'com.tencent.mobileqq', timeout=25, check=False), smoke.adb.call_args_list)
+
     def test_transport_failure_stops_owned_collector_and_removes_binary(self):
         self.check_failure('900', False)
 
@@ -54,7 +74,7 @@ class QqProbeCleanupTest(unittest.TestCase):
             smoke=SimpleNamespace(ROOT=root,EVIDENCE=root,MODULE='fixture.module',MAGISK='/magisk',
                                   APP_PACKAGE='com.tencent.mobileqq',UI_STRATEGY=SimpleNamespace(launcher_component='fixture.activity'),
                                   configure_manager=lambda enabled:None,enable_page_size_backcompat=lambda:None,
-                                  snapshot=lambda label:('', ''),nodes=lambda xml:[],adb=device,su=su,
+                                  snapshot=lambda label:('', ''),nodes=lambda xml:[],adb=device,su=su,save=lambda name,result:None,
                                   apk_digest=lambda apk:apk_hash)
             with patch('scripts.ci.apps.qq.runtime_probe.manager_state',return_value={'moduleEnabled':False,'scopeVerified':True}),patch('scripts.ci.apps.qq.runtime_probe.subprocess.Popen',side_effect=RuntimeError('transport failed')):
                 with self.assertRaisesRegex((RuntimeError,ValueError),'differs|transport failed'):

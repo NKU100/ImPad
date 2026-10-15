@@ -81,6 +81,13 @@ def installed_hash(smoke, package):
 def navigate(smoke):
     _, xml = smoke.snapshot('qq-request-navigation')
     nodes = smoke.nodes(xml)
+    if any(n.get('package') == 'android' and n.get('text') == 'Allow QQ to access all device logs?' for n in nodes):
+        deny = smoke.unique_node(xml, lambda n: n.get('package') == 'android'
+                                 and n.get('text') in {'Don’t allow', "Don't allow"}
+                                 and n.get('clickable') == 'true' and n.get('enabled') != 'false')
+        if deny is not None:
+            smoke.tap(deny)
+        return
     texts = [n.get('text', '') + ' ' + n.get('content-desc', '') for n in nodes]
     if any(n.get('password') == 'true' or ('EditText' in n.get('class', '') and ('password' in texts[i].lower() or '\u5bc6\u7801' in texts[i])) or '\u8f93\u5165QQ\u5bc6\u7801' in texts[i] for i, n in enumerate(nodes)):
         return
@@ -109,6 +116,15 @@ def configure_manager(smoke, enabled):
         if close is not None:
             smoke.tap(close)
     smoke.configure_manager(enabled)
+
+
+def collect_process_diagnostics(smoke, enabled):
+    label = 'enabled' if enabled else 'disabled'
+    smoke.save('qq-process-' + label + '.txt', smoke.adb(
+        'shell', 'dumpsys', 'activity', 'exit-info', smoke.APP_PACKAGE, timeout=25, check=False))
+    smoke.save('qq-signals-' + label + '.txt', smoke.adb(
+        'logcat', '-d', '-v', 'threadtime', '-s', 'libsigchain:E', 'libc:F',
+        'DEBUG:F', timeout=25, check=False))
 
 
 def observe(smoke, enabled):
@@ -229,6 +245,10 @@ def observe(smoke, enabled):
             (smoke.EVIDENCE / 'qq-collector-error.txt').write_text(diagnostic)
         errors.close()
         smoke.su('rm -f ' + pid_file + ' ' + remote, check=False)
+        try:
+            collect_process_diagnostics(smoke, enabled)
+        except (RuntimeError, OSError) as error:
+            (smoke.EVIDENCE / ('qq-process-' + ('enabled' if enabled else 'disabled') + '-error.txt')).write_text(str(error))
 
 
 def observe_pair(smoke):
