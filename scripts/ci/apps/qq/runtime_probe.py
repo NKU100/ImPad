@@ -167,6 +167,8 @@ def observe(smoke, enabled):
     client = reader = None
     (smoke.EVIDENCE / 'qq-collector-error.txt').unlink(missing_ok=True)
     errors = tempfile.TemporaryFile()
+    label = ('enabled' if enabled else 'disabled') + '-' + str(time.time_ns())
+    raw_events = (smoke.EVIDENCE / ('qq-collector-events-' + label + '.jsonl')).open('wb')
     try:
         smoke.adb('push', str(binary), remote)
         smoke.su('chmod 700 ' + remote)
@@ -180,11 +182,15 @@ def observe(smoke, enabled):
         shell = smoke.MAGISK + ' su -c ' + shlex.quote(command)
         client = subprocess.Popen(adb_args + ['shell', '-T', shell], stdout=subprocess.PIPE, stderr=errors)
         def read_events():
+            recorded = 0
             try:
                 while True:
                     line = client.stdout.readline(132000)
                     if not line:
                         break
+                    if recorded + len(line) <= 16 * 1024 * 1024:
+                        raw_events.write(line)
+                        recorded += len(line)
                     if not line.endswith(b'\n'):
                         capture.errors.append('Kernel capture record exceeded limit')
                         break
@@ -237,12 +243,18 @@ def observe(smoke, enabled):
                 client.kill(); client.wait(timeout=5)
         if reader is not None:
             reader.join(timeout=5)
+        raw_events.close()
         if client is not None and client.stdout is not None:
             client.stdout.close()
         errors.seek(0)
-        diagnostic = errors.read().decode(errors='replace')[-2000:]
+        diagnostic = errors.read().decode(errors='replace')[-65536:]
         if diagnostic:
             (smoke.EVIDENCE / 'qq-collector-error.txt').write_text(diagnostic)
+            (smoke.EVIDENCE / ('qq-collector-diagnostic-' + label + '.txt')).write_text(diagnostic)
+        if client is not None and client.returncode:
+            smoke.save('qq-sockets-' + label + '.txt', smoke.su(
+                'cat /proc/net/tcp /proc/net/tcp6; ps -A; '
+                'for p in $(pidof com.tencent.mobileqq:MSF); do cat /proc/$p/stat; ls -l /proc/$p/fd; done', check=False))
         errors.close()
         smoke.su('rm -f ' + pid_file + ' ' + remote, check=False)
         try:

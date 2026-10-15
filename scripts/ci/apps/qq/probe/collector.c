@@ -154,12 +154,26 @@ int main(int argc,char **argv){
    if(!known){if(flow_count>=512)return fail(5,__LINE__);known=&flows[flow_count++];}
    memcpy(known->source,source,bytes);memcpy(known->destination,destination,bytes);
    known->bytes=bytes;known->sp=sp;known->dp=dp;known->pid=pid;known->birth=birth;known->inode=inode;known->generation=be32(tcp+4);
+   char src[INET6_ADDRSTRLEN],dst[INET6_ADDRSTRLEN];
+   inet_ntop(bytes==4?AF_INET:AF_INET6,source,src,sizeof(src));
+   inet_ntop(bytes==4?AF_INET:AF_INET6,destination,dst,sizeof(dst));
+   fprintf(stderr,"SYN source=%s:%u destination=%s:%u ifindex=%d uid=%u inode=%llu pid=%d generation=%u\n",
+           src,sp,dst,dp,address.sll_ifindex,socket_uid,inode,pid,known->generation);
   }else{
    // QQ was stopped before capture; its outgoing client flows must have a SYN.
    if(!known){
     unsigned untracked_uid=0;
     unsigned long long untracked_inode=lookup_socket(source,destination,bytes,sp,dp,&untracked_uid);
-    if(payload_size&&(!untracked_inode||untracked_uid==uid))return fail(8,__LINE__);
+    if(payload_size&&(!untracked_inode||untracked_uid==uid)){
+     char src[INET6_ADDRSTRLEN],dst[INET6_ADDRSTRLEN];
+     inet_ntop(bytes==4?AF_INET:AF_INET6,source,src,sizeof(src));
+     inet_ntop(bytes==4?AF_INET:AF_INET6,destination,dst,sizeof(dst));
+     struct tpacket_stats current={0};socklen_t current_len=sizeof(current);
+     int statistics=getsockopt(fd,SOL_PACKET,PACKET_STATISTICS,&current,&current_len);
+     fprintf(stderr,"Untracked payload source=%s:%u destination=%s:%u ifindex=%d flags=%u sequence=%u bytes=%zu uid=%u inode=%llu flows=%u statistics=%d packets=%u drops=%u\n",
+             src,sp,dst,dp,address.sll_ifindex,flags,be32(tcp+4),payload_size,untracked_uid,untracked_inode,flow_count,statistics,current.tp_packets,current.tp_drops);
+     return fail(8,__LINE__);
+    }
     continue;
    }
    if(!known->pid){if(payload_size){fprintf(stderr,"Unattributed TCP flow carried payload\n");return 8;}continue;}
