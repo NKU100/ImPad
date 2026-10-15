@@ -83,6 +83,17 @@ def layer_contract(layer):
     return layers[layer]
 
 
+def verify_next_settings(runtime=smoke, evidence_name='zygisk-next-settings.txt'):
+    linker = os.environ.get('QQ_NEXT_LINKER', 'builtin')
+    if linker not in {'builtin', 'system'}:
+        raise ValueError('Unknown Zygisk Next linker')
+    result = runtime.su('/data/adb/modules/zygisksu/bin/zygiskd status')
+    runtime.save(evidence_name, result)
+    values = dict(line.split(':', 1) for line in result.stdout.decode().splitlines() if ':' in line)
+    if values.get('memory_type') != '0' or values.get('linker') != str(int(linker == 'builtin')):
+        raise RuntimeError('Zygisk Next settings mismatch after reboot')
+
+
 def prepare_layer(layer, runtime=smoke):
     magisk, zygisk, lsposed = layer_contract(layer)
     if not magisk:
@@ -103,6 +114,13 @@ def prepare_layer(layer, runtime=smoke):
             raise RuntimeError('Zygisk Next package mismatch')
         runtime.adb('push', str(package), '/data/local/tmp/zygisk-next.zip')
         runtime.save('zygisk-next-install.txt', runtime.su('export PATH=/debug_ramdisk:/data/adb/magisk:$PATH; magisk --install-module /data/local/tmp/zygisk-next.zip', timeout=240))
+        linker = os.environ.get('QQ_NEXT_LINKER', 'builtin')
+        if linker not in {'builtin', 'system'}:
+            raise ValueError('Unknown Zygisk Next linker')
+        runtime.save('zygisk-next-configure.txt', runtime.su(
+            'mkdir -p /data/adb/zygisksu; echo 0 > /data/adb/zygisksu/memory_type; '
+            f'echo {int(linker == "builtin")} > /data/adb/zygisksu/linker; '
+            'cat /data/adb/zygisksu/memory_type /data/adb/zygisksu/linker'))
     if layer == 'neozygisk-lsposed':
         package = runtime.ROOT / 'neozygisk.zip'
         if runtime.apk_digest(package) != '93a1425c67bb89f58a0dcb9fc823ec93f6472214f221e667a70b67c6a6e061a1':
@@ -130,6 +148,7 @@ def prepare_layer(layer, runtime=smoke):
         else:
             raise RuntimeError('Zygisk Next library absent from zygote64')
         runtime.save('zygisk-next-state.txt', runtime.su('cat /data/adb/modules/zygisksu/module.prop; cat /data/adb/zygisksu/znctx; ps -A'))
+        verify_next_settings(runtime)
     if layer == 'neozygisk-lsposed':
         setting = runtime.su(runtime.MAGISK + ' --sqlite "SELECT value FROM settings WHERE key=\'zygisk\'"')
         runtime.save('builtin-zygisk-after-reboot.txt', setting)

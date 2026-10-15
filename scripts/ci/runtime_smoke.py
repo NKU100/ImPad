@@ -385,6 +385,9 @@ def prepare_environment(report):
     save('manager-install.txt', adb('install', '-r', str(ROOT / 'manager.apk'), timeout=120))
     reboot()
     stage = 'FRAMEWORK_START'
+    if APP_ID == 'qq' and os.environ.get('QQ_DIAGNOSTIC_LAYER') == 'zygisk-next-lsposed':
+        from scripts.ci.qq_sigbus_diagnostic import verify_next_settings
+        verify_next_settings(sys.modules[__name__], 'zygisk-next-settings-module-reboot.txt')
     for _ in range(45):
         daemon = su('pidof lspd', check=False)
         if daemon.returncode == 0 and daemon.stdout.strip():

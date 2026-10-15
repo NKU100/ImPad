@@ -22,6 +22,11 @@ on:
         type: choice
         options: ['4096', '6144']
         default: '4096'
+      next_linker:
+        description: Zygisk Next linker with anonymous memory disabled
+        type: choice
+        options: [builtin, system]
+        default: builtin
       rebuild_ramdisk:
         description: Rebuild pinned ramdisk and verify reproduction
         type: boolean
@@ -79,6 +84,7 @@ jobs:
       STOCK_QQ_DIAGNOSTIC: ${{ inputs.stock_qq_diagnostic || false }}
       QQ_DIAGNOSTIC_LAYER: ${{ inputs.diagnostic_layer || 'stock' }}
       QQ_DIAGNOSTIC_MODULE: ${{ inputs.diagnostic_module || 'none' }}
+      QQ_NEXT_LINKER: ${{ inputs.next_linker || 'builtin' }}
       REBUILD_RAMDISK: ${{ inputs.rebuild_ramdisk }}
     steps:
       - uses: actions/checkout@v7
