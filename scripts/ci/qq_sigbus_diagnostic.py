@@ -77,7 +77,7 @@ def outcome(records, completed):
 def layer_contract(layer):
     layers = {'stock': (False, False, False), 'magisk': (True, False, False),
               'zygisk': (True, True, False), 'zygisk-next': (True, False, False),
-              'zygisk-next-lsposed': (True, False, True), 'lsposed': (True, True, True)}
+              'neozygisk-lsposed': (True, False, True), 'zygisk-next-lsposed': (True, False, True), 'lsposed': (True, True, True)}
     if layer not in layers:
         raise ValueError('Unknown diagnostic layer')
     return layers[layer]
@@ -103,6 +103,12 @@ def prepare_layer(layer, runtime=smoke):
             raise RuntimeError('Zygisk Next package mismatch')
         runtime.adb('push', str(package), '/data/local/tmp/zygisk-next.zip')
         runtime.save('zygisk-next-install.txt', runtime.su('export PATH=/debug_ramdisk:/data/adb/magisk:$PATH; magisk --install-module /data/local/tmp/zygisk-next.zip', timeout=240))
+    if layer == 'neozygisk-lsposed':
+        package = runtime.ROOT / 'neozygisk.zip'
+        if runtime.apk_digest(package) != '93a1425c67bb89f58a0dcb9fc823ec93f6472214f221e667a70b67c6a6e061a1':
+            raise RuntimeError('NeoZygisk package mismatch')
+        runtime.adb('push', str(package), '/data/local/tmp/neozygisk.zip')
+        runtime.save('neozygisk-install.txt', runtime.su('export PATH=/debug_ramdisk:/data/adb/magisk:$PATH; magisk --install-module /data/local/tmp/neozygisk.zip', timeout=240))
     if lsposed:
         runtime.adb('push', str(runtime.ROOT / 'lsposed.zip'), '/data/local/tmp/lsposed.zip')
         runtime.save('lsposed-install.txt', runtime.su('export PATH=/debug_ramdisk:/data/adb/magisk:$PATH; magisk --install-module /data/local/tmp/lsposed.zip', timeout=240))
@@ -124,6 +130,20 @@ def prepare_layer(layer, runtime=smoke):
         else:
             raise RuntimeError('Zygisk Next library absent from zygote64')
         runtime.save('zygisk-next-state.txt', runtime.su('cat /data/adb/modules/zygisksu/module.prop; cat /data/adb/zygisksu/znctx; ps -A'))
+    if layer == 'neozygisk-lsposed':
+        setting = runtime.su(runtime.MAGISK + ' --sqlite "SELECT value FROM settings WHERE key=\'zygisk\'"')
+        runtime.save('builtin-zygisk-after-reboot.txt', setting)
+        if setting.stdout.strip() != b'value=0':
+            raise RuntimeError('Built-in Zygisk is not disabled')
+        for _ in range(45):
+            maps = runtime.su('for p in $(pidof zygote64); do cat /proc/$p/maps; done')
+            if b'/data/adb/neozygisk/lib64/libzygisk.so' in maps.stdout:
+                runtime.save('zygote-maps.txt', maps)
+                break
+            time.sleep(2)
+        else:
+            raise RuntimeError('NeoZygisk library absent from zygote64')
+        runtime.save('neozygisk-state.txt', runtime.su('cat /data/adb/modules/zygisksu/module.prop; ps -A'))
     if lsposed:
         for _ in range(45):
             if runtime.su('pidof lspd', check=False).stdout.strip():

@@ -365,9 +365,9 @@ def prepare_environment(report):
         raise RuntimeError(f'Policy entry already exists without module; baseline does not establish module effect')
     report['baseline'] = APP_POLICY.runtime_baseline
     stage = 'FRAMEWORK_INSTALL'
-    if APP_ID == 'qq' and os.environ.get('QQ_DIAGNOSTIC_LAYER') == 'zygisk-next-lsposed':
+    if APP_ID == 'qq' and os.environ.get('QQ_DIAGNOSTIC_LAYER') in {'zygisk-next-lsposed', 'neozygisk-lsposed'}:
         from scripts.ci.qq_sigbus_diagnostic import prepare_layer
-        prepare_layer('zygisk-next-lsposed', runtime=sys.modules[__name__])
+        prepare_layer(os.environ['QQ_DIAGNOSTIC_LAYER'], runtime=sys.modules[__name__])
     else:
         bootstrap_magisk()
         adb('push', str(ROOT / 'lsposed.zip'), '/data/local/tmp/lsposed.zip')

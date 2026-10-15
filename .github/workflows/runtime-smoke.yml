@@ -10,7 +10,7 @@ on:
       diagnostic_layer:
         description: Framework layer for QQ diagnostic mode
         type: choice
-        options: [stock, magisk, zygisk, zygisk-next, zygisk-next-lsposed, lsposed]
+        options: [stock, magisk, zygisk, zygisk-next, zygisk-next-lsposed, neozygisk-lsposed, lsposed]
         default: stock
       diagnostic_module:
         description: Third-party QQ module for isolated crash diagnostics
@@ -133,6 +133,12 @@ jobs:
           curl --fail --location --silent --show-error --retry 2 --connect-timeout 20 --max-time 180 \
             --proto '=https' --proto-redir '=https' https://github.com/LSPosed/ZygiskNext/releases/download/v1.5.2/Zygisk-Next-1.5.2-864-a4a72ce-release.zip -o work/runtime-smoke/zygisk-next.zip
           echo 'ce50b13fecb9e4456db69ef17b715f7cfbc094004dd9f30f7d6348dfab619a96  work/runtime-smoke/zygisk-next.zip' | sha256sum --check
+      - name: Download pinned official NeoZygisk
+        if: env.APP_ID == 'qq' && env.QQ_DIAGNOSTIC_LAYER == 'neozygisk-lsposed'
+        run: |
+          curl --fail --location --silent --show-error --retry 2 --connect-timeout 20 --max-time 180 \
+            --proto '=https' --proto-redir '=https' https://github.com/JingMatrix/NeoZygisk/releases/download/v2.4/NeoZygisk-v2.4-289-release.zip -o work/runtime-smoke/neozygisk.zip
+          echo '93a1425c67bb89f58a0dcb9fc823ec93f6472214f221e667a70b67c6a6e061a1  work/runtime-smoke/neozygisk.zip' | sha256sum --check
       - name: Download pinned third-party QQ module
         if: env.STOCK_QQ_DIAGNOSTIC == 'true' && env.QQ_DIAGNOSTIC_MODULE != 'none'
         run: python3 -c 'from scripts.ci.qq_sigbus_diagnostic import download_third_party; download_third_party()'
