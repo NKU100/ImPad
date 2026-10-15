@@ -8,6 +8,51 @@ from pathlib import Path
 from scripts.ci import runtime_smoke as smoke
 
 
+THIRD_PARTY_MODULES = {
+    'tablethook': dict(package='com.roro.tablethook', label='TabletHook',
+                      url='https://github.com/roro2239/TabletHook/releases/download/1-1.0/TabletHook-v1.0.apk',
+                      sha256='4b9d70ecb278dd4474abdddf621d77de5800fbf146a51ee064787e6c55cb6686',
+                      marker='QQ MSF 平板设备类型已启用'),
+    'qqtablet': dict(package='top.hookvip.wxtablet.qq', label='QQTablet',
+                     url='https://github.com/hswwls/WeChatTablet/releases/download/WeChatTablet/QQTablet-1.0.5.apk',
+                     sha256='5b9f4e06afe00afa2deab99ca7e574b1f8de8e04bcb05a1f4c12489b11ac2fd0',
+                     marker='forced AppSetting and PadUtil to TABLET in MSF process'),
+}
+
+
+def download_third_party():
+    import urllib.request
+    selected = os.environ['QQ_DIAGNOSTIC_MODULE']
+    module = THIRD_PARTY_MODULES[selected]
+    path = smoke.ROOT / 'third-party.apk'
+    with urllib.request.urlopen(module['url'], timeout=120) as response:
+        path.write_bytes(response.read())
+    if smoke.apk_digest(path) != module['sha256']:
+        raise RuntimeError('Third-party module download mismatch')
+    (smoke.EVIDENCE / 'third-party-package.json').write_text(json.dumps(module, indent=2) + '\n')
+
+
+def prepare_third_party(selected):
+    from scripts.ci.apps.qq.runtime_probe import installed_hash, manager_state
+    module = THIRD_PARTY_MODULES[selected]
+    path = smoke.ROOT / 'third-party.apk'
+    if smoke.apk_digest(path) != module['sha256']:
+        raise RuntimeError('Third-party module package mismatch')
+    smoke.MODULE = module['package']
+    smoke.MODULE_LABEL = module['label']
+    smoke.save('third-party-install.txt', smoke.adb('install', '-r', str(path)))
+    if installed_hash(smoke, smoke.MODULE) != module['sha256']:
+        raise RuntimeError('Installed third-party module mismatch')
+    smoke.configure_manager()
+    state = manager_state(smoke)
+    if state['moduleEnabled'] is not True:
+        raise RuntimeError('Third-party module is not enabled')
+    smoke.reboot()
+    state = manager_state(smoke)
+    smoke.save('third-party-state.txt', smoke.su('ps -A'))
+    return dict(module, **state)
+
+
 def msf_exits(text):
     records = []
     for block in re.split(r'ApplicationExitInfo #\d+:', text)[1:]:
@@ -94,6 +139,9 @@ def main():
     root = smoke.ROOT
     smoke.EVIDENCE.mkdir(parents=True, exist_ok=True)
     layer = os.environ.get('QQ_DIAGNOSTIC_LAYER', 'stock')
+    selected_module = os.environ.get('QQ_DIAGNOSTIC_MODULE', 'none')
+    if selected_module != 'none' and layer != 'zygisk-next-lsposed':
+        raise ValueError('Third-party diagnosis requires Zygisk Next and LSPosed')
     report = dict(status='INCONCLUSIVE', environment=layer, iterations=[], events=[])
     def event(phase, **details):
         report['events'].append(dict(time=datetime.now(timezone.utc).isoformat(), phase=phase, **details))
@@ -121,6 +169,9 @@ def main():
         report['apkSha256'] = smoke.apk_digest(root / 'qq.apk')
         if installed_hash(smoke, smoke.APP_PACKAGE) != report['apkSha256']:
             raise RuntimeError('Installed QQ APK mismatch')
+        if selected_module != 'none':
+            report['thirdPartyModule'] = prepare_third_party(selected_module)
+            event('THIRD_PARTY_ENABLED')
         all_records = []
         completed = True
         for iteration in range(1, 4):
@@ -162,6 +213,8 @@ def main():
             smoke.save('memory-after.txt', smoke.adb('shell', 'cat', '/proc/meminfo'))
             smoke.save('exit-info.txt', exits)
             smoke.save('logcat.txt', smoke.adb('logcat', '-d', '-v', 'threadtime'))
+            framework = smoke.su('for d in /data/adb/lspd/log /data/adb/lspd/logs; do if [ -d "$d" ]; then find "$d" -type f -exec cat {} +; fi; done', check=False)
+            smoke.save('lsposed-logs.txt', framework)
             smoke.snapshot('final')
             records = [r for r in msf_exits(exits.stdout.decode()) if (r['pid'], r['timestamp']) not in seen]
             all_records.extend(records)
@@ -170,6 +223,13 @@ def main():
                                              status=outcome(records, ready)))
             event('ITERATION_COMPLETE', iteration=iteration)
         report['status'] = outcome(all_records, completed)
+        if selected_module != 'none':
+            marker = THIRD_PARTY_MODULES[selected_module]['marker']
+            logs = '\n'.join(p.read_text(errors='replace') for p in (root / 'evidence').glob('iteration-*/*logs.txt'))
+            logs += '\n'.join(p.read_text(errors='replace') for p in (root / 'evidence').glob('iteration-*/logcat.txt'))
+            report['thirdPartyModule']['hookObserved'] = marker in logs
+            if not report['thirdPartyModule']['hookObserved'] and report['status'] == 'NOT_REPRODUCED':
+                report['status'] = 'INCONCLUSIVE'
         if layer != 'stock':
             smoke.adb('root', check=False)
             smoke.adb('wait-for-device')
