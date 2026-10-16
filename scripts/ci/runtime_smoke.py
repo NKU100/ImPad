@@ -25,7 +25,7 @@ from scripts.ci.app_policy import get_policy
 
 ROOT = Path('work/runtime-smoke')
 EVIDENCE = ROOT / 'evidence'
-MAGISK = '/debug_ramdisk/magisk'
+MAGISK = os.environ.get('IMPAD_MAGISK_PATH', '/debug_ramdisk/magisk')
 PAGE_SIZE_BACKCOMPAT_COMMAND = 'setprop bionic.linker.16kb.app_compat.enabled true; setprop pm.16kb.app_compat.disabled false'
 APP_ID = 'wechat'
 APP_POLICY = get_policy(APP_ID)

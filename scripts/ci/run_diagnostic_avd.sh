@@ -1,5 +1,12 @@
 #!/usr/bin/env bash
 set -euo pipefail
+if [[ "$STOCK_QQ_DIAGNOSTIC" != true || "${QQ_DIAGNOSTIC_LAYER:-stock}" != stock ]]; then
+  for candidate in /debug_ramdisk/magisk /sbin/magisk; do
+    if adb shell test -x "$candidate"; then export IMPAD_MAGISK_PATH="$candidate"; break; fi
+  done
+  test -n "${IMPAD_MAGISK_PATH:-}"
+  printf '%s\n' "$IMPAD_MAGISK_PATH" > work/runtime-smoke/evidence/magisk-path.txt
+fi
 if [[ "$STOCK_QQ_DIAGNOSTIC" != true || "${QQ_DIAGNOSTIC_LAYER:-stock}" != stock ]]; then bash scripts/ci/verify_avd_root.sh; fi
 mkdir -p work/runtime-smoke/ui-classes
 sdkmanager 'platforms;android-37.2'

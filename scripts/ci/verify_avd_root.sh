@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+magisk_path="${IMPAD_MAGISK_PATH:-/debug_ramdisk/magisk}"
 evidence=work/root-verification/evidence
 mkdir -p "$evidence"
 trap 'adb logcat -d -v threadtime > "$evidence/logcat.txt" 2>&1 || true; adb shell getprop > "$evidence/device-properties.txt" 2>&1 || true' EXIT
@@ -62,18 +63,18 @@ if [[ "$initial_uid" != 2000 ]]; then
   exit 1
 fi
 adb shell id
-adb shell /debug_ramdisk/magisk -v
+adb shell ${magisk_path} -v
 adb shell pidof magiskd
 
 # Authorize shell in this disposable test device, then restore ordinary adbd.
 transition_adbd root 0
-adb shell '/debug_ramdisk/magisk --sqlite "REPLACE INTO policies (uid,policy,until,logging,notification) VALUES (2000,2,0,1,0)"'
+adb shell "${magisk_path} --sqlite \"REPLACE INTO policies (uid,policy,until,logging,notification) VALUES (2000,2,0,1,0)\""
 transition_adbd unroot 2000
 adb shell id | tee "$evidence/shell-id.txt"
 grep -F 'uid=2000(shell)' "$evidence/shell-id.txt"
-adb shell /debug_ramdisk/magisk su -c id | tee "$evidence/su-id.txt"
+adb shell ${magisk_path} su -c id | tee "$evidence/su-id.txt"
 grep -F 'uid=0(root)' "$evidence/su-id.txt"
 grep -F 'context=u:r:magisk:s0' "$evidence/su-id.txt"
-adb shell /debug_ramdisk/magisk su -c '/debug_ramdisk/magisk -v; /debug_ramdisk/magisk -V' | tee "$evidence/magisk-version.txt"
+adb shell ${magisk_path} su -c "${magisk_path} -v; ${magisk_path} -V" | tee "$evidence/magisk-version.txt"
 grep -Fx '31000' "$evidence/magisk-version.txt"
 touch "$evidence/root-verified.txt"
