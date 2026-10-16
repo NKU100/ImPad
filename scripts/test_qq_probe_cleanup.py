@@ -11,6 +11,32 @@ from scripts.ci.apps.qq.packet_capture import observer_source_digest
 
 
 class QqProbeCleanupTest(unittest.TestCase):
+    def test_tcp_isolation_restores_both_families_after_capture_failure(self):
+        from scripts.ci.apps.qq.runtime_probe import isolated_tcp
+        commands = []
+        smoke = SimpleNamespace(
+            adb=lambda *args: subprocess.CompletedProcess([], 0, b'1\n', b''),
+            su=lambda command, **kwargs: commands.append(command) or subprocess.CompletedProcess([], 1 if ' -S ' in command else 0, b'', b''),
+            save=lambda *args: None)
+        with self.assertRaisesRegex(RuntimeError, 'capture failed'):
+            with isolated_tcp(smoke, 10232):
+                raise RuntimeError('capture failed')
+        for tool in ('iptables', 'ip6tables'):
+            self.assertIn(tool + ' -w -A IMPAD_QQ_CAPTURE -m owner --uid-owner 10232 -j RETURN', commands)
+            self.assertIn(tool + ' -w -D OUTPUT ! -o lo -p tcp -j IMPAD_QQ_CAPTURE', commands)
+            self.assertIn(tool + ' -w -X IMPAD_QQ_CAPTURE', commands)
+
+    def test_tcp_isolation_refuses_physical_devices(self):
+        from scripts.ci.apps.qq.runtime_probe import isolated_tcp
+        commands = []
+        smoke = SimpleNamespace(
+            adb=lambda *args: subprocess.CompletedProcess([], 0, b'0\n', b''),
+            su=lambda command, **kwargs: commands.append(command))
+        with self.assertRaisesRegex(RuntimeError, 'emulator'):
+            with isolated_tcp(smoke, 10232):
+                self.fail('Physical device was modified')
+        self.assertEqual([], commands)
+
     def test_log_access_prompt_is_denied_without_granting_access(self):
         from unittest.mock import Mock
         import xml.etree.ElementTree as ET
@@ -61,10 +87,11 @@ class QqProbeCleanupTest(unittest.TestCase):
                 if args[:3]==('shell','pm','path'):return result('package:/data/app/qq/base.apk')
                 if args[:2]==('shell','sha256sum'):return result(apk_hash+' /data/app/qq/base.apk')
                 if args[:3]==('shell','cmd','package'):return result('package:com.tencent.mobileqq uid:10232\n')
-                if args[:2]==('shell','getprop'):return result('arm64-v8a')
+                if args[:2]==('shell','getprop'):return result('1' if args[-1]=='ro.kernel.qemu' else 'arm64-v8a')
                 return result()
             def su(command,**kwargs):
                 commands.append(command)
+                if ' -S IMPAD_QQ_CAPTURE' in command:return subprocess.CompletedProcess([],1,b'',b'')
                 if command.startswith('sha256sum '):return result(('bad' if bad_hash else binary_hash)+' collector')
                 if command.startswith('cat /proc/'):
                     return result('900 (collector) S '+' '.join(['0']*18)+(' 45' if pid=='902' else ' 44'))
