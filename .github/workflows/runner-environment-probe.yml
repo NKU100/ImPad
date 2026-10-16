@@ -2,6 +2,11 @@ name: Probe hosted Android environments
 
 on:
   workflow_dispatch:
+  push:
+    branches: [codex/qq-sigbus-diagnostic]
+    paths:
+      - .github/workflows/runner-environment-probe.yml
+      - scripts/ci/runner_environment_probe.py
 
 permissions:
   contents: read
