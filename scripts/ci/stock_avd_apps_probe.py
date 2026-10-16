@@ -47,7 +47,11 @@ def main():
     sdkmanager = sdk / ('cmdline-tools/latest/bin/sdkmanager' + suffix)
     avdmanager = sdk / ('cmdline-tools/latest/bin/avdmanager' + suffix)
     adb = sdk / 'platform-tools' / ('adb.exe' if os.name == 'nt' else 'adb')
+    avd_home = root / 'avd'
+    avd_home.mkdir(exist_ok=True)
+    tool_env = dict(os.environ, ANDROID_AVD_HOME=str(avd_home))
     def run(args, **kwargs):
+        kwargs.setdefault('env', tool_env)
         if str(args[0]).endswith('.bat'):
             kwargs['shell'] = True
         return subprocess.run(list(map(str, args)), **kwargs)
@@ -66,11 +70,15 @@ def main():
         shutil.copy2(image_root / 'source.properties', evidence / 'image-source.properties')
         run([avdmanager, 'create', 'avd', '-n', 'ImPadStockProbe', '-k', image, '-d', 'pixel_5', '--force'], input=b'no\n', check=True, timeout=120)
         emulator = root / 'sdk/emulator' / ('emulator.exe' if os.name == 'nt' else 'emulator')
+        listing = run([emulator, '-list-avds'], capture_output=True, check=True, timeout=30)
+        (evidence / 'avd-list.txt').write_bytes(listing.stdout + listing.stderr)
+        if b'ImPadStockProbe' not in listing.stdout:
+            raise RuntimeError('Created stock AVD is not visible to Emulator')
         started = time.monotonic()
         with (evidence / 'emulator.log').open('wb') as log:
             process = subprocess.Popen([str(emulator), '@ImPadStockProbe', '-port', '5580', '-accel', 'on',
                 '-memory', '4096', '-cores', '4', '-no-window', '-no-snapshot', '-noaudio', '-no-boot-anim',
-                '-gpu', 'swiftshader_indirect', '-verbose'], stdout=log, stderr=subprocess.STDOUT)
+                '-gpu', 'swiftshader_indirect', '-verbose'], stdout=log, stderr=subprocess.STDOUT, env=tool_env)
         while time.monotonic() - started < 600:
             if process.poll() is not None:
                 raise RuntimeError(f'Emulator exited with code {process.returncode}')
@@ -119,7 +127,7 @@ def main():
                 smoke.save('signer.txt', signer)
                 if get_policy(app).signer_sha256 not in signer.stdout.decode():
                     raise RuntimeError('APK signer mismatch')
-                smoke.save('install.txt', device('install', '-r', '-g', str(apk), timeout=240))
+                smoke.save('install.txt', device('install', '-r', '-g', str(apk), timeout=600))
                 device('shell', 'pm', 'clear', smoke.APP_PACKAGE)
                 device('logcat', '-c')
                 ready = False
