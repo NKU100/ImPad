@@ -39,6 +39,8 @@ def select_emulator(xml, system, machine):
 def acceleration_status(code, output):
     if code != 0 or re.search(r'not (?:installed|supported|available|usable)|not found|disabled', output, re.I):
         return 'UNAVAILABLE'
+    if re.search(r'^accel:\s*\n0\s*\nHypervisor\.Framework OS X Version ', output):
+        return 'AVAILABLE'
     if re.search(r'KVM|WHPX|AEHD|Hypervisor.Framework|HAXM|HVF', output, re.I) and re.search(r'usable|supported|working', output, re.I):
         return 'AVAILABLE'
     return 'UNKNOWN'

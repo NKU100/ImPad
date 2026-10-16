@@ -27,6 +27,7 @@ class RunnerEnvironmentProbeTest(unittest.TestCase):
         self.assertEqual('UNAVAILABLE', probe.acceleration_status(1, text))
         self.assertEqual('UNAVAILABLE', probe.acceleration_status(0, 'WHPX is not installed'))
         self.assertEqual('UNKNOWN', probe.acceleration_status(0, 'emulator help'))
+        self.assertEqual('AVAILABLE', probe.acceleration_status(0, 'accel:\n0\nHypervisor.Framework OS X Version 15.7\naccel\n'))
 
     def test_api31_image_architectures_are_taken_from_official_packages(self):
         catalog = '''<repository>
