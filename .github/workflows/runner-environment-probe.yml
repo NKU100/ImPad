@@ -34,6 +34,9 @@ jobs:
       - uses: actions/setup-python@v6
         with:
           python-version: '3.12'
+      - name: Install Linux Emulator runtime libraries
+        if: matrix.runner == 'ubuntu-24.04'
+        run: sudo apt-get update -qq && sudo apt-get install -y --no-install-recommends libpulse0 libnss3 libx11-6 libxcb1 libxkbcommon0 libglu1-mesa
       - name: Inspect host and official native Emulator
         run: python scripts/ci/runner_environment_probe.py --output work/runner-probe
       - uses: actions/setup-java@v6
