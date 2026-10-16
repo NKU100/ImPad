@@ -107,17 +107,20 @@ def ocr_target(tsv, label):
         key = tuple(word[field] for field in ('page_num', 'block_num', 'par_num', 'line_num'))
         lines.setdefault(key, []).append(word)
     matches = []
-    for words in lines.values():
-        text = ' '.join(word['text'] for word in words)
-        normalized_text = re.sub(r'[^\w]+', ' ', text.casefold()).strip()
-        normalized_label = re.sub(r'[^\w]+', ' ', label.casefold()).strip()
-        if normalized_text != normalized_label or any(float(word['conf']) < 70 for word in words):
-            continue
-        left = min(int(word['left']) for word in words)
-        top = min(int(word['top']) for word in words)
-        right = max(int(word['left']) + int(word['width']) for word in words)
-        bottom = max(int(word['top']) + int(word['height']) for word in words)
-        matches.append(ET.Element('node', {'text': text, 'bounds': f'[{left},{top}][{right},{bottom}]'}))
+    normalized_label = re.sub(r'[^\w]+', ' ', label.casefold()).strip()
+    for line in lines.values():
+        for start in range(len(line)):
+            for end in range(start + 1, len(line) + 1):
+                words = line[start:end]
+                text = ' '.join(word['text'] for word in words)
+                normalized_text = re.sub(r'[^\w]+', ' ', text.casefold()).strip()
+                if normalized_text != normalized_label or any(float(word['conf']) < 70 for word in words):
+                    continue
+                left = min(int(word['left']) for word in words)
+                top = min(int(word['top']) for word in words)
+                right = max(int(word['left']) + int(word['width']) for word in words)
+                bottom = max(int(word['top']) + int(word['height']) for word in words)
+                matches.append(ET.Element('node', {'text': text, 'bounds': f'[{left},{top}][{right},{bottom}]'}))
     if len(matches) > 1:
         raise ValueError(f'OCR selector is ambiguous ({len(matches)} matches)')
     return matches[0] if matches else None

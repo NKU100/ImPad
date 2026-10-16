@@ -18,6 +18,13 @@ spec.loader.exec_module(smoke)
 
 
 class UiEvidenceTest(unittest.TestCase):
+    def test_ocr_label_ignores_adjacent_icon_noise_but_rejects_duplicate_labels(self):
+        header = 'level\tpage_num\tblock_num\tpar_num\tline_num\tleft\ttop\twidth\theight\tconf\ttext\n'
+        rows = '5\t1\t1\t1\t1\t158\t670\t32\t15\t36\t2s\n5\t1\t1\t1\t1\t230\t654\t55\t35\t82\tI\'m\n5\t1\t1\t1\t1\t302\t654\t72\t35\t94\tPad\n'
+        self.assertEqual('[230,654][374,689]', smoke.ocr_target(header + rows, "I'm Pad").get('bounds'))
+        with self.assertRaisesRegex(ValueError, 'ambiguous'):
+            smoke.ocr_target(header + rows + rows.replace('\t1\t1\t1\t1\t', '\t1\t2\t1\t1\t'), "I'm Pad")
+
     def test_qq_navigation_uses_accessibility_and_rejects_failed_actions(self):
         button = ET.fromstring('<node package="com.tencent.mobileqq" text="同意" clickable="true" enabled="true" bounds="[540,1418][939,1564]"/>')
         for code in (0, 1):
