@@ -30,7 +30,7 @@ on:
       diagnostic_image:
         description: Android image for manual QQ comparisons
         type: choice
-        options: [api37-ps16k, api30-google, api30-google-atd]
+        options: [api37-ps16k, api30-google, api30-google-atd, api31-google]
         default: api37-ps16k
       rebuild_ramdisk:
         description: Rebuild pinned ramdisk and verify reproduction
@@ -210,9 +210,9 @@ jobs:
       - name: Verify root, official LSPosed and selected app UI
         uses: reactivecircus/android-emulator-runner@v2
         with:
-          api-level: ${{ (inputs.diagnostic_image == 'api30-google' || inputs.diagnostic_image == 'api30-google-atd') && '30' || '37.2' }}
+          api-level: ${{ inputs.diagnostic_image == 'api31-google' && '31' || (inputs.diagnostic_image == 'api30-google' || inputs.diagnostic_image == 'api30-google-atd') && '30' || '37.2' }}
           emulator-build: '15917651'
-          target: ${{ inputs.diagnostic_image == 'api30-google' && 'google_apis' || inputs.diagnostic_image == 'api30-google-atd' && 'google_atd' || 'google_apis_ps16k' }}
+          target: ${{ (inputs.diagnostic_image == 'api30-google' || inputs.diagnostic_image == 'api31-google') && 'google_apis' || inputs.diagnostic_image == 'api30-google-atd' && 'google_atd' || 'google_apis_ps16k' }}
           arch: x86_64
           profile: pixel_5
           cores: 4
