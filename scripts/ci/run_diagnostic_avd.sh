@@ -26,8 +26,11 @@ adb shell cat /proc/meminfo > work/runtime-smoke/evidence/android-memory-initial
 memory_monitor=$!
 trap 'kill "$memory_monitor" 2>/dev/null || true' EXIT
 if [ "$STOCK_QQ_DIAGNOSTIC" = true ]; then
-  test "$APP_ID" = qq
-  python3 -m scripts.ci.qq_sigbus_diagnostic
+  if [ "$APP_ID" = qq ]; then
+    python3 -m scripts.ci.qq_sigbus_diagnostic
+  else
+    python3 -m scripts.ci.app_baseline_diagnostic
+  fi
 else
   python3 scripts/ci/runtime_smoke.py --app-id "$APP_ID"
   python3 scripts/ci/runtime_tooling_probe.py

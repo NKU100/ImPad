@@ -4,9 +4,13 @@ on:
   workflow_dispatch:
     inputs:
       stock_qq_diagnostic:
-        description: Diagnose QQ crashes on an unmodified AVD
+        description: Diagnose app startup without ImPad
         type: boolean
         default: false
+      baseline_apk_sha256:
+        description: Exact APK hash required for non-QQ startup comparison
+        type: string
+        default: ''
       diagnostic_layer:
         description: Framework layer for smoke or QQ diagnostic mode
         type: choice
@@ -87,6 +91,7 @@ jobs:
     env:
       APP_ID: ${{ inputs.app_id || 'wechat' }}
       STOCK_QQ_DIAGNOSTIC: ${{ inputs.stock_qq_diagnostic || false }}
+      BASELINE_APK_SHA256: ${{ inputs.baseline_apk_sha256 }}
       QQ_DIAGNOSTIC_LAYER: ${{ inputs.diagnostic_layer || 'stock' }}
       QQ_DIAGNOSTIC_MODULE: ${{ inputs.diagnostic_module || 'none' }}
       QQ_NEXT_LINKER: ${{ inputs.next_linker || 'builtin' }}
