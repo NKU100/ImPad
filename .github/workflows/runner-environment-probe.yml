@@ -1,0 +1,72 @@
+name: Probe hosted Android environments
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    name: Probe ${{ matrix.runner }}
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        runner:
+          - ubuntu-24.04
+          - ubuntu-24.04-arm
+          - windows-2025
+          - windows-11-arm
+          - macos-15-intel
+          - macos-15
+    env:
+      PROBE_RUNNER: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+      - name: Inspect host and official native Emulator
+        run: python scripts/ci/runner_environment_probe.py --output work/runner-probe
+      - name: Upload environment evidence
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: runner-probe-${{ matrix.runner }}
+          path: |
+            work/runner-probe/report.json
+            work/runner-probe/summary.md
+            work/runner-probe/accel-check.txt
+            work/runner-probe/repository.xml
+            work/runner-probe/system-images.xml
+          retention-days: 7
+
+  summary:
+    name: Summarize environment probes
+    needs: probe
+    if: always()
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/download-artifact@v8
+        with:
+          pattern: runner-probe-*
+          path: evidence
+      - name: Combine reports
+        run: |
+          python3 - <<'PY'
+          import json, os
+          from pathlib import Path
+          with open(os.environ['GITHUB_STEP_SUMMARY'], 'a') as summary:
+              summary.write('| Runner | Host | Emulator | Acceleration | AVD boot |\n|---|---|---|---|---|\n')
+              reports = sorted(Path('evidence').glob('*/report.json'))
+              for path in reports:
+                  r = json.loads(path.read_text())
+                  emulator = r.get('officialEmulator') or {}
+                  host = r['host']
+                  summary.write(f"| {r['runner']} | {host['system']} {host['machine']} | {emulator.get('version', 'none')} | {r['acceleration']} | {r['avdBoot']} |\n")
+                  if r.get('error'):
+                      summary.write(f"\n{r['runner']}: {r['error']}\n")
+              summary.write('\nAcceleration detection does not establish successful AVD boot or application compatibility.\n')
+          PY
