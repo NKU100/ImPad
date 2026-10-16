@@ -7,6 +7,7 @@ on:
     paths:
       - .github/workflows/runner-environment-probe.yml
       - scripts/ci/runner_environment_probe.py
+      - scripts/ci/stock_avd_apps_probe.py
 
 permissions:
   contents: read
@@ -15,7 +16,7 @@ jobs:
   probe:
     name: Probe ${{ matrix.runner }}
     runs-on: ${{ matrix.runner }}
-    timeout-minutes: 20
+    timeout-minutes: 40
     strategy:
       fail-fast: false
       matrix:
@@ -35,6 +36,18 @@ jobs:
           python-version: '3.12'
       - name: Inspect host and official native Emulator
         run: python scripts/ci/runner_environment_probe.py --output work/runner-probe
+      - uses: actions/setup-java@v6
+        if: matrix.runner != 'ubuntu-24.04-arm' && matrix.runner != 'windows-11-arm'
+        with:
+          distribution: temurin
+          java-version: '21'
+      - uses: android-actions/setup-android@v4
+        if: matrix.runner != 'ubuntu-24.04-arm' && matrix.runner != 'windows-11-arm'
+        with:
+          packages: ''
+      - name: Boot stock API 31 and observe official apps
+        if: matrix.runner != 'ubuntu-24.04-arm' && matrix.runner != 'windows-11-arm'
+        run: python -m scripts.ci.stock_avd_apps_probe
       - name: Upload environment evidence
         if: always()
         uses: actions/upload-artifact@v7
@@ -46,6 +59,7 @@ jobs:
             work/runner-probe/accel-check.txt
             work/runner-probe/repository.xml
             work/runner-probe/system-images.xml
+            work/runner-probe/stock-avd/
           retention-days: 7
 
   summary:
