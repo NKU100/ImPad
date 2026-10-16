@@ -2,6 +2,7 @@
 import json
 import os
 import time
+from pathlib import Path
 from scripts.ci import runtime_smoke as smoke
 from scripts.ci.qq_sigbus_diagnostic import prepare_layer
 
@@ -26,7 +27,7 @@ def main():
         if layer == 'stock':
             recipe = json.loads(open('environment/avd-api31-google.json').read())
             image = os.path.join(os.environ['ANDROID_HOME'], 'system-images/android-31/google_apis/x86_64/ramdisk.img')
-            digest = smoke.apk_digest(image)
+            digest = smoke.apk_digest(Path(image))
             if digest != recipe['systemImage']['stockRamdiskSha256']:
                 raise RuntimeError('Stock ramdisk hash mismatch')
             report['stockRamdiskSha256'] = digest
