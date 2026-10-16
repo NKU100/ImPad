@@ -368,7 +368,7 @@ def prepare_environment(report):
         raise RuntimeError(f'Policy entry already exists without module; baseline does not establish module effect')
     report['baseline'] = APP_POLICY.runtime_baseline
     stage = 'FRAMEWORK_INSTALL'
-    if APP_ID == 'qq' and os.environ.get('QQ_DIAGNOSTIC_LAYER') in {'zygisk-next-lsposed', 'neozygisk-lsposed'}:
+    if os.environ.get('QQ_DIAGNOSTIC_LAYER') in {'zygisk-next-lsposed', 'neozygisk-lsposed'}:
         from scripts.ci.qq_sigbus_diagnostic import prepare_layer
         prepare_layer(os.environ['QQ_DIAGNOSTIC_LAYER'], runtime=sys.modules[__name__])
     else:
@@ -388,7 +388,7 @@ def prepare_environment(report):
     save('manager-install.txt', adb('install', '-r', str(ROOT / 'manager.apk'), timeout=120))
     reboot()
     stage = 'FRAMEWORK_START'
-    if APP_ID == 'qq' and os.environ.get('QQ_DIAGNOSTIC_LAYER') == 'zygisk-next-lsposed':
+    if os.environ.get('QQ_DIAGNOSTIC_LAYER') == 'zygisk-next-lsposed':
         from scripts.ci.qq_sigbus_diagnostic import verify_next_settings
         verify_next_settings(sys.modules[__name__], 'zygisk-next-settings-module-reboot.txt')
     for _ in range(45):

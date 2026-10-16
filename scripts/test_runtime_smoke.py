@@ -18,6 +18,26 @@ spec.loader.exec_module(smoke)
 
 
 class UiEvidenceTest(unittest.TestCase):
+    def test_explicit_next_framework_is_used_for_wechat_and_wecom(self):
+        from scripts.ci import qq_sigbus_diagnostic
+        for app_id in ('wechat', 'wecom'):
+            with self.subTest(app_id=app_id), ExitStack() as stack:
+                stack.enter_context(patch.object(smoke, 'APP_ID', app_id))
+                stack.enter_context(patch.dict(os.environ, QQ_DIAGNOSTIC_LAYER='zygisk-next-lsposed'))
+                stack.enter_context(patch.dict(sys.modules, smoke=smoke))
+                for name in ('adb', 'save', 'enable_page_size_backcompat', 'mobile_input', 'reboot', 'configure_manager'):
+                    stack.enter_context(patch.object(smoke, name))
+                stack.enter_context(patch.object(smoke, 'mobile_input', return_value='<hierarchy/>'))
+                adb = stack.enter_context(patch.object(smoke, 'adb', return_value=subprocess.CompletedProcess([], 0, b'package:/data/app/base.apk', b'')))
+                stack.enter_context(patch.object(smoke, 'su', return_value=subprocess.CompletedProcess([], 0, b'123', b'')))
+                bootstrap = stack.enter_context(patch.object(smoke, 'bootstrap_magisk'))
+                prepare = stack.enter_context(patch.object(qq_sigbus_diagnostic, 'prepare_layer'))
+                verify = stack.enter_context(patch.object(qq_sigbus_diagnostic, 'verify_next_settings'))
+                smoke.prepare_environment({})
+                prepare.assert_called_once_with('zygisk-next-lsposed', runtime=smoke)
+                verify.assert_called_once()
+                bootstrap.assert_not_called()
+
     def test_ocr_label_ignores_adjacent_icon_noise_but_rejects_duplicate_labels(self):
         header = 'level\tpage_num\tblock_num\tpar_num\tline_num\tleft\ttop\twidth\theight\tconf\ttext\n'
         rows = '5\t1\t1\t1\t1\t158\t670\t32\t15\t36\t2s\n5\t1\t1\t1\t1\t230\t654\t55\t35\t82\tI\'m\n5\t1\t1\t1\t1\t302\t654\t72\t35\t94\tPad\n'
