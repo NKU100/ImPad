@@ -234,6 +234,8 @@ def main():
                     if not ready:
                         event('LOGIN_INPUT_VISIBLE', iteration=iteration)
                         ready = True
+                        smoke.save('qq-memory.txt', smoke.adb('shell', 'dumpsys', 'meminfo', smoke.APP_PACKAGE, check=False))
+                        smoke.save('msf-maps.txt', smoke.su('for p in $(pidof com.tencent.mobileqq:MSF); do echo PID=$p; cat /proc/$p/maps; done', check=False))
                         if layer in {'zygisk-next', 'zygisk-next-lsposed'}:
                             smoke.save('msf-maps.txt', smoke.su('for p in $(pidof com.tencent.mobileqq:MSF); do echo PID=$p; cat /proc/$p/maps; done'))
                 else:
