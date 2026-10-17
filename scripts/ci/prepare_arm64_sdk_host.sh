@@ -11,7 +11,9 @@ text = source.read_text()
 paragraphs = []
 for paragraph in text.strip().split('\n\n'):
     lines = [line for line in paragraph.splitlines() if not line.startswith('Architectures:')]
-    paragraphs.append('\n'.join(lines) + '\nArchitectures: arm64')
+    if any(line.startswith('Types:') for line in lines):
+        lines.append('Architectures: arm64')
+    paragraphs.append('\n'.join(lines))
 source.write_text('\n\n'.join(paragraphs) + '\n')
 Path('/etc/apt/sources.list.d/impad-sdk-amd64.sources').write_text('''Types: deb
 URIs: http://archive.ubuntu.com/ubuntu/
