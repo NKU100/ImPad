@@ -1,0 +1,19 @@
+name: Diagnose reusable runtime validation
+
+on:
+  push:
+    branches: [codex/runtime-validation-call-smoke]
+    paths: [.github/workflows/runtime-validation-call-smoke.yml]
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  validate:
+    uses: ./.github/workflows/runtime-validation.yml
+    with:
+      app_id: qq
+      module_run_id: '39039696347'
+      module_artifact: impad-qq-adapted-module
+      candidate_artifact: impad-qq-runtime-candidate
