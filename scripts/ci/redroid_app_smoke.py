@@ -85,6 +85,8 @@ class AppSmoke:
             self.memory_stop.wait(2)
 
     def setup(self):
+        for module in ('ip_tables', 'iptable_filter', 'ip6_tables', 'ip6table_filter', 'xt_owner', 'xt_tcpudp'):
+            self.probe.run(['sudo', 'modprobe', module], 'capture-kernel-' + module)
         query_target()
         # All APKs are checked against preparation evidence before installation.
         for app, profile in self.inputs.items():
