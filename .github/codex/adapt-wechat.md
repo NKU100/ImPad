@@ -18,7 +18,7 @@ runtime Hook implementation or compat-core only when the inspected logic require
 it. Do not weaken matching just to make a check pass.
 Existing regression tests must remain unchanged; add new tests when necessary.
 
-When work/analysis/runtime-device.json exists, a disposable rooted AVD is ready
+When work/analysis/runtime-device.json exists, a disposable rooted ReDroid is ready
 with the exact candidate APK and official LSPosed.
 Run `adb wechat-launch` after install, clear, or reboot; it restores the 16 KB
 compatibility settings and launches the exact candidate. Run `impad-build`
@@ -60,7 +60,7 @@ Use this single agent only. Do not spawn subagents, launch another Codex process
 change model or reasoning settings, log in, read credentials, push, or create PRs.
 The controller will pause the goal after each turn and independently run the
 shared checker for the candidate and up to two older versions, plus module tests
-and build, and independent runtime verification when the AVD is attached. If verification fails, use its feedback to continue in the same thread.
+and build, and independent runtime verification when the ReDroid is attached. If verification fails, use its feedback to continue in the same thread.
 Do not treat a final response as success; the controller must verify the files.
 After successful independent verification it will prepare a draft PR.
 

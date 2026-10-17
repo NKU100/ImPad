@@ -1,4 +1,4 @@
-"""Verify official LSPosed and WeChat login UI on a disposable hosted AVD."""
+"""Verify official LSPosed and WeChat login UI on a disposable hosted ReDroid."""
 
 import hashlib
 import base64
@@ -59,7 +59,7 @@ def run(*args, timeout=60, check=True):
 def adb(*args, timeout=60, check=True):
     if args[0] == 'shell':
         args = ('shell', ' '.join(shlex.quote(arg) for arg in args[1:]))
-    return run('adb', *args, timeout=timeout, check=check)
+    return run(os.environ.get('IMPAD_ADB_BINARY', 'adb'), *args, timeout=timeout, check=check)
 
 
 def su(command, **kwargs):
@@ -203,39 +203,6 @@ def mobile_input(label):
     raise RuntimeError(f'{APP_ID} did not reach a stable, rendered login input UI')
 
 
-def reboot():
-    adb('reboot')
-    adb('wait-for-device', timeout=180)
-    for _ in range(90):
-        if adb('shell', 'getprop', 'sys.boot_completed', check=False).stdout.strip() == b'1':
-            user = adb('shell', 'am', 'get-started-user-state', '0', check=False)
-            save('reboot-user-state.txt', user)
-            if user.returncode == 0 and user.stdout.strip() == b'RUNNING_UNLOCKED':
-                return
-        time.sleep(2)
-    raise RuntimeError('Device did not complete reboot and unlock user 0')
-
-
-def bootstrap_magisk():
-    files = ROOT / 'magisk-files'
-    files.mkdir(exist_ok=True)
-    device_abi = adb('shell', 'getprop', 'ro.product.cpu.abi').stdout.decode().strip()
-    if device_abi not in {'x86_64', 'arm64-v8a'}:
-        raise ValueError('Runtime Magisk bootstrap requires a supported emulator ABI')
-    with zipfile.ZipFile(ROOT / 'magisk.apk') as apk:
-        for name in apk.namelist():
-            if name.startswith('assets/') and name.endswith('.sh'):
-                (files / Path(name).name).write_bytes(apk.read(name))
-        for binary in ('busybox', 'magisk', 'magiskboot', 'magiskinit', 'magiskpolicy', 'bootctl'):
-            (files / binary).write_bytes(apk.read(f'lib/{device_abi}/lib{binary}.so'))
-    adb('shell', 'mkdir', '-p', '/data/local/tmp/impad-magisk-files')
-    for file in files.iterdir():
-        adb('push', str(file), '/data/local/tmp/impad-magisk-files/' + file.name)
-    save('magisk-bootstrap.txt', su('mkdir -p /data/adb/magisk; cp /data/local/tmp/impad-magisk-files/* /data/adb/magisk/; chmod -R 755 /data/adb/magisk'))
-    save('preinit-device.txt', su(MAGISK + ' --preinit-device', check=False))
-    adb('install', '-r', str(ROOT / 'magisk.apk'), timeout=120)
-
-
 def module_enabled_from_database(path):
     connection = sqlite3.connect(Path(path).resolve().as_uri() + '?mode=ro', uri=True)
     try:
@@ -354,160 +321,8 @@ def apk_native_abi(path):
     return abi
 
 
-def prepare_environment(report):
-    global stage
-    stage = 'AUTOMATION_SETUP'
-    adb('push', str(ROOT / 'ui-hierarchy.jar'), '/data/local/tmp/ui-hierarchy.jar')
-    stage = 'BASELINE'
-    enable_page_size_backcompat()
-    save('page-size-compat.txt', adb('shell', 'getprop'))
-    adb('logcat', '-c')
-    save(f'{APP_ID}-install.txt', adb('install', '-r', '-g', str(ROOT / f'{APP_ID}.apk'), timeout=240))
-    ui = mobile_input('baseline-mobile')
-    if any(is_tablet_entry(n.get('text', '')) for n in nodes(ui)):
-        raise RuntimeError(f'Policy entry already exists without module; baseline does not establish module effect')
-    report['baseline'] = APP_POLICY.runtime_baseline
-    stage = 'FRAMEWORK_INSTALL'
-    if os.environ.get('QQ_DIAGNOSTIC_LAYER') in {'zygisk-next-lsposed', 'neozygisk-lsposed'}:
-        from scripts.ci.qq_sigbus_diagnostic import prepare_layer
-        prepare_layer(os.environ['QQ_DIAGNOSTIC_LAYER'], runtime=sys.modules[__name__])
-    else:
-        bootstrap_magisk()
-        adb('push', str(ROOT / 'lsposed.zip'), '/data/local/tmp/lsposed.zip')
-        save('zygisk-setting.txt', su(MAGISK + ' --sqlite "REPLACE INTO settings (key,value) VALUES (\'zygisk\',1)"'))
-        result = su('export PATH=/debug_ramdisk:/data/adb/magisk:$PATH; magisk --install-module /data/local/tmp/lsposed.zip', timeout=240, check=False)
-        save('lsposed-install.txt', result)
-        if result.returncode:
-            raise RuntimeError('Official LSPosed installer failed; see lsposed-install.txt')
-    module_install = adb('install', '-r', str(ROOT / 'module/app-debug.apk'), timeout=120)
-    save('module-install.txt', module_install)
-    module_path = adb('shell', 'pm', 'path', MODULE, check=False)
-    save('module-package-probe.txt', module_path)
-    if module_path.returncode or not module_path.stdout.decode(errors='replace').strip().startswith('package:'):
-        raise RuntimeError(f'Installed module package {MODULE} was not found')
-    save('manager-install.txt', adb('install', '-r', str(ROOT / 'manager.apk'), timeout=120))
-    reboot()
-    stage = 'FRAMEWORK_START'
-    if os.environ.get('QQ_DIAGNOSTIC_LAYER') == 'zygisk-next-lsposed':
-        from scripts.ci.qq_sigbus_diagnostic import verify_next_settings
-        verify_next_settings(sys.modules[__name__], 'zygisk-next-settings-module-reboot.txt')
-    for _ in range(45):
-        daemon = su('pidof lspd', check=False)
-        if daemon.returncode == 0 and daemon.stdout.strip():
-            save('lspd-pid.txt', daemon)
-            break
-        time.sleep(2)
-    else:
-        raise RuntimeError('LSPosed daemon did not start after reboot')
-    stage = 'MODULE_ENABLE'
-    configure_manager()
-
-def probe_environment(report):
-    global stage
-    stage = 'HOOK_AND_LOGIN'
-    adb('shell', 'pm', 'clear', APP_PACKAGE)
-    adb('logcat', '-c')
-    ui = mobile_input('module-mobile')
-    if APP_ID == 'qq':
-        probe_qq_environment(report)
-        return
-    choice = unique_node(ui, lambda n: is_tablet_entry(n.get('text', '')))
-    if choice is None:
-        raise RuntimeError(f'No {APP_ID} policy entry after module enable')
-    tap(choice)
-    for _ in range(20):
-        activity, ui = snapshot('qr-current')
-        if qr_page_ready(activity, ui):
-            time.sleep(3)
-            activity, ui = snapshot('qr')
-            if qr_page_ready(activity, ui):
-                break
-        elif APP_ID == 'wecom':
-            agreement = unique_node(ui, lambda n: UI_STRATEGY.is_login_navigation_label(n.get('text', '')))
-            if agreement is not None:
-                tap(agreement)
-        time.sleep(2)
-    else:
-        raise RuntimeError('Tablet login did not reach a stable rendered QR page')
-    logs = collect_logs()
-    hook_log = getattr(UI_STRATEGY, 'hook_installation_log', '')
-    if 'status=COMPATIBLE' not in logs or not hook_log or hook_log not in logs:
-        raise RuntimeError('Rendered app page was not accompanied by compatible app hook installation logs')
-    apk_path = ROOT / f'{APP_ID}.apk'
-    report.update(status='RUNTIME_SMOKE_VERIFIED', stage='COMPLETE', hookIds=list(APP_POLICY.required_hook_ids),
-                  hooks=len(APP_POLICY.required_hook_ids), qrPage=APP_POLICY.runtime_qr_page,
-                  appId=APP_ID, packageName=APP_PACKAGE, abi=apk_native_abi(apk_path),
-                  apkSha256=apk_digest(apk_path))
-
-def probe_qq_environment(report):
-    from scripts.ci.apps.qq.runtime_probe import observe_pair, manifest_expectation
-    module_sha = apk_digest(ROOT / 'module/app-debug.apk')
-    try:
-        expectation = manifest_expectation(ROOT / 'qq.apk', apk_digest(ROOT / 'qq.apk'))
-        proof = observe_pair(sys.modules[__name__])
-    except (RuntimeError, ValueError, OSError) as error:
-        report.update(status='ACCEPTANCE_UNAVAILABLE', reason=str(error),
-                      acceptanceKind='REQUEST_APP_ID_CONTRAST')
-        return
-    report.update(requestIdentityEvidence=proof, moduleApkSha256=module_sha,
-                  acceptanceKind='REQUEST_APP_ID_CONTRAST')
-    if not UI_STRATEGY.validate_request_evidence(proof, apk_digest(ROOT / 'qq.apk'), module_sha, expectation):
-        report.update(status='RUNTIME_REJECTED', reason='Request identities did not establish the phone/tablet contrast')
-        return
-    logs = collect_logs()
-    diagnostics = UI_STRATEGY.hook_diagnostics(logs)
-    if diagnostics['compatibility'] != 'COMPATIBLE' or diagnostics['hookInstallation'] != 'INSTALLED_1':
-        report.update(status='RUNTIME_REJECTED', reason='Request contrast has no compatible hook installation evidence')
-        return
-    report.update(status='RUNTIME_SMOKE_VERIFIED', stage='COMPLETE',
-                  hookIds=list(APP_POLICY.required_hook_ids), hooks=len(APP_POLICY.required_hook_ids),
-                  appId=APP_ID, packageName=APP_PACKAGE, abi=apk_native_abi(ROOT / 'qq.apk'),
-                  apkSha256=apk_digest(ROOT / 'qq.apk'))
-
-
-def main(mode="full", app_id=None):
-    global stage
-    if app_id is not None:
-        configure_app_id(app_id)
-    apk_path = ROOT / f'{APP_ID}.apk'
-    EVIDENCE.mkdir(parents=True, exist_ok=True)
-    report = {'status': 'FAILED', 'stage': stage, 'appId': APP_ID}
-    if apk_path.is_file():
-        try:
-            report.update(packageName=APP_PACKAGE, abi=apk_native_abi(apk_path), apkSha256=apk_digest(apk_path))
-        except (OSError, ValueError, zipfile.BadZipFile) as error:
-            report.update(packageName=APP_PACKAGE, apkSha256=apk_digest(apk_path), identityError=str(error))
-    try:
-        if mode in {'full', 'prepare'}:
-            prepare_environment(report)
-        if mode in {'full', 'probe'}:
-            if mode == 'probe':
-                if not (ROOT / 'prepared.json').is_file():
-                    raise RuntimeError('Runtime environment has not passed baseline preparation')
-            report['baseline'] = APP_POLICY.runtime_baseline
-            probe_environment(report)
-        else:
-            report.update(status='ENVIRONMENT_READY', stage='READY')
-            (ROOT / 'prepared.json').write_text(json.dumps(report) + '\n')
-    except Exception as error:
-        report.update(stage=stage, reason=str(error))
-        try:
-            snapshot('failure')
-        except Exception as diagnostic:
-            report['diagnosticError'] = str(diagnostic)
-    finally:
-        collect_logs()
-        logcat = EVIDENCE / 'logcat.txt'
-        report['runtimeDiagnostics'] = hook_diagnostics(logcat.read_text(errors='replace') if logcat.is_file() else '')
-        (EVIDENCE / 'smoke-report.json').write_text(json.dumps(report, indent=2) + '\n')
-        (EVIDENCE / 'summary.md').write_text(f'# {APP_ID} runtime smoke\n\n' + json.dumps(report, indent=2)
-                                            + '\n\nNo QR scanning, account login or dual-device session was performed.\n')
-        print(json.dumps(report))
-    return 0 if report['status'] in {'RUNTIME_SMOKE_VERIFIED', 'CONFIGURATION_SMOKE_VERIFIED', 'ENVIRONMENT_READY'} else 1
-
-
 if __name__ == '__main__':
-    parser = argparse.ArgumentParser()
+    parser = argparse.ArgumentParser(description='Shared runtime UI helpers; use the ReDroid controller for acceptance.')
     parser.add_argument('--app-id', default='wechat')
-    args = parser.parse_args()
-    raise SystemExit(main(app_id=args.app_id))
+    parser.parse_args()
+    parser.error('Run scripts.ci.redroid_environment_probe with prepared application inputs')

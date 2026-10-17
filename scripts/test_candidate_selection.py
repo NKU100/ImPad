@@ -224,6 +224,22 @@ class CandidateSelectionTest(unittest.TestCase):
                     main()
             self.assertFalse(list((root / 'inputs').glob('wechat-*.apk')))
 
+    def test_qq_replay_records_manifest_expectation_from_exact_downloaded_apk(self):
+        profile = json.loads(Path('environment/redroid-smoke/qq.json').read_text())[-1]
+        body = b'exact QQ candidate'
+        digest = hashlib.sha256(body).hexdigest()
+        profile['identity']['apkSha256'] = digest
+        expectation = {'contract': 'fixture', 'apkSha256': digest, 'phoneAppId': 1, 'tabletAppId': 2}
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            apk = root / 'download.apk'; apk.write_bytes(body)
+            targets = root / 'targets.json'; targets.write_text(json.dumps([profile]))
+            with patch('sys.argv', ['candidate_selection', '--app-id', 'qq', '--mode', 'baseline', '--targets', str(targets), '--directory', str(root / 'inputs')]), patch('scripts.ci.candidate_selection.remote_metadata', return_value={}), patch('scripts.ci.candidate_selection.download_candidate', return_value=(apk, digest, False, {})), patch('scripts.ci.apps.qq.runtime_probe.manifest_expectation', return_value=expectation) as manifest:
+                main()
+            report = json.loads((root / 'inputs/candidate-report.json').read_text())
+            self.assertEqual(report['requestIdentityExpectation'], expectation)
+            manifest.assert_called_once_with(apk, digest)
+
     def test_replay_cli_reuses_verified_cache_and_writes_inputs(self):
         body = b'cached official artifact'
         digest = hashlib.sha256(body).hexdigest()

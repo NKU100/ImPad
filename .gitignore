@@ -12,7 +12,7 @@ local.properties
 work/apks/
 work/analysis/
 work/static-regression/
-.cache/wechat-apks/
+.cache/
 **/__pycache__/
 
 # Signing material
@@ -22,5 +22,7 @@ keystore.properties
 
 /signing/
 
-# Ramdisk inputs and generated environment artifacts
-/work/ramdisk-build/
+# Local runtime evidence and generated Gradle JVM selection
+/work/
+/gradle/gradle-daemon-jvm.properties
+/scripts/qq-smoke/

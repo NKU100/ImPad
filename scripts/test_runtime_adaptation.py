@@ -17,16 +17,17 @@ class RuntimeAdaptationTest(unittest.TestCase):
             self.addCleanup(setattr, runtime.smoke, name, original)
 
     def test_initializer_refuses_a_physical_or_additional_device_before_setup(self):
-        for devices in ['List of devices attached\nphone\tdevice\n',
+        for devices in ['List of devices attached\n127.0.0.1:16556\tdevice\n',
+                        'List of devices attached\nphone\tdevice\n',
                         'List of devices attached\nemulator-5554\tdevice\nphone\tdevice\n']:
-            with patch.object(runtime.subprocess, 'check_output', return_value=devices), patch.object(runtime.smoke, 'main') as setup:
+            with patch.object(runtime.subprocess, 'check_output', return_value=devices), patch.object(runtime, 'AppSmoke') as setup:
                 with self.assertRaisesRegex(RuntimeError, 'exactly one disposable'):
                     runtime.initialize(Path('/unused'), Path('/unused'), 'emulator-5554')
                 setup.assert_not_called()
 
     def test_initializer_uses_the_explicit_policy_apk_and_package(self):
         policy = replace(get_policy('wechat'), app_id='fixture', package_name='org.example.fixture',
-                         supported_abis=('x86_64',), runtime_baseline='FIXTURE_BASELINE',
+                         supported_abis=('arm64-v8a',), runtime_baseline='FIXTURE_BASELINE',
                          runtime_qr_page='FixtureQrPage')
         with tempfile.TemporaryDirectory() as temporary, patch.dict(POLICIES, {'fixture': policy}):
             root = Path(temporary)
@@ -37,14 +38,16 @@ class RuntimeAdaptationTest(unittest.TestCase):
             report = {'appId': 'fixture', 'identity': {'apkSha256': sha256(runtime_root / 'fixture.apk')}}
             state = {'appId': 'fixture', 'report': report, 'worktree': str(worktree)}
             state_path = directory / 'state.json'; state_path.write_text(json.dumps(state))
-            listing = 'List of devices attached\nemulator-5562\tdevice\n'
+            listing = 'List of devices attached\n127.0.0.1:16555\tdevice\n'
             with patch.object(runtime.subprocess, 'check_output', side_effect=[listing, listing]), \
                  patch.object(runtime.subprocess, 'run') as run_command, \
-                 patch.object(runtime.smoke, 'main', return_value=0) as setup:
-                runtime.initialize(directory, runtime_root, 'emulator-5562')
-            setup.assert_called_once_with(mode='prepare')
+                 patch.object(runtime, 'query_target'), patch.object(runtime, 'AppSmoke') as app, \
+                 patch.object(runtime.smoke, 'configure_manager'), patch.object(runtime.smoke, 'adb'), \
+                 patch.object(runtime.smoke, 'mobile_input', return_value='<hierarchy/>'):
+                runtime.initialize(directory, runtime_root, '127.0.0.1:16555')
+            app.return_value.setup.assert_called_once()
             self.assertEqual('fixture', runtime.smoke.APP_ID)
-            self.assertEqual(3, run_command.call_count)
+            self.assertEqual(4, run_command.call_count)
             device_instructions = json.loads((worktree / 'work/analysis/runtime-device.json').read_text())
             self.assertEqual('fixture', device_instructions['appId'])
             self.assertIn('org.example.fixture', device_instructions['instructions'])
@@ -62,15 +65,14 @@ class RuntimeAdaptationTest(unittest.TestCase):
             state = {'worktree': str(workspace), 'report': {'identity': {'apkSha256': sha256(wechat)}},
                      'runtime': {'root': str(device), 'socket': str(root / 'socket'), 'serial': 'emulator-5554'}}
             (directory / 'state.json').write_text(json.dumps(state))
-            def probe(mode):
-                self.assertEqual('probe', mode)
+            def probe(device_root, evidence, candidate_report):
                 (runtime.smoke.EVIDENCE / 'smoke-report.json').write_text(json.dumps({
                     'status': 'FAILED', 'reason': 'No tablet login choice', 'apkSha256': sha256(wechat),
                     'runtimeDiagnostics': {'moduleLoaded': 'OBSERVED', 'compatibility': 'COMPATIBLE',
                                            'hookInstallation': 'INSTALLED_2', 'resolvedHooks': ['tablet=fixture']}}))
                 (runtime.smoke.EVIDENCE / 'failure.xml').write_text('<hierarchy/>')
-                return 1
-            with patch.dict('os.environ'), patch.object(runtime.smoke, 'adb', return_value=MagicMock(stdout=b'installed', stderr=b'')), patch.object(runtime.smoke, 'reboot'), patch.object(runtime.smoke, 'configure_manager'), patch.object(runtime.smoke, 'main', side_effect=probe):
+                return {'status': 'FAILED'}
+            with patch.dict('os.environ'), patch.object(runtime.smoke, 'adb', return_value=MagicMock(stdout=b'installed', stderr=b'')), patch.object(runtime.smoke, 'configure_manager'), patch.object(runtime, 'probe_candidate', side_effect=probe):
                 with self.assertRaisesRegex(ValueError, 'missing module injection is not supported'):
                     runtime.verify_runtime(directory)
             self.assertTrue((workspace / 'work/analysis/runtime/iteration-001/failure.xml').exists())
@@ -100,8 +102,7 @@ class RuntimeAdaptationTest(unittest.TestCase):
                     if args[:2] == ('install', '-r') and len(args) == 3:
                         installed.append(sha256(Path(args[-1])))
                     return MagicMock(stdout=b'installed', stderr=b'')
-                def probe(mode):
-                    self.assertEqual('probe', mode)
+                def probe(device_root, evidence, candidate_report):
                     self.assertEqual(sha256(apk), sha256(staged))
                     self.assertEqual([sha256(staged)], installed)
                     (runtime.smoke.EVIDENCE / 'smoke-report.json').write_text(json.dumps({
@@ -109,10 +110,10 @@ class RuntimeAdaptationTest(unittest.TestCase):
                         'moduleApkSha256': preparation_sha if scenario == 'wrong-report' else sha256(staged)}))
                     if scenario == 'build-changed':
                         apk.write_bytes(b'changed during capture')
-                    return 0
+                    return {'status': 'RUNTIME_SMOKE_VERIFIED'}
                 with patch.dict('os.environ'), patch.object(runtime.smoke, 'adb', side_effect=adb), \
-                     patch.object(runtime.smoke, 'reboot'), patch.object(runtime.smoke, 'configure_manager'), \
-                     patch.object(runtime.smoke, 'main', side_effect=probe):
+                     patch.object(runtime.smoke, 'configure_manager'), \
+                     patch.object(runtime, 'probe_candidate', side_effect=probe):
                     if scenario == 'valid':
                         runtime.verify_runtime(directory)
                     else:
@@ -121,6 +122,19 @@ class RuntimeAdaptationTest(unittest.TestCase):
                 report = json.loads((directory / 'runtime-report.json').read_text())
                 self.assertEqual(preparation_sha if scenario == 'wrong-report' else installed[0],
                                  report['moduleApkSha256'])
+
+    def test_probe_failure_restores_iteration_evidence_directory(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            evidence = root / 'iteration-001'; evidence.mkdir()
+            with patch.object(runtime, 'AppSmoke') as app:
+                def fail(candidate):
+                    runtime.smoke.EVIDENCE = root / 'apps/qq'
+                    raise RuntimeError('Restart failed')
+                app.return_value.run_candidate.side_effect = fail
+                with self.assertRaisesRegex(RuntimeError, 'Restart failed'):
+                    runtime.probe_candidate(root, evidence, {'appId': 'qq'})
+                self.assertEqual(runtime.smoke.EVIDENCE, evidence)
 
     def test_diagnostics_include_fresh_hook_records_and_exclude_secondary_processes(self):
         diagnostics = runtime.smoke.hook_diagnostics('\n'.join([

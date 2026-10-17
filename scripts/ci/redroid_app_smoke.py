@@ -58,6 +58,21 @@ def memory_mib(value):
     return float(match[1]) * {'B': 1 / 1048576, 'KiB': 1 / 1024, 'MiB': 1, 'GiB': 1024}[match[2]]
 
 
+def pipeline_report(report, candidate):
+    from scripts.ci.app_policy import policy_for_report
+    policy = policy_for_report(candidate, candidate['appId'])
+    result = dict(report)
+    if isinstance(result.get('baseline'), dict):
+        result['baselineEvidence'] = result.pop('baseline')
+    result.update(appId=policy.app_id, packageName=policy.package_name,
+                  abi=candidate['identity']['abi'], apkSha256=candidate['identity']['apkSha256'],
+                  baseline=policy.runtime_baseline, hookIds=list(policy.required_hook_ids),
+                  hooks=len(policy.required_hook_ids))
+    if policy.app_id == 'qq':
+        result['acceptanceKind'] = 'REQUEST_APP_ID_CONTRAST'
+    return result
+
+
 class AppSmoke:
     def __init__(self, root, probe):
         self.root = root.resolve()
@@ -67,7 +82,7 @@ class AppSmoke:
         os.environ['ANDROID_SERIAL'] = SERIAL
         smoke.ROOT = self.root
         smoke.EVIDENCE = probe.output / 'apps'
-        smoke.EVIDENCE.mkdir(exist_ok=True)
+        smoke.EVIDENCE.mkdir(parents=True, exist_ok=True)
         smoke.MAGISK = MAGISK
         self.memory_stop = threading.Event()
         self.memory = []
@@ -95,7 +110,9 @@ class AppSmoke:
         (self.root / 'manager.apk').write_bytes(manager)
         for name in ('manager.apk', 'module/app-debug.apk'):
             smoke.adb('install', '-r', str(self.root / name), timeout=120)
-        for app in ('qq', 'wechat', 'wecom'):
+        for app in self.inputs:
+            if app == 'qq-old':
+                continue
             smoke.adb('install', '-r', str(self.root / (app + '.apk')), timeout=180)
         smoke.adb('push', str(self.root / 'ui-hierarchy.jar'), '/data/local/tmp/ui-hierarchy.jar')
         smoke.configure_app_id('qq')
@@ -113,7 +130,9 @@ class AppSmoke:
             if enable is not None:
                 if smoke.manager_module_enabled() is not True:
                     smoke.tap(enable)
-                for app in ('qq', 'wechat', 'wecom'):
+                for app in self.inputs:
+                    if app == 'qq-old':
+                        continue
                     smoke.configure_app_id(app)
                     if runtime_probe.manager_state(smoke)['scopeVerified'] is not True:
                         raise RuntimeError('Missing static app scope')
@@ -174,7 +193,7 @@ class AppSmoke:
         with isolated_tcp(uid):
             with (smoke.EVIDENCE / ('events-' + label + '.jsonl')).open('wb') as events, (smoke.EVIDENCE / ('collector-' + label + '.txt')).open('wb') as stderr:
                 command = 'exec ' + remote + ' ' + str(uid) + ' 45 ' + remote + '.pid'
-                client = subprocess.Popen(['adb', '-s', SERIAL, 'shell', '-T', MAGISK + ' su -c ' + shlex.quote(command)], stdout=subprocess.PIPE, stderr=stderr)
+                client = subprocess.Popen([os.environ.get('IMPAD_ADB_BINARY', 'adb'), '-s', SERIAL, 'shell', '-T', MAGISK + ' su -c ' + shlex.quote(command)], stdout=subprocess.PIPE, stderr=stderr)
                 def read():
                     try:
                         for line in client.stdout:
@@ -219,7 +238,7 @@ class AppSmoke:
     def qq(self, profile, name):
         smoke.configure_app_id('qq')
         smoke.EVIDENCE = self.probe.output / 'apps' / name
-        smoke.EVIDENCE.mkdir(exist_ok=True)
+        smoke.EVIDENCE.mkdir(parents=True, exist_ok=True)
         report = {'appId': 'qq', 'versionName': profile['identity']['versionName'], 'status': 'ACCEPTANCE_UNAVAILABLE',
                   'moduleApkSha256': self.module_hash, 'noAccountAuthentication': True}
         try:
@@ -249,6 +268,9 @@ class AppSmoke:
                         compatible.add(fields[2])
                     if 'installed 1 QQ hooks' in line:
                         installed.add(fields[2])
+            report['runtimeDiagnostics'] = smoke.hook_diagnostics('\n'.join(
+                line for line in logs if len(fields := line.split()) > 5 and fields[2] in owners
+                and fields[5].rstrip(':') in ('ImPad', 'LSPosedFramework')))
             if not compatible & installed:
                 raise RuntimeError('No fresh compatible and installed hook in captured MSF owner')
             if not runtime_policy.validate_request_evidence(proof, profile['identity']['apkSha256'], self.module_hash, expectation):
@@ -267,21 +289,54 @@ class AppSmoke:
             (smoke.EVIDENCE / 'report.json').write_text(json.dumps(report, indent=2) + '\n')
         return report
 
+    def run_candidate(self, candidate):
+        from scripts.ci.redroid_ui_smoke import probe as ui_probe
+        app = candidate['appId']
+        if app == 'qq':
+            report = self.qq(self.inputs[app], app)
+        else:
+            self.restart()
+            report = ui_probe(app, self.probe.output / 'apps', self.inputs, self.module_hash)
+        result = pipeline_report(report, candidate)
+        evidence = self.probe.output / 'evidence'
+        evidence.mkdir(exist_ok=True)
+        (evidence / 'smoke-report.json').write_text(json.dumps(result, indent=2) + '\n')
+        return result
+
+
     def execute(self):
         from scripts.ci.redroid_ui_smoke import probe as ui_probe
         thread = threading.Thread(target=self.monitor)
         thread.start()
         reports = []
+        failure = None
         try:
             self.setup()
             for app in ('wechat', 'wecom'):
+                if app not in self.inputs:
+                    continue
                 reports.append(ui_probe(app, self.probe.output / 'apps', self.inputs, self.module_hash))
             for name in ('qq-old', 'qq'):
+                if name not in self.inputs:
+                    continue
                 reports.append(self.qq(self.inputs[name], name))
+        except Exception as error:
+            failure = f'{type(error).__name__}: {error}'
+            raise
         finally:
             self.memory_stop.set()
             thread.join(timeout=20)
+            candidate_path = self.root / 'candidate-report.json'
+            if candidate_path.is_file():
+                candidate = json.loads(candidate_path.read_text())
+                result = pipeline_report(reports[0] if len(reports) == 1 and failure is None else {
+                    'status': 'ACCEPTANCE_UNAVAILABLE',
+                    'reason': failure or 'Candidate runtime did not return one report',
+                    'moduleApkSha256': self.module_hash}, candidate)
+                evidence = self.probe.output / 'evidence'
+                evidence.mkdir(exist_ok=True)
+                (evidence / 'smoke-report.json').write_text(json.dumps(result, indent=2) + '\n')
             (self.probe.output / 'memory-samples.json').write_text(json.dumps({'samples': self.memory, 'errors': self.memory_errors, 'sampledPeakMiB': max((s['memoryMiB'] for s in self.memory), default=None)}, indent=2))
             (self.probe.output / 'app-reports.json').write_text(json.dumps(reports, indent=2))
-        if len(reports) != 4 or any(r['status'] != 'RUNTIME_SMOKE_VERIFIED' for r in reports):
+        if len(reports) != len(self.inputs) or any(r['status'] != 'RUNTIME_SMOKE_VERIFIED' for r in reports):
             raise RuntimeError('One or more application regression paths failed; see app reports')

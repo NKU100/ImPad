@@ -233,7 +233,7 @@ def run_goal(client, directory, prompt, resume_context=None, *, verifier=None, c
             'sandboxPolicy': {'type': 'workspaceWrite', 'writableRoots': [str(workspace)], 'networkAccess': False}})
         if preflight.get('stdout', '').strip() != 'device':
             preflight['exitCode'] = 1
-            preflight['stderr'] = 'Dedicated AVD is inaccessible from the model sandbox: ' + preflight.get('stderr', '')
+            preflight['stderr'] = 'Dedicated ReDroid is inaccessible from the model sandbox: ' + preflight.get('stderr', '')
     if preflight.get('exitCode') != 0:
         raise RuntimeError('Sandbox preflight failed before model invocation: ' + str(preflight.get('stderr', ''))[:2000])
     from scripts.ci.codex_adaptation import MODEL, REASONING
@@ -258,8 +258,8 @@ def run_goal(client, directory, prompt, resume_context=None, *, verifier=None, c
         if state.get('appId', state.get('report', {}).get('appId')) == 'qq':
             objective += '\nThis Goal requires independent QQ request identity smoke: the exact APK must naturally send a trusted security command with its Manifest phone AppID when the module is disabled and tablet AppID when enabled. Do not call or register an AppID Getter as an acceptance point. The trusted controller owns socket capture, protocol decoding and acceptance criteria. No account authentication is required or verified. Run impad-smoke for guarded host-side request identity acceptance; ordinary model-side ADB shell requests cannot host the fixed capture.'
         else:
-            objective += '\nThis Goal requires AVD verification of installed hooks and the application-policy-specific tablet login entry and stable login page.'
-        objective += ' Use adb to debug the disposable emulator described in work/analysis/runtime-device.json. Static success alone is insufficient. Screenshots and runtime logs from rejected turns will be placed under work/analysis/runtime.'
+            objective += '\nThis Goal requires ReDroid verification of installed hooks and the application-policy-specific tablet login entry and stable login page.'
+        objective += ' Use adb to debug the disposable ReDroid described in work/analysis/runtime-device.json. Static success alone is insufficient. Screenshots and runtime logs from rejected turns will be placed under work/analysis/runtime.'
     objective = objective_override or objective
     verifier = verifier or verify
     checkpoint = checkpoint or persist_turn
@@ -326,7 +326,7 @@ def run_goal(client, directory, prompt, resume_context=None, *, verifier=None, c
 
 def run_model_goal(directory, prompt_path):
     allowed = {'PATH', 'HOME', 'LANG', 'LC_ALL', 'JAVA_HOME', 'ANDROID_HOME', 'ANDROID_SDK_ROOT', 'APP_ID',
-               'GRADLE_USER_HOME', 'CODEX_HOME', 'SSL_CERT_FILE', 'TMPDIR', 'WECHATPAD_DEBUG_KEYSTORE'}
+               'GRADLE_USER_HOME', 'CODEX_HOME', 'SSL_CERT_FILE', 'TMPDIR', 'WECHATPAD_DEBUG_KEYSTORE', 'IMPAD_ADB_BINARY'}
     env = {key: value for key, value in os.environ.items() if key in allowed}
     client = None
     def interrupted(number, frame):

@@ -1,71 +1,25 @@
-name: Run ImPad runtime smoke
+name: Run ImPad ReDroid smoke
 
 on:
   workflow_dispatch:
     inputs:
-      stock_qq_diagnostic:
-        description: Diagnose app startup without ImPad
-        type: boolean
-        default: false
-      baseline_apk_sha256:
-        description: Exact APK hash required for non-QQ startup comparison
-        type: string
-        default: ''
-      diagnostic_layer:
-        description: Framework layer for smoke or QQ diagnostic mode
-        type: choice
-        options: [stock, magisk, zygisk, zygisk-next, zygisk-next-lsposed, neozygisk-lsposed, lsposed]
-        default: stock
-      diagnostic_module:
-        description: Third-party QQ module for isolated crash diagnostics
-        type: choice
-        options: [none, tablethook, qqtablet]
-        default: none
-      diagnostic_ram:
-        description: AVD memory in MB for manual diagnostics
-        type: choice
-        options: ['4096', '6144']
-        default: '4096'
-      next_linker:
-        description: Zygisk Next linker with anonymous memory disabled
-        type: choice
-        options: [builtin, system]
-        default: builtin
-      diagnostic_image:
-        description: Android image for manual smoke comparisons
-        type: choice
-        options: [api37-ps16k, api30-google, api30-google-atd, api31-google]
-        default: api37-ps16k
-      rebuild_ramdisk:
-        description: Rebuild pinned ramdisk and verify reproduction
-        type: boolean
-        default: false
       app_id:
-        description: Registered application policy to smoke
         type: string
         default: wechat
       module_run_id:
-        description: Successful Build module APK run to reuse
         type: string
         required: true
       module_artifact:
-        description: Module APK artifact to reuse from the specified run
         type: string
         default: ''
       candidate_artifact:
-        description: Statically verified candidate artifact to replay from the specified run
         type: string
         default: ''
-
   workflow_call:
     inputs:
       app_id:
         type: string
         default: wechat
-      rebuild_ramdisk:
-        description: Rebuild pinned ramdisk and verify reproduction
-        type: boolean
-        default: false
       module_run_id:
         type: string
         required: true
@@ -83,82 +37,35 @@ permissions:
 concurrency:
   group: impad-runtime-smoke
   cancel-in-progress: false
-  queue: max
 
 jobs:
-  smoke:
+  prepare:
     runs-on: ubuntu-24.04
+    outputs:
+      app_id: ${{ steps.policy.outputs.app_id }}
+      artifact_prefix: ${{ steps.policy.outputs.artifact_prefix }}
     env:
       APP_ID: ${{ inputs.app_id || 'wechat' }}
-      STOCK_QQ_DIAGNOSTIC: ${{ inputs.stock_qq_diagnostic || false }}
-      BASELINE_APK_SHA256: ${{ inputs.baseline_apk_sha256 }}
-      QQ_DIAGNOSTIC_LAYER: ${{ inputs.diagnostic_layer || 'stock' }}
-      QQ_DIAGNOSTIC_MODULE: ${{ inputs.diagnostic_module || 'none' }}
-      QQ_NEXT_LINKER: ${{ inputs.next_linker || 'builtin' }}
-      QQ_DIAGNOSTIC_IMAGE: ${{ inputs.diagnostic_image || 'api37-ps16k' }}
-      REBUILD_RAMDISK: ${{ inputs.rebuild_ramdisk }}
     steps:
       - uses: actions/checkout@v7
-      - name: Resolve trusted application policy
-        id: policy
+      - id: policy
         run: python3 -m scripts.ci.app_policy --app-id "$APP_ID" --github-output "$GITHUB_OUTPUT"
-      - name: Reserve space for Android system and userdata
-        run: |
-          mkdir -p work/runtime-smoke/evidence
-          df -h . | tee work/runtime-smoke/evidence/disk-before.txt
-          sudo rm -rf /usr/share/dotnet /opt/ghc /usr/local/share/boost
-          df -h . | tee work/runtime-smoke/evidence/disk-after.txt
-      - name: Install local OCR for Manager UI
-        run: sudo apt-get update -qq && sudo apt-get install -y --no-install-recommends tesseract-ocr
       - uses: actions/setup-java@v6
         with:
           distribution: temurin
           java-version: '21'
+          cache: gradle
       - uses: android-actions/setup-android@v4
         with:
           packages: ''
-      - name: Build trusted QQ kernel packet collector
-        if: env.APP_ID == 'qq' && env.STOCK_QQ_DIAGNOSTIC != 'true'
-        run: python3 -m scripts.ci.apps.qq.prepare_probe --root work/runtime-smoke --abi x86_64
-      - name: Reuse module build
-        if: env.STOCK_QQ_DIAGNOSTIC != 'true'
+      - run: sdkmanager 'platforms;android-37.2' 'build-tools;37.0.0' 'ndk;29.0.14206865'
+      - name: Reuse exact module build
         uses: actions/download-artifact@v8
         with:
           name: ${{ inputs.module_artifact || format('{0}-{1}-adapted-module', steps.policy.outputs.artifact_prefix, steps.policy.outputs.app_id) }}
           path: work/runtime-smoke/module
           run-id: ${{ inputs.module_run_id }}
           github-token: ${{ github.token }}
-      - name: Download pinned root and official LSPosed
-        if: env.STOCK_QQ_DIAGNOSTIC != 'true' || env.QQ_DIAGNOSTIC_LAYER != 'stock'
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          gh release download experimental-ramdisk-api37.2-r06-magisk31.0 \
-            --pattern ramdisk37-patched.img --pattern LSPosed-v2.2.1-7912-release.zip --dir work/runtime-smoke
-          echo 'b49fec2e291582495196d9437bf520f337882bddf763d2530a576f3e4da99df8  work/runtime-smoke/ramdisk37-patched.img' | sha256sum --check
-          echo 'ed37de2d2097aa6ba871377e7bf4ac719b708484f9468928e6abae10ab311e74  work/runtime-smoke/LSPosed-v2.2.1-7912-release.zip' | sha256sum --check
-          mv work/runtime-smoke/LSPosed-v2.2.1-7912-release.zip work/runtime-smoke/lsposed.zip
-          7z e -so work/runtime-smoke/lsposed.zip module.prop | grep -Fxq 'version=v2.2.1 (7912)'
-          7z e -so work/runtime-smoke/lsposed.zip module.prop | grep -Fxq 'versionCode=7912'
-          7z e -so work/runtime-smoke/lsposed.zip manager.apk > work/runtime-smoke/manager.apk
-          curl --fail --location --silent --show-error --retry 2 --connect-timeout 20 --max-time 180 \
-            --proto '=https' --proto-redir '=https' https://github.com/topjohnwu/Magisk/releases/download/v31.0/Magisk-v31.0.apk -o work/runtime-smoke/magisk.apk
-          echo '2c8a488b9a5293e578e95ae4f07e3c57aba4feec4a52ca4dd852a2692d6dd4e8  work/runtime-smoke/magisk.apk' | sha256sum --check
-      - name: Download pinned official Zygisk Next
-        if: env.QQ_DIAGNOSTIC_LAYER == 'zygisk-next' || env.QQ_DIAGNOSTIC_LAYER == 'zygisk-next-lsposed'
-        run: |
-          curl --fail --location --silent --show-error --retry 2 --connect-timeout 20 --max-time 180 \
-            --proto '=https' --proto-redir '=https' https://github.com/LSPosed/ZygiskNext/releases/download/v1.5.2/Zygisk-Next-1.5.2-864-a4a72ce-release.zip -o work/runtime-smoke/zygisk-next.zip
-          echo 'ce50b13fecb9e4456db69ef17b715f7cfbc094004dd9f30f7d6348dfab619a96  work/runtime-smoke/zygisk-next.zip' | sha256sum --check
-      - name: Download pinned official NeoZygisk
-        if: env.QQ_DIAGNOSTIC_LAYER == 'neozygisk-lsposed'
-        run: |
-          curl --fail --location --silent --show-error --retry 2 --connect-timeout 20 --max-time 180 \
-            --proto '=https' --proto-redir '=https' https://github.com/JingMatrix/NeoZygisk/releases/download/v2.4/NeoZygisk-v2.4-289-release.zip -o work/runtime-smoke/neozygisk.zip
-          echo '93a1425c67bb89f58a0dcb9fc823ec93f6472214f221e667a70b67c6a6e061a1  work/runtime-smoke/neozygisk.zip' | sha256sum --check
-      - name: Download pinned third-party QQ module
-        if: env.STOCK_QQ_DIAGNOSTIC == 'true' && env.QQ_DIAGNOSTIC_MODULE != 'none'
-        run: python3 -c 'from scripts.ci.qq_sigbus_diagnostic import download_third_party; download_third_party()'
       - name: Reuse statically verified candidate
         if: inputs.candidate_artifact != ''
         uses: actions/download-artifact@v8
@@ -167,81 +74,68 @@ jobs:
           path: work/runtime-smoke
           run-id: ${{ inputs.module_run_id }}
           github-token: ${{ github.token }}
-      - name: Verify and stage exact candidate APK
-        if: inputs.candidate_artifact != ''
-        run: |
-          python3 - <<'PYVERIFY'
-          import hashlib, json, os
-          import shutil
-          from pathlib import Path
-          root = Path('work/runtime-smoke')
-          report = json.loads((root / 'candidate-report.json').read_text())
-          from scripts.ci.app_policy import policy_for_report
-          policy = policy_for_report(report, os.environ['APP_ID'])
-          assert report['status'] == 'STATIC_VERIFIED_PENDING_RUNTIME'
-          expected = report['identity']
-          assert expected['abi'] in policy.supported_abis
-          source = root / f"{policy.app_id}-{expected['apkSha256']}.apk"
-          with source.open('rb') as apk:
-              digest = hashlib.file_digest(apk, 'sha256').hexdigest()
-          assert digest == expected['apkSha256'], 'Candidate APK changed after static verification'
-          shutil.copyfile(source, root / f'{policy.app_id}.apk')
-          PYVERIFY
-      - name: Download and verify registered official app
+      - name: Select registered official candidate
         if: inputs.candidate_artifact == ''
         run: |
-          python3 -m scripts.ci.candidate_selection \
-            --app-id "$APP_ID" \
-            --mode "$([ "$APP_ID" = qq ] && echo baseline || echo latest)" \
-            --directory work/runtime-smoke
-          python3 - <<'PY'
-          import json, os, shutil
-          from pathlib import Path
-          root = Path('work/runtime-smoke')
-          report = json.loads((root / 'candidate-report.json').read_text())
-          identity = report['identity']
-          shutil.copyfile(root / f"{os.environ['APP_ID']}-{identity['apkSha256']}.apk", root / f"{os.environ['APP_ID']}.apk")
-          PY
-      - name: Verify official APK signer
-        run: |
-          sdkmanager 'build-tools;37.0.0'
-          "$ANDROID_HOME/build-tools/37.0.0/apksigner" verify --print-certs "work/runtime-smoke/$APP_ID.apk" > "work/runtime-smoke/evidence/$APP_ID-signer.txt"
-          signer="$(python3 -c 'import os; from scripts.ci.app_policy import get_policy; print(get_policy(os.environ["APP_ID"]).signer_sha256)')"
-          grep -F "$signer" "work/runtime-smoke/evidence/$APP_ID-signer.txt"
-      - name: Enable KVM access
-        run: |
-          test -c /dev/kvm
-          sudo chmod 666 /dev/kvm
-      - name: Verify root, official LSPosed and selected app UI
-        uses: reactivecircus/android-emulator-runner@v2
+          python3 -m scripts.ci.candidate_selection --app-id "$APP_ID" \
+            --mode "$([ "$APP_ID" = qq ] && echo baseline || echo latest)" --directory work/runtime-smoke
+      - name: Verify signer and static rules and compile native collector
+        run: python3 -m scripts.ci.redroid_prepare_apps --root work/runtime-smoke --candidate work/runtime-smoke/candidate-report.json
+      - uses: actions/upload-artifact@v7
         with:
-          api-level: ${{ inputs.diagnostic_image == 'api31-google' && '31' || (inputs.diagnostic_image == 'api30-google' || inputs.diagnostic_image == 'api30-google-atd') && '30' || '37.2' }}
-          emulator-build: '15917651'
-          target: ${{ (inputs.diagnostic_image == 'api30-google' || inputs.diagnostic_image == 'api31-google') && 'google_apis' || inputs.diagnostic_image == 'api30-google-atd' && 'google_atd' || 'google_apis_ps16k' }}
-          arch: x86_64
-          profile: pixel_5
-          cores: 4
-          ram-size: ${{ inputs.diagnostic_ram || '4096' }}M
-          disk-size: 6144M
-          # The API 37 gralloc mapper requires color-buffer DMA for CPU readback.
-          emulator-options: -no-window -gpu swiftshader_indirect -feature GLDirectMem,HasSharedSlotsHostMemoryAllocator -noaudio -no-boot-anim -camera-back none -camera-front none -no-snapshot
-          pre-emulator-launch-script: bash scripts/ci/prepare_diagnostic_avd.sh
-          script: bash scripts/ci/run_diagnostic_avd.sh
-      - name: Upload runtime evidence
-        if: always()
-        uses: actions/upload-artifact@v7
-        with:
-          name: ${{ steps.policy.outputs.artifact_prefix }}-${{ steps.policy.outputs.app_id }}-runtime-smoke
+          name: runtime-redroid-inputs-${{ steps.policy.outputs.app_id }}
           path: |
-            work/runtime-smoke/evidence/
-            work/runtime-smoke/tooling/tooling-report.json
-            work/root-verification/evidence/
+            work/runtime-smoke/${{ steps.policy.outputs.app_id }}.apk
+            work/runtime-smoke/module/
+            work/runtime-smoke/inputs.json
+            work/runtime-smoke/candidate-report.json
+            work/runtime-smoke/qq-probe/
+            work/runtime-smoke/ui-hierarchy.jar
           retention-days: 7
-      - name: Summarize runtime smoke
+
+  smoke:
+    needs: prepare
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 25
+    env:
+      IMPAD_ADB_BINARY: /usr/bin/adb
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/download-artifact@v8
+        with:
+          name: runtime-redroid-inputs-${{ needs.prepare.outputs.app_id }}
+          path: work/runtime-smoke
+      - run: sudo apt-get update -qq && sudo apt-get install -y --no-install-recommends adb kmod tesseract-ocr 7zip
+      - name: Independently verify the exact candidate on native ReDroid
+        run: python3 -m scripts.ci.redroid_environment_probe --output work/runtime-smoke --app-inputs work/runtime-smoke
+      - name: Package stable runtime evidence layout
         if: always()
         run: |
-          if [[ -f work/runtime-smoke/evidence/summary.md ]]; then
-            cat work/runtime-smoke/evidence/summary.md >> "$GITHUB_STEP_SUMMARY"
-          else
-            echo 'Smoke failed during environment preparation; see setup logs.' >> "$GITHUB_STEP_SUMMARY"
+          mkdir -p work/runtime-artifact/runtime-smoke
+          python3 - <<'PYCODE'
+          from pathlib import Path
+          import shutil
+          source = Path('work/runtime-smoke')
+          target = Path('work/runtime-artifact/runtime-smoke')
+          for name in ('evidence', 'apps'):
+              if (source / name).is_dir():
+                  shutil.copytree(source / name, target / name, dirs_exist_ok=True)
+          for path in list(source.glob('*.txt')) + [source / name for name in ('report.json', 'app-reports.json', 'memory-samples.json', 'summary.md')]:
+              if path.is_file():
+                  shutil.copyfile(path, target / path.name)
+          if (source / 'tooling/tooling-report.json').is_file():
+              (target / 'tooling').mkdir(exist_ok=True)
+              shutil.copyfile(source / 'tooling/tooling-report.json', target / 'tooling/tooling-report.json')
+          PYCODE
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: ${{ needs.prepare.outputs.artifact_prefix }}-${{ needs.prepare.outputs.app_id }}-runtime-smoke
+          path: work/runtime-artifact/
+          retention-days: 14
+      - if: always()
+        run: |
+          if [ -f work/runtime-smoke/summary.md ]; then
+            cat work/runtime-smoke/summary.md >> "$GITHUB_STEP_SUMMARY"
           fi

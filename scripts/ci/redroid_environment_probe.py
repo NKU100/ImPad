@@ -44,13 +44,13 @@ class Probe:
         return result
 
     def adb(self, args, name, **kwargs):
-        return self.run(['adb', '-s', SERIAL, *args], name, **kwargs)
+        return self.run([os.environ.get('IMPAD_ADB_BINARY', 'adb'), '-s', SERIAL, *args], name, **kwargs)
 
     def shell(self, command, name, **kwargs):
         return self.adb(['shell', command], name, **kwargs)
 
     def boot(self, label):
-        self.run(['adb', 'connect', SERIAL], label + '-connect', check=False)
+        self.run([os.environ.get('IMPAD_ADB_BINARY', 'adb'), 'connect', SERIAL], label + '-connect', check=False)
         deadline = time.monotonic() + 180
         while time.monotonic() < deadline:
             result = self.shell('getprop sys.boot_completed', label + '-boot', check=False, timeout=10)
@@ -59,7 +59,7 @@ class Probe:
                 self.adb(['wait-for-device'], label + '-adb-ready', timeout=30)
                 reconnect_deadline = min(deadline, time.monotonic() + 30)
                 while time.monotonic() < reconnect_deadline:
-                    self.run(['adb', 'connect', SERIAL], label + '-root-connect', check=False)
+                    self.run([os.environ.get('IMPAD_ADB_BINARY', 'adb'), 'connect', SERIAL], label + '-root-connect', check=False)
                     properties = self.shell('getprop; ps -A', label + '-properties', check=False, timeout=10)
                     if properties.returncode == 0:
                         return
@@ -75,85 +75,115 @@ class Probe:
                   'androidboot.redroid_width=720', 'androidboot.redroid_height=1280'], label + '-start')
         self.boot(label)
 
+    def setup(self):
+        if platform.machine() not in ('aarch64', 'arm64'):
+            raise RuntimeError('Native ARM64 host required')
+        self.run(['uname', '-a'], 'host-kernel')
+        self.run(['getconf', 'PAGESIZE'], 'host-page-size')
+        self.run(['free', '-k'], 'host-memory')
+        self.run(['sudo', 'sh', '-c', 'cat /boot/config-$(uname -r); cat /proc/filesystems; ls /dev/*binder*; cat /sys/kernel/security/lsm'], 'host-kernel-config', check=False)
+        modules = self.run(['sudo', 'modprobe', 'binder_linux', 'devices=binder,hwbinder,vndbinder'], 'binder-modprobe', check=False)
+        binder_present = Path('/sys/module/binder_linux').exists()
+        if modules.returncode and not binder_present:
+            self.run(['sudo', 'sh', '-c', 'apt-get install -y linux-modules-extra-$(uname -r)'], 'binder-extra-modules', timeout=180, check=False)
+            self.run(['sudo', 'modprobe', 'binder_linux', 'devices=binder,hwbinder,vndbinder'], 'binder-modprobe-retry')
+        self.report['stage'] = 'STOCK_BOOT'
+        self.start(BASE_IMAGE, 'stock')
+        self.report['stockBoot'] = 'BOOT_COMPLETED'
+        self.run(['sudo', 'docker', 'rm', '-f', CONTAINER], 'stock-remove')
+        self.report['stage'] = 'FRAMEWORK_IMAGE'
+        assets = self.output / 'assets'
+        assets.mkdir()
+        for name, (url, digest) in ASSETS.items():
+            path = assets / name
+            if url:
+                urllib.request.urlretrieve(url, path)
+            else:
+                self.run(['gh', 'release', 'download', 'experimental-ramdisk-api37.2-r06-magisk31.0',
+                          '--repo', 'NKU100/ImPad', '--pattern', 'LSPosed-v2.2.1-7912-release.zip', '--dir', str(assets)], 'download-lsposed')
+                (assets / 'LSPosed-v2.2.1-7912-release.zip').rename(path)
+            checked_digest(path, digest)
+        context = self.output / 'context'
+        target = context / 'system/etc/impad-magisk'
+        target.mkdir(parents=True)
+        (context / 'debug_ramdisk').mkdir()
+        with zipfile.ZipFile(assets / 'magisk.apk') as archive:
+            for item in archive.namelist():
+                if item.startswith('assets/') and '/' not in item[7:]:
+                    (target / item[7:]).write_bytes(archive.read(item))
+            for item in archive.namelist():
+                if item.startswith('lib/arm64-v8a/lib') and item.endswith('.so'):
+                    (target / Path(item).name[3:-3]).write_bytes(archive.read(item))
+        templates = Path(__file__).parent / 'redroid'
+        shutil.copyfile(templates / 'bootstrap.sh', target / 'bootstrap.sh')
+        init = context / 'system/etc/init'
+        init.mkdir()
+        shutil.copyfile(templates / 'impad-magisk.rc', init / 'impad-magisk.rc')
+        (context / 'Dockerfile').write_text(f'FROM {BASE_IMAGE}\nCOPY system/ /system/\nCOPY debug_ramdisk/ /debug_ramdisk/\n')
+        self.run(['sudo', 'docker', 'build', '-t', 'impad-hosted-magisk31', str(context)], 'framework-build', timeout=300)
+        self.start('impad-hosted-magisk31', 'magisk')
+        root = self.shell(MAGISK + ' su -c id', 'magisk-root')
+        if b'uid=0' not in root.stdout:
+            raise RuntimeError('Magisk root not confirmed')
+        version = self.shell(MAGISK + ' -V', 'magisk-version')
+        if version.stdout.strip() != b'31000':
+            raise RuntimeError('Magisk version mismatch')
+        for name in ('next.zip', 'lsposed.zip'):
+            self.adb(['push', str(assets / name), '/data/local/tmp/' + name], 'push-' + name)
+            self.shell('export PATH=/debug_ramdisk:/data/adb/magisk:$PATH; magisk --install-module /data/local/tmp/' + name, 'install-' + name, timeout=180)
+        self.shell(MAGISK + ' --sqlite "REPLACE INTO settings (key,value) VALUES (\'zygisk\',0)"', 'builtin-zygisk-disable')
+        self.report['stage'] = 'FRAMEWORK_BOOT'
+        self.run(['sudo', 'docker', 'restart', CONTAINER], 'framework-restart')
+        self.boot('framework')
+        state = self.shell('cat /data/adb/modules/zygisksu/module.prop; cat /data/adb/modules/zygisk_lsposed/module.prop; /data/adb/modules/zygisksu/bin/zygiskd status; ps -A; for p in $(pidof zygote64); do cat /proc/$p/maps; done', 'framework-state')
+        if b'libzygisk.so' not in state.stdout or b'lspd' not in state.stdout:
+            raise RuntimeError('Next injection or LSPosed daemon not observed')
+        self.report['status'] = 'FRAMEWORK_ENVIRONMENT_READY'
+
+    def cleanup(self):
+        actions = [
+            lambda: self.run(['sudo', 'docker', 'logs', CONTAINER], 'container-log', check=False),
+            lambda: self.run(['sudo', 'docker', 'stats', '--no-stream', CONTAINER], 'container-resources', check=False),
+            lambda: self.run(['sudo', 'dmesg', '-T'], 'host-dmesg', check=False),
+            lambda: self.adb(['logcat', '-d'], 'android-logcat', check=False, timeout=15),
+            lambda: self.run(['sudo', 'docker', 'rm', '-f', CONTAINER], 'cleanup', check=False),
+        ]
+        for action in actions:
+            try:
+                action()
+            except (OSError, RuntimeError, subprocess.SubprocessError) as error:
+                self.report.setdefault('cleanupErrors', []).append(f'{type(error).__name__}: {error}')
+
     def execute(self, app_inputs=None):
         try:
-            if platform.machine() not in ('aarch64', 'arm64'):
-                raise RuntimeError('Native ARM64 host required')
-            self.run(['uname', '-a'], 'host-kernel')
-            self.run(['getconf', 'PAGESIZE'], 'host-page-size')
-            self.run(['free', '-k'], 'host-memory')
-            self.run(['sudo', 'sh', '-c', 'cat /boot/config-$(uname -r); cat /proc/filesystems; ls /dev/*binder*; cat /sys/kernel/security/lsm'], 'host-kernel-config', check=False)
-            modules = self.run(['sudo', 'modprobe', 'binder_linux', 'devices=binder,hwbinder,vndbinder'], 'binder-modprobe', check=False)
-            binder_present = Path('/sys/module/binder_linux').exists()
-            if modules.returncode and not binder_present:
-                self.run(['sudo', 'sh', '-c', 'apt-get install -y linux-modules-extra-$(uname -r)'], 'binder-extra-modules', timeout=180, check=False)
-                self.run(['sudo', 'modprobe', 'binder_linux', 'devices=binder,hwbinder,vndbinder'], 'binder-modprobe-retry')
-            self.report['stage'] = 'STOCK_BOOT'
-            self.start(BASE_IMAGE, 'stock')
-            self.report['stockBoot'] = 'BOOT_COMPLETED'
-            self.run(['sudo', 'docker', 'rm', '-f', CONTAINER], 'stock-remove')
-            self.report['stage'] = 'FRAMEWORK_IMAGE'
-            assets = self.output / 'assets'
-            assets.mkdir()
-            for name, (url, digest) in ASSETS.items():
-                path = assets / name
-                if url:
-                    urllib.request.urlretrieve(url, path)
-                else:
-                    self.run(['gh', 'release', 'download', 'experimental-ramdisk-api37.2-r06-magisk31.0',
-                              '--repo', 'NKU100/ImPad', '--pattern', 'LSPosed-v2.2.1-7912-release.zip', '--dir', str(assets)], 'download-lsposed')
-                    (assets / 'LSPosed-v2.2.1-7912-release.zip').rename(path)
-                checked_digest(path, digest)
-            context = self.output / 'context'
-            target = context / 'system/etc/impad-magisk'
-            target.mkdir(parents=True)
-            (context / 'debug_ramdisk').mkdir()
-            with zipfile.ZipFile(assets / 'magisk.apk') as archive:
-                for item in archive.namelist():
-                    if item.startswith('assets/') and '/' not in item[7:]:
-                        (target / item[7:]).write_bytes(archive.read(item))
-                for item in archive.namelist():
-                    if item.startswith('lib/arm64-v8a/lib') and item.endswith('.so'):
-                        (target / Path(item).name[3:-3]).write_bytes(archive.read(item))
-            templates = Path(__file__).parent / 'redroid'
-            shutil.copyfile(templates / 'bootstrap.sh', target / 'bootstrap.sh')
-            init = context / 'system/etc/init'
-            init.mkdir()
-            shutil.copyfile(templates / 'impad-magisk.rc', init / 'impad-magisk.rc')
-            (context / 'Dockerfile').write_text(f'FROM {BASE_IMAGE}\nCOPY system/ /system/\nCOPY debug_ramdisk/ /debug_ramdisk/\n')
-            self.run(['sudo', 'docker', 'build', '-t', 'impad-hosted-magisk31', str(context)], 'framework-build', timeout=300)
-            self.start('impad-hosted-magisk31', 'magisk')
-            root = self.shell(MAGISK + ' su -c id', 'magisk-root')
-            if b'uid=0' not in root.stdout:
-                raise RuntimeError('Magisk root not confirmed')
-            version = self.shell(MAGISK + ' -V', 'magisk-version')
-            if version.stdout.strip() != b'31000':
-                raise RuntimeError('Magisk version mismatch')
-            for name in ('next.zip', 'lsposed.zip'):
-                self.adb(['push', str(assets / name), '/data/local/tmp/' + name], 'push-' + name)
-                self.shell('export PATH=/debug_ramdisk:/data/adb/magisk:$PATH; magisk --install-module /data/local/tmp/' + name, 'install-' + name, timeout=180)
-            self.shell(MAGISK + ' --sqlite "REPLACE INTO settings (key,value) VALUES (\'zygisk\',0)"', 'builtin-zygisk-disable')
-            self.report['stage'] = 'FRAMEWORK_BOOT'
-            self.run(['sudo', 'docker', 'restart', CONTAINER], 'framework-restart')
-            self.boot('framework')
-            state = self.shell('cat /data/adb/modules/zygisksu/module.prop; cat /data/adb/modules/zygisk_lsposed/module.prop; /data/adb/modules/zygisksu/bin/zygiskd status; ps -A; for p in $(pidof zygote64); do cat /proc/$p/maps; done', 'framework-state')
-            if b'libzygisk.so' not in state.stdout or b'lspd' not in state.stdout:
-                raise RuntimeError('Next injection or LSPosed daemon not observed')
-            self.report['status'] = 'FRAMEWORK_ENVIRONMENT_READY'
+            self.setup()
             if app_inputs is not None:
                 self.report.update(stage='APPLICATION_ACCEPTANCE', status='APPLICATION_ACCEPTANCE_FAILED',
                                    acceptanceKind='THREE_APP_RUNTIME_REGRESSION')
                 from scripts.ci.redroid_app_smoke import AppSmoke
                 AppSmoke(app_inputs, self).execute()
+                from scripts.ci.runtime_tooling_probe import probe
+                inputs = json.loads((app_inputs / 'inputs.json').read_text())
+                probe(self.output / 'tooling', next(app for app in inputs if app != 'qq-old'))
                 self.report['status'] = 'APPLICATION_ACCEPTANCE_VERIFIED'
         except Exception as error:
             self.report['reason'] = f'{type(error).__name__}: {error}'
         finally:
-            self.run(['sudo', 'docker', 'logs', CONTAINER], 'container-log', check=False)
-            self.run(['sudo', 'docker', 'stats', '--no-stream', CONTAINER], 'container-resources', check=False)
-            self.run(['sudo', 'dmesg', '-T'], 'host-dmesg', check=False)
-            self.adb(['logcat', '-d'], 'android-logcat', check=False, timeout=15)
-            self.run(['sudo', 'docker', 'rm', '-f', CONTAINER], 'cleanup', check=False)
+            self.cleanup()
+            if app_inputs is not None and self.report['status'] != 'APPLICATION_ACCEPTANCE_VERIFIED':
+                candidate_path = app_inputs / 'candidate-report.json'
+                if candidate_path.is_file():
+                    from scripts.ci.redroid_app_smoke import pipeline_report
+                    candidate = json.loads(candidate_path.read_text())
+                    module_hash = hashlib.sha256((app_inputs / 'module/app-debug.apk').read_bytes()).hexdigest()
+                    evidence = self.output / 'evidence'
+                    evidence.mkdir(exist_ok=True)
+                    result = pipeline_report({'status': 'ACCEPTANCE_UNAVAILABLE',
+                        'reason': self.report.get('reason', 'Framework acceptance unavailable'),
+                        'moduleApkSha256': module_hash}, candidate)
+                    report_path = evidence / 'smoke-report.json'
+                    if not report_path.is_file():
+                        report_path.write_text(json.dumps(result, indent=2) + '\n')
             (self.output / 'report.json').write_text(json.dumps(self.report, indent=2) + '\n')
             (self.output / 'summary.md').write_text(f"ReDroid: **{self.report['status']}** at {self.report['stage']}.\n\n" + self.report.get('reason', '') + '\n\nFramework boot does not establish application hook or request acceptance.\n')
         return self.report['status'] == ('APPLICATION_ACCEPTANCE_VERIFIED' if app_inputs is not None else 'FRAMEWORK_ENVIRONMENT_READY')

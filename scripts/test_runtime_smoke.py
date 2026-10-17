@@ -18,26 +18,6 @@ spec.loader.exec_module(smoke)
 
 
 class UiEvidenceTest(unittest.TestCase):
-    def test_explicit_next_framework_is_used_for_wechat_and_wecom(self):
-        from scripts.ci import qq_sigbus_diagnostic
-        for app_id in ('wechat', 'wecom'):
-            with self.subTest(app_id=app_id), ExitStack() as stack:
-                stack.enter_context(patch.object(smoke, 'APP_ID', app_id))
-                stack.enter_context(patch.dict(os.environ, QQ_DIAGNOSTIC_LAYER='zygisk-next-lsposed'))
-                stack.enter_context(patch.dict(sys.modules, smoke=smoke))
-                for name in ('adb', 'save', 'enable_page_size_backcompat', 'mobile_input', 'reboot', 'configure_manager'):
-                    stack.enter_context(patch.object(smoke, name))
-                stack.enter_context(patch.object(smoke, 'mobile_input', return_value='<hierarchy/>'))
-                adb = stack.enter_context(patch.object(smoke, 'adb', return_value=subprocess.CompletedProcess([], 0, b'package:/data/app/base.apk', b'')))
-                stack.enter_context(patch.object(smoke, 'su', return_value=subprocess.CompletedProcess([], 0, b'123', b'')))
-                bootstrap = stack.enter_context(patch.object(smoke, 'bootstrap_magisk'))
-                prepare = stack.enter_context(patch.object(qq_sigbus_diagnostic, 'prepare_layer'))
-                verify = stack.enter_context(patch.object(qq_sigbus_diagnostic, 'verify_next_settings'))
-                smoke.prepare_environment({})
-                prepare.assert_called_once_with('zygisk-next-lsposed', runtime=smoke)
-                verify.assert_called_once()
-                bootstrap.assert_not_called()
-
     def test_ocr_label_ignores_adjacent_icon_noise_but_rejects_duplicate_labels(self):
         header = 'level\tpage_num\tblock_num\tpar_num\tline_num\tleft\ttop\twidth\theight\tconf\ttext\n'
         rows = '5\t1\t1\t1\t1\t158\t670\t32\t15\t36\t2s\n5\t1\t1\t1\t1\t230\t654\t55\t35\t82\tI\'m\n5\t1\t1\t1\t1\t302\t654\t72\t35\t94\tPad\n'
@@ -181,35 +161,6 @@ class UiEvidenceTest(unittest.TestCase):
         self.assertTrue(any("UiHierarchy" in call.args for call in device.call_args_list))
         self.assertFalse(any("/sdcard/" in str(call.args) for call in device.call_args_list))
 
-    def test_manager_and_module_are_installed_before_framework_reboot(self):
-        events = []
-        result = subprocess.CompletedProcess([], 0, b'123', b'')
-        with ExitStack() as stack:
-            folder = stack.enter_context(tempfile.TemporaryDirectory())
-            stack.enter_context(patch.object(smoke, 'EVIDENCE', Path(folder)))
-            def device(*args, **kwargs):
-                events.append(args)
-                if args == ('shell', 'pm', 'path', smoke.MODULE):
-                    return subprocess.CompletedProcess([], 0, b'package:/data/app/io.github.nku100.impad/base.apk\n', b'')
-                return result
-            stack.enter_context(patch.object(smoke, 'adb', side_effect=device))
-            stack.enter_context(patch.object(smoke, 'su', return_value=result))
-            stack.enter_context(patch.object(smoke, 'save'))
-            stack.enter_context(patch.object(smoke, 'mobile_input', return_value='<hierarchy />'))
-            stack.enter_context(patch.object(smoke, 'bootstrap_magisk'))
-            stack.enter_context(patch.object(smoke, 'enable_page_size_backcompat'))
-            stack.enter_context(patch.object(smoke, 'configure_manager'))
-            stack.enter_context(patch.object(smoke, 'collect_logs', return_value=''))
-            stack.enter_context(patch.object(smoke, 'snapshot', return_value=('', '')))
-            stack.enter_context(patch.object(smoke, 'reboot', side_effect=lambda: events.append(('reboot',))))
-            stack.enter_context(redirect_stdout(io.StringIO()))
-            self.assertEqual(smoke.main(), 1)
-        restart = events.index(('reboot',))
-        for apk in ('manager.apk', 'module/app-debug.apk'):
-            install = next((i for i, args in enumerate(events) if args[0] == 'install' and args[-1].endswith(apk)), None)
-            self.assertIsNotNone(install, apk)
-            self.assertLess(install, restart, apk)
-
     def test_hidden_nodes_are_not_click_targets(self):
         xml = '<hierarchy><node text="Modules" visible="false"/><node text="Modules" visible="true" bounds="[0,0][10,10]"/></hierarchy>'
         self.assertEqual(smoke.unique_node(xml, lambda n: n.get("text") == "Modules").get("visible"), "true")
@@ -241,15 +192,6 @@ class UiEvidenceTest(unittest.TestCase):
         with patch.object(smoke, 'enable_page_size_backcompat'), patch.object(smoke, 'adb'), patch.object(smoke, 'snapshot', side_effect=observations), patch.object(smoke, 'tap') as click, patch.object(smoke.time, 'sleep'):
             self.assertEqual(smoke.mobile_input('module'), mobile)
             self.assertEqual(click.call_count, 1)
-
-    def test_reboot_waits_for_unlocked_user_after_boot_completed(self):
-        states = iter((b'RUNNING_LOCKED', b'RUNNING_UNLOCKING', b'RUNNING_UNLOCKED'))
-        def device(*args, **kwargs):
-            data = next(states) if args == ('shell', 'am', 'get-started-user-state', '0') else b'1'
-            return subprocess.CompletedProcess([], 0, data, b'')
-        with patch.object(smoke, 'adb', side_effect=device) as commands, patch.object(smoke, 'save'), patch.object(smoke.time, 'sleep'):
-            smoke.reboot()
-        self.assertEqual(sum(call.args == ('shell', 'am', 'get-started-user-state', '0') for call in commands.call_args_list), 3)
 
     def test_launcher_is_not_wechat(self):
         self.assertFalse(smoke.has_wechat_ui('<hierarchy><node package="com.google.android.apps.nexuslauncher" /></hierarchy>'))

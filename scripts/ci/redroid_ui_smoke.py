@@ -23,7 +23,7 @@ def scoped_logs():
 def probe(app, root, inputs, module_hash):
     s.configure_app_id(app)
     s.EVIDENCE = root / app
-    s.EVIDENCE.mkdir()
+    s.EVIDENCE.mkdir(parents=True, exist_ok=True)
     report = {'appId': app, 'status': 'ACCEPTANCE_UNAVAILABLE', 'evidenceDirectory': str(s.EVIDENCE),
               'input': inputs[app], 'moduleApkSha256': module_hash, 'noAccountAuthentication': True}
     try:

@@ -43,7 +43,7 @@ def main():
     with args.summary.open('a') as summary:
         summary.write(f'## Daily discovery\n\nDecision: `{decision}`\n\n')
         if decision == 'SKIP_SUPPORTED_BUILD':
-            summary.write('The exact APK is already runtime-verified on main. No static matrix, build, Codex or AVD run was started.\n')
+            summary.write('The exact APK is already runtime-verified on main. No static matrix, build, Codex or ReDroid run was started.\n')
 
 
 if __name__ == '__main__':

@@ -6,6 +6,7 @@ import re
 import subprocess
 import signal
 import shlex
+import shutil
 import sys
 import threading
 import time
@@ -20,7 +21,7 @@ def validate_request(request, workspace):
     if (not isinstance(args, list) or not 1 <= len(args) <= 64
             or any(not isinstance(a, str) or len(a) > 8192 or '\0' in a for a in args)
             or args[0] not in COMMANDS):
-        raise ValueError('Use a device command; the emulator and ADB server are fixed by the controller.')
+        raise ValueError('Use a device command; the ReDroid and ADB server are fixed by the controller.')
     cwd = Path(request['cwd']).resolve()
     if not cwd.is_relative_to(workspace):
         raise ValueError('Device command must run inside the adaptation workspace')
@@ -57,7 +58,9 @@ class DeviceRelay:
         self.root.mkdir(parents=True, exist_ok=True)
         self.fd = os.open(self.root, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
         runtime = state['runtime']
-        self.adb = str(Path(env['ANDROID_HOME']) / 'platform-tools/adb')
+        self.adb = env.get('IMPAD_ADB_BINARY') or shutil.which('adb')
+        if not self.adb:
+            raise RuntimeError('Native host adb is unavailable')
         self.serial = runtime['serial']
         self.env = dict(env, ADB_SERVER_SOCKET='localfilesystem:' + runtime['socket'])
         self.stop = threading.Event()

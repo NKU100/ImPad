@@ -520,7 +520,7 @@ jobs:
       needs.prepare.result == 'success' &&
       ((needs.latest.result == 'success' && needs.latest.outputs.adaptation_eligible == 'true') ||
        needs.prepare.outputs.pending_adaptation == 'true')
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04-arm
     outputs:
       pipeline_status: ${{ steps.publish.outputs.pipeline_status || steps.adaptation-failure.outputs.pipeline_status }}
       pr_url: ${{ steps.publish.outputs.pr_url }}
@@ -533,6 +533,7 @@ jobs:
       pull-requests: write
       actions: write
     env:
+      IMPAD_ADB_BINARY: /usr/bin/adb
       PYTHONDONTWRITEBYTECODE: '1'
       APP_ID: ${{ needs.prepare.outputs.app_id }}
       TARGETS_PATH: ${{ needs.prepare.outputs.targets_path }}
@@ -661,7 +662,8 @@ jobs:
           export WECHATPAD_DEBUG_KEYSTORE="$RUNNER_TEMP/wechatpad-debug.keystore"
           keytool -genkeypair -keystore "$WECHATPAD_DEBUG_KEYSTORE" -storepass android -keypass android -alias androiddebugkey -keyalg RSA -keysize 2048 -validity 10000 -dname 'CN=Android Debug,O=Android,C=US'
           echo "WECHATPAD_DEBUG_KEYSTORE=$WECHATPAD_DEBUG_KEYSTORE" >> "$GITHUB_ENV"
-          sdkmanager 'platforms;android-37.2' 'build-tools;37.0.0'
+          bash scripts/ci/prepare_arm64_sdk_host.sh
+          sdkmanager 'platforms;android-37.2' 'build-tools;37.0.0' 'ndk;29.0.14206865'
           ./gradlew --no-daemon :app:testDebugUnitTest :compat-core:test :compat-checker:test :app:assembleDebug
 
       - name: Set up Node.js
@@ -771,7 +773,7 @@ jobs:
           path.write_text(json.dumps(auth))
           PY
 
-      - name: Prepare pinned AVD inputs for adaptation
+      - name: Prepare native ReDroid inputs for adaptation
         if: steps.claim.outputs.claimed == 'true' && steps.restore-checkpoint.outputs.needs_model == 'true'
         env:
           GH_TOKEN: ${{ github.token }}
@@ -780,20 +782,8 @@ jobs:
           cp app/build/outputs/apk/debug/app-debug.apk work/runtime-smoke/module/app-debug.apk
           candidate_sha256="$(jq -r .identity.apkSha256 "$CODEX_TASK_DIR/checkout/work/analysis/candidate-report.json")"
           cp "$CODEX_TASK_DIR/checkout/work/apks/candidate-${candidate_sha256}.apk" "work/runtime-smoke/${APP_ID}.apk"
-          gh release download experimental-ramdisk-api37.2-r06-magisk31.0 \
-            --pattern ramdisk37-patched.img --pattern LSPosed-v2.2.1-7912-release.zip --dir work/runtime-smoke
-          echo 'b49fec2e291582495196d9437bf520f337882bddf763d2530a576f3e4da99df8  work/runtime-smoke/ramdisk37-patched.img' | sha256sum --check
-          echo 'ed37de2d2097aa6ba871377e7bf4ac719b708484f9468928e6abae10ab311e74  work/runtime-smoke/LSPosed-v2.2.1-7912-release.zip' | sha256sum --check
-          mv work/runtime-smoke/LSPosed-v2.2.1-7912-release.zip work/runtime-smoke/lsposed.zip
-          7z e -so work/runtime-smoke/lsposed.zip module.prop | grep -Fxq 'version=v2.2.1 (7912)'
-          7z e -so work/runtime-smoke/lsposed.zip module.prop | grep -Fxq 'versionCode=7912'
-          7z e -so work/runtime-smoke/lsposed.zip manager.apk > work/runtime-smoke/manager.apk
-          curl --fail --location --silent --show-error --retry 2 --connect-timeout 20 --max-time 180 \
-            --proto '=https' --proto-redir '=https' https://github.com/topjohnwu/Magisk/releases/download/v31.0/Magisk-v31.0.apk -o work/runtime-smoke/magisk.apk
-          echo '2c8a488b9a5293e578e95ae4f07e3c57aba4feec4a52ca4dd852a2692d6dd4e8  work/runtime-smoke/magisk.apk' | sha256sum --check
-          sudo apt-get install -y --no-install-recommends tesseract-ocr
-          test -c /dev/kvm
-          sudo chmod 666 /dev/kvm
+          sudo apt-get install -y --no-install-recommends adb kmod tesseract-ocr 7zip
+          python3 -m scripts.ci.redroid_prepare_apps --root work/runtime-smoke --tools-only
 
       - name: Expose masked artifact transport credentials to trusted controller
         if: steps.claim.outputs.claimed == 'true' && steps.restore-checkpoint.outputs.needs_model == 'true'
@@ -807,7 +797,7 @@ jobs:
               core.exportVariable(name, value);
             }
 
-      - name: Adapt through a verified Codex goal with disposable AVD
+      - name: Adapt through a verified Codex goal with disposable ReDroid
         id: adaptation
         if: steps.claim.outputs.claimed == 'true' && steps.restore-checkpoint.outputs.needs_model == 'true'
         env:
@@ -817,25 +807,10 @@ jobs:
           CODEX_CHECKPOINT_IDENTITY: ${{ secrets.CODEX_CHECKPOINT_IDENTITY }}
           GH_TOKEN: ${{ github.token }}
           ADAPTATION_ISSUE: ${{ steps.claim.outputs.issue }}
-        uses: reactivecircus/android-emulator-runner@v2
-        with:
-          api-level: '37.2'
-          emulator-build: '15917651'
-          target: google_apis_ps16k
-          arch: x86_64
-          profile: pixel_5
-          cores: 2
-          ram-size: 4096M
-          disk-size: 6144M
-          emulator-options: -no-window -gpu swiftshader_indirect -feature GLDirectMem,HasSharedSlotsHostMemoryAllocator -noaudio -no-boot-anim -camera-back none -camera-front none -no-snapshot
-          pre-emulator-launch-script: bash scripts/ci/prepare_avd_ramdisk.sh
-          script: |
-            bash scripts/ci/verify_avd_root.sh
-            mkdir -p work/runtime-smoke/ui-classes
-            javac --release 17 -cp "$ANDROID_HOME/platforms/android-37.2/android.jar" -d work/runtime-smoke/ui-classes scripts/ci/UiHierarchy.java
-            "$ANDROID_HOME/build-tools/37.0.0/d8" --min-api 37 --lib "$ANDROID_HOME/platforms/android-37.2/android.jar" --output work/runtime-smoke/ui-hierarchy.jar work/runtime-smoke/ui-classes/UiHierarchy.class
-            python3 -m scripts.ci.runtime_adaptation --directory "$CODEX_TASK_DIR" --root "$GITHUB_WORKSPACE/work/runtime-smoke"
-            node "$CONTROLLER_ROOT/scripts/ci/codex_live_cli.mjs"
+        run: |
+          python3 -m scripts.ci.redroid_adaptation \
+            --directory "$CODEX_TASK_DIR" --root "$GITHUB_WORKSPACE/work/runtime-smoke" \
+            --controller "$CONTROLLER_ROOT"
 
       - name: Persist refreshed authentication even after model failure
         if: always() && steps.restore-auth.outcome == 'success'
@@ -995,20 +970,21 @@ jobs:
             --report "$CODEX_TASK_DIR/candidate-report.json" \
             --directory "$CODEX_TASK_DIR" --issue '${{ steps.claim.outputs.issue }}'
 
-      - name: Upload adaptation AVD evidence
+      - name: Upload adaptation ReDroid evidence
         if: always() && steps.claim.outputs.claimed == 'true'
         uses: actions/upload-artifact@v7
         with:
-          name: ${{ needs.prepare.outputs.artifact_prefix }}-${{ needs.prepare.outputs.app_id }}-adaptation-avd
+          name: ${{ needs.prepare.outputs.artifact_prefix }}-${{ needs.prepare.outputs.app_id }}-adaptation-redroid
           path: |
             work/runtime-smoke/prepare-evidence/
             work/runtime-smoke/iteration-*/
-            work/root-verification/evidence/
+            work/runtime-smoke/framework/*.txt
+            work/runtime-smoke/tooling/tooling-report.json
           if-no-files-found: warn
           retention-days: 14
 
   runtime:
-    name: Smoke adapted candidate on hosted AVD
+    name: Smoke adapted candidate on hosted ReDroid
     needs: [prepare, adapt]
     if: ${{ !cancelled() && needs.adapt.outputs.pr_url != '' }}
     permissions:

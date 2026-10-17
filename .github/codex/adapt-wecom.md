@@ -24,7 +24,7 @@ non-empty `expectedDescriptor` and a null `stringAnchor`; `STRING_ANCHOR`
 requires a non-empty `stringAnchor`. Never invent string anchors. The guarded
 candidate checker must confirm each exact descriptor against the candidate APK.
 
-When `work/analysis/runtime-device.json` exists, the disposable rooted AVD is
+When `work/analysis/runtime-device.json` exists, the disposable rooted ReDroid is
 ready with the candidate APK and official LSPosed. Use `adb wechat-launch` after
 install, clear, or reboot to restore page-size compatibility and launch the
 candidate. Run `impad-build` after profile or source changes to request the

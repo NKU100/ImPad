@@ -19,7 +19,7 @@ class AdbDeviceTest(unittest.TestCase):
             adb.write_text('#!/usr/bin/env python3\nimport os,sys,json\nprint(json.dumps({"socket":os.environ["ADB_SERVER_SOCKET"],"args":sys.argv[1:]}))\n')
             adb.chmod(0o755)
             (root / 'state.json').write_text(json.dumps({'worktree': str(root), 'runtime': {'socket': str(root / 'adb.sock'), 'serial': 'emulator-5554'}}))
-            env = dict(os.environ, ANDROID_HOME=str(root))
+            env = dict(os.environ, ANDROID_HOME=str(root), IMPAD_ADB_BINARY=str(adb))
             relay = DeviceRelay(root, env)
             env['IMPAD_ADB_RELAY'] = str(relay.root)
             try:
@@ -61,7 +61,7 @@ class AdbDeviceTest(unittest.TestCase):
             adb.write_text('#!/usr/bin/env python3\nimport sys\nsys.stdout.buffer.write(bytes([0,255,10]))\nsys.stderr.write("device error")\nsys.exit(7)\n')
             adb.chmod(0o755)
             (root / 'state.json').write_text(json.dumps({'worktree': str(root), 'runtime': {'socket': str(root / 'adb.sock'), 'serial': 'emulator-5554'}}))
-            env = dict(os.environ, ANDROID_HOME=str(root))
+            env = dict(os.environ, ANDROID_HOME=str(root), IMPAD_ADB_BINARY=str(adb))
             relay = DeviceRelay(root, env)
             try:
                 result = subprocess.run(['bash', str(Path('scripts/ci/adb-device.sh').resolve()), 'exec-out', 'screencap', '-p'],
@@ -80,7 +80,7 @@ class AdbDeviceTest(unittest.TestCase):
             adb.write_text('#!/usr/bin/env python3\nimport sys,time,pathlib\nif "hang" in sys.argv:\n pathlib.Path("started").touch()\n time.sleep(30)\nelse: print("device")\n')
             adb.chmod(0o755)
             (root / 'state.json').write_text(json.dumps({'worktree': str(root), 'runtime': {'socket': str(root / 'adb.sock'), 'serial': 'emulator-5554'}}))
-            env = dict(os.environ, ANDROID_HOME=str(root))
+            env = dict(os.environ, ANDROID_HOME=str(root), IMPAD_ADB_BINARY=str(adb))
             relay = DeviceRelay(root, env)
             env['IMPAD_ADB_RELAY'] = str(relay.root)
             wrapper = str(Path('scripts/ci/adb-device.sh').resolve())

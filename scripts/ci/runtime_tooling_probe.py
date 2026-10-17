@@ -1,4 +1,4 @@
-"""Exercise managed AVD launch and relay cancellation on the fresh CI emulator."""
+"""Exercise managed ReDroid launch and relay cancellation."""
 import json
 import os
 from pathlib import Path
@@ -10,18 +10,22 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 from scripts.ci.adb_relay import DeviceRelay
 
 
-def main():
-    root = Path('work/runtime-smoke/tooling').resolve()
+def probe(root, app_id='wechat'):
+    from scripts.ci.redroid_environment_probe import SERIAL
+    root = root.resolve()
     task = root / 'task'; task.mkdir(parents=True, exist_ok=True)
     workspace = root / 'checkout'; workspace.mkdir(exist_ok=True)
-    socket = root / 'adb.sock'
-    devices = subprocess.check_output(['adb','devices'],text=True).splitlines()[1:]
-    assert [line.split()[0] for line in devices if line.strip()]==['emulator-5554'], 'Tooling probe requires one disposable emulator'
-    subprocess.run(['adb','kill-server'],check=True)
-    subprocess.run(['adb','-L','localfilesystem:'+str(socket),'start-server'],check=True)
+    existing_socket = os.environ.get('ADB_SERVER_SOCKET')
+    socket = Path(existing_socket.removeprefix('localfilesystem:')) if existing_socket else root / 'adb.sock'
+    devices = subprocess.check_output([os.environ.get('IMPAD_ADB_BINARY', 'adb'),'devices'],text=True).splitlines()[1:]
+    assert [line.split()[0] for line in devices if line.strip()]==[SERIAL], 'Tooling probe requires one dedicated ReDroid'
+    if not existing_socket:
+        subprocess.run([os.environ.get('IMPAD_ADB_BINARY', 'adb'),'kill-server'],check=True)
+        subprocess.run([os.environ.get('IMPAD_ADB_BINARY', 'adb'),'-L','localfilesystem:'+str(socket),'start-server'],check=True)
     env = dict(os.environ, ADB_SERVER_SOCKET='localfilesystem:'+str(socket))
-    subprocess.run(['adb','-s','emulator-5554','wait-for-device'],env=env,check=True,timeout=120)
-    (task/'state.json').write_text(json.dumps({'appId':os.environ.get('APP_ID', 'wechat'),'worktree':str(workspace),'runtime':{'socket':str(socket),'serial':'emulator-5554'}}))
+    subprocess.run([os.environ.get('IMPAD_ADB_BINARY', 'adb'),'connect',SERIAL],env=env,check=True,timeout=30)
+    subprocess.run([os.environ.get('IMPAD_ADB_BINARY', 'adb'),'-s',SERIAL,'wait-for-device'],env=env,check=True,timeout=120)
+    (task/'state.json').write_text(json.dumps({'appId':app_id,'worktree':str(workspace),'runtime':{'socket':str(socket),'serial':SERIAL}}))
     relay = DeviceRelay(task,env)
     env['IMPAD_ADB_RELAY'] = str(relay.root)
     wrapper = str(Path('scripts/ci/adb-device.sh').resolve())
@@ -40,10 +44,13 @@ def main():
         finally:
             if client.poll() is None: client.kill(); client.wait()
         (root/'tooling-report.json').write_text(json.dumps({'status':'PASSED','managedLaunch':True,'binaryScreenshot':True,'queueRecoveredSeconds':seconds},indent=2)+'\n')
-        print('Managed AVD launch, binary screenshot and cancelled-request queue recovery passed')
+        print('Managed ReDroid launch, binary screenshot and cancelled-request queue recovery passed')
     finally:
         relay.close()
+        if not existing_socket:
+            subprocess.run([os.environ.get('IMPAD_ADB_BINARY', 'adb'), 'kill-server'], env=env, check=False)
+            subprocess.run([os.environ.get('IMPAD_ADB_BINARY', 'adb'), 'connect', SERIAL], check=True, timeout=30)
 
 
 if __name__=='__main__':
-    main()
+    probe(Path('work/runtime-smoke/tooling'), os.environ.get('APP_ID', 'wechat'))

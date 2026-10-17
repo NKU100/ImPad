@@ -41,3 +41,52 @@ class BootReconnectTest(unittest.TestCase):
             with patch.object(probe, 'run'), patch.object(probe, 'adb'), patch.object(probe, 'shell', side_effect=shell), patch('scripts.ci.redroid_environment_probe.time.sleep'):
                 probe.boot('framework')
             self.assertEqual(seen.count('framework-properties'), 2)
+
+class LifecycleTest(unittest.TestCase):
+    def test_failed_framework_setup_always_cleans_up_and_saves_failure(self):
+        from unittest.mock import patch
+        import json
+        from scripts.ci.redroid_environment_probe import Probe
+        with tempfile.TemporaryDirectory() as directory:
+            probe = Probe(Path(directory))
+            with patch.object(probe, 'setup', side_effect=RuntimeError('Binder unavailable')), patch.object(probe, 'cleanup') as cleanup:
+                self.assertFalse(probe.execute())
+            cleanup.assert_called_once()
+            report = json.loads((probe.output / 'report.json').read_text())
+            self.assertEqual(report['status'], 'FAILED')
+            self.assertIn('Binder unavailable', report['reason'])
+
+    def test_stock_boot_failure_preserves_candidate_unavailable_report(self):
+        from unittest.mock import patch
+        import json
+        from scripts.ci.redroid_environment_probe import Probe
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            profile = json.loads(Path('environment/redroid-smoke/qq.json').read_text())[-1]
+            candidate = {'appId': 'qq', 'identity': profile['identity']}
+            (root / 'candidate-report.json').write_text(json.dumps(candidate))
+            (root / 'module').mkdir()
+            (root / 'module/app-debug.apk').write_bytes(b'module')
+            probe = Probe(root)
+            with patch.object(probe, 'setup', side_effect=RuntimeError('Stock boot timed out')), patch.object(probe, 'cleanup'):
+                self.assertFalse(probe.execute(root))
+            report = json.loads((root / 'evidence/smoke-report.json').read_text())
+            self.assertEqual(report['status'], 'ACCEPTANCE_UNAVAILABLE')
+            self.assertEqual(report['apkSha256'], profile['identity']['apkSha256'])
+            self.assertEqual(report['moduleApkSha256'], hashlib.sha256(b'module').hexdigest())
+
+    def test_diagnostic_timeout_does_not_skip_container_removal(self):
+        from unittest.mock import patch
+        import subprocess
+        from scripts.ci.redroid_environment_probe import Probe
+        with tempfile.TemporaryDirectory() as directory:
+            probe = Probe(Path(directory))
+            commands = []
+            def run(args, name, **kwargs):
+                commands.append(name)
+                if name == 'container-log':
+                    raise subprocess.TimeoutExpired(args, 60)
+            with patch.object(probe, 'run', side_effect=run), patch.object(probe, 'adb'):
+                probe.cleanup()
+            self.assertIn('cleanup', commands)
+            self.assertTrue(probe.report['cleanupErrors'])

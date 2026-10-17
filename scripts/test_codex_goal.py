@@ -156,3 +156,14 @@ class GoalTest(unittest.TestCase):
         result = redact('token secret-value ' + jwt, ['secret-value'])
         self.assertNotIn('secret-value', result)
         self.assertNotIn(jwt, result)
+
+class NativeAdbEnvironmentTest(unittest.TestCase):
+    def test_actual_model_controller_environment_preserves_native_adb(self):
+        from scripts.ci import codex_goal as goal
+        with tempfile.TemporaryDirectory() as directory, patch.dict(os.environ, {'IMPAD_ADB_BINARY': '/usr/bin/adb', 'GH_TOKEN': 'must-not-leak', 'CODEX_HOME': directory}), patch.object(goal, 'AppServer') as server, patch.object(goal, 'run_goal', return_value='verified'), patch('scripts.ci.codex_session_checkpoint.save_session'), patch.object(goal, 'read_json', return_value={}):
+            root = Path(directory)
+            prompt = root / 'prompt.md'; prompt.write_text('Adapt')
+            goal.run_model_goal(root, prompt)
+            environment = server.call_args.args[1]
+            self.assertEqual(environment['IMPAD_ADB_BINARY'], '/usr/bin/adb')
+            self.assertNotIn('GH_TOKEN', environment)

@@ -3,10 +3,6 @@ name: Validate ImPad runtime
 on:
   workflow_dispatch:
     inputs:
-      rebuild_ramdisk:
-        description: Rebuild pinned ramdisk from official inputs and verify byte-for-byte reproduction
-        type: boolean
-        default: false
       app_id:
         description: Registered application policy to replay
         type: string
@@ -96,7 +92,6 @@ jobs:
       module_run_id: ${{ github.run_id }}
       module_artifact: ${{ needs.prepare.outputs.artifact_prefix }}-${{ needs.prepare.outputs.app_id }}-adapted-module
       candidate_artifact: ${{ needs.prepare.outputs.artifact_prefix }}-${{ needs.prepare.outputs.app_id }}-runtime-candidate
-      rebuild_ramdisk: ${{ inputs.rebuild_ramdisk }}
 
   result:
     needs: [prepare, runtime]

@@ -113,6 +113,9 @@ def main():
             raise ValueError('Latest official APK is not runtime-verified; run compatibility adaptation first')
         selected = matches[0]
     report = replay_report(targets, url, digest, policy.app_id, args.mode)
+    if policy.app_id == 'qq':
+        from scripts.ci.apps.qq.runtime_probe import manifest_expectation
+        report['requestIdentityExpectation'] = manifest_expectation(apk, digest)
     shutil.copy2(apk, args.directory / f'{policy.app_id}-{digest}.apk')
     (args.directory / 'candidate-report.json').write_text(json.dumps(report, indent=2) + '\n')
     write_local_runtime_assets(report['suggestedProfile'], policy.app_id, args.directory)

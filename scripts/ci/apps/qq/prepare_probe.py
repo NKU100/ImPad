@@ -1,4 +1,4 @@
-"""Compile the trusted external collector for the AVD's native ABI."""
+"""Compile the trusted external collector for the Android guest's native ABI."""
 import argparse
 import hashlib
 import json

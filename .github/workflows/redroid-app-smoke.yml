@@ -70,6 +70,8 @@ jobs:
     needs: prepare
     if: always() && (needs.prepare.result == 'success' || inputs.source_run_id != '')
     runs-on: ubuntu-24.04-arm
+    env:
+      IMPAD_ADB_BINARY: /usr/bin/adb
     timeout-minutes: 35
     steps:
       - uses: actions/checkout@v7
@@ -95,6 +97,7 @@ jobs:
             work/redroid-app-smoke/*.json
             work/redroid-app-smoke/summary.md
             work/redroid-app-smoke/apps/
+            work/redroid-app-smoke/tooling/tooling-report.json
           retention-days: 7
       - name: Publish result
         if: always()
@@ -102,3 +105,39 @@ jobs:
           if [ -f work/redroid-app-smoke/summary.md ]; then
             cat work/redroid-app-smoke/summary.md >> "$GITHUB_STEP_SUMMARY"
           fi
+
+  adaptation-toolchain:
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 20
+    env:
+      IMPAD_ADB_BINARY: /usr/bin/adb
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-java@v6
+        with:
+          distribution: temurin
+          java-version: '21'
+          cache: gradle
+      - uses: android-actions/setup-android@v4
+        with:
+          packages: ''
+      - name: Enable x86 SDK host binaries on ARM64
+        run: bash scripts/ci/prepare_arm64_sdk_host.sh
+      - name: Install adaptation SDK and build native ARM64 observer
+        run: |
+          sdkmanager 'platforms;android-37.2' 'build-tools;37.0.0' 'ndk;29.0.14206865'
+          python3 -m scripts.ci.redroid_prepare_apps --root work/host-tools --tools-only
+      - name: Verify adaptation tests and module build on the actual ARM64 host
+        run: |
+          ./gradlew --no-daemon :app:testDebugUnitTest :compat-core:test :compat-checker:test :app:assembleDebug :app:verifyModuleMetadata
+          python3 -m unittest scripts.test_runtime_adaptation scripts.test_redroid_candidate scripts.test_adb_device
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: redroid-adaptation-toolchain
+          path: |
+            work/host-tools/qq-probe/collector.json
+            app/build/reports/tests/
+            compat-core/build/reports/tests/
+            compat-checker/build/reports/tests/
+          retention-days: 7

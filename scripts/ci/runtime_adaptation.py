@@ -1,4 +1,4 @@
-"""Attach a disposable AVD and independently validate every adaptation turn."""
+"""Attach a disposable ReDroid and independently validate every adaptation turn."""
 import argparse
 import json
 import os
@@ -9,6 +9,8 @@ import subprocess
 from scripts.ci import runtime_smoke as smoke
 from scripts.ci.app_policy import get_policy
 from scripts.ci.codex_adaptation import sha256
+from scripts.ci.redroid_environment_probe import Probe, SERIAL
+from scripts.ci.redroid_app_smoke import AppSmoke, query_target
 
 
 def configure(directory):
@@ -24,11 +26,11 @@ def configure(directory):
     return state, root
 
 
-def initialize(directory, root, serial):
-    devices = subprocess.check_output(['adb', 'devices'], text=True).splitlines()[1:]
+def initialize(directory, root, serial=SERIAL):
+    devices = subprocess.check_output([os.environ.get('IMPAD_ADB_BINARY', 'adb'), 'devices'], text=True).splitlines()[1:]
     connected = [line.split()[0] for line in devices if line.strip()]
-    if connected != [serial] or not serial.startswith('emulator-'):
-        raise RuntimeError('Runtime adaptation requires exactly one disposable emulator')
+    if connected != [serial] or serial != SERIAL:
+        raise RuntimeError('Runtime adaptation requires exactly one disposable ReDroid')
     state_path = directory / 'state.json'
     state = json.loads(state_path.read_text())
     policy = get_policy(state.get('appId', state.get('report', {}).get('appId')))
@@ -37,38 +39,61 @@ def initialize(directory, root, serial):
     candidate_apk = root / f'{policy.app_id}.apk'
     if sha256(candidate_apk) != state['report']['identity']['apkSha256']:
         raise ValueError('Runtime candidate does not match verified identity')
-    if policy.app_id == 'qq':
-        from scripts.ci.apps.qq.prepare_probe import prepare
-        device_abi = smoke.adb('shell', 'getprop', 'ro.product.cpu.abi').stdout.decode().strip()
-        probe_abi = {'x86_64': 'x86_64', 'arm64-v8a': 'arm64'}.get(device_abi)
-        if probe_abi is None:
-            raise ValueError('QQ independent observer requires a supported emulator ABI')
-        prepare(root, probe_abi)
-        (root / 'candidate-report.json').write_text(json.dumps(state['report'], indent=2))
-    smoke.ROOT = root
-    smoke.EVIDENCE = root / 'prepare-evidence'
     os.environ['ANDROID_SERIAL'] = serial
-    if smoke.main(mode='prepare'):
-        raise RuntimeError('AVD preparation failed before model invocation; see preparation evidence')
+    query_target()
+    candidate = dict(state['report'], appId=policy.app_id)
+    inputs = {policy.app_id: {'identity': candidate['identity'], 'signerVerified': True}}
+    if policy.app_id == 'qq':
+        from scripts.ci.apps.qq.runtime_probe import manifest_expectation
+        inputs[policy.app_id]['manifestAppIds'] = manifest_expectation(candidate_apk, candidate['identity']['apkSha256'])
+    (root / 'inputs.json').write_text(json.dumps(inputs, indent=2))
+    (root / 'candidate-report.json').write_text(json.dumps(candidate, indent=2))
+    framework = Probe(root / 'framework')
+    app = AppSmoke(root, framework)
+    app.setup()
+    smoke.configure_app_id(policy.app_id)
+    smoke.EVIDENCE = root / 'prepare-evidence'
+    smoke.EVIDENCE.mkdir(exist_ok=True)
+    smoke.configure_manager(False)
+    smoke.adb('shell', 'pm', 'clear', policy.package_name)
+    ui = smoke.mobile_input('baseline-mobile')
+    if any(smoke.is_tablet_entry(node.get('text', '')) for node in smoke.nodes(ui)):
+        raise RuntimeError('ReDroid baseline already has a tablet entry')
+    (root / 'prepared.json').write_text(json.dumps({'appId': policy.app_id, 'baseline': policy.runtime_baseline}))
+    smoke.configure_manager(True)
     socket = workspace / 'work/analysis/adb.sock'
+    socket.parent.mkdir(parents=True, exist_ok=True)
     # The controller has already verified root, baseline UI and official LSPosed.
     # Move the dedicated ADB server to a filesystem socket visible inside the model sandbox.
-    subprocess.run(['adb', 'kill-server'], check=True)
+    subprocess.run([os.environ.get('IMPAD_ADB_BINARY', 'adb'), 'kill-server'], check=True)
     address = 'localfilesystem:' + str(socket)
-    subprocess.run(['adb', '-L', address, 'start-server'], check=True)
+    subprocess.run([os.environ.get('IMPAD_ADB_BINARY', 'adb'), '-L', address, 'start-server'], check=True)
     env = dict(os.environ, ADB_SERVER_SOCKET=address, ANDROID_SERIAL=serial)
-    subprocess.run(['adb', 'wait-for-device'], env=env, check=True, timeout=120)
-    devices = subprocess.check_output(['adb', 'devices'], env=env, text=True).splitlines()[1:]
+    subprocess.run([os.environ.get('IMPAD_ADB_BINARY', 'adb'), 'connect', serial], env=env, check=True, timeout=30)
+    subprocess.run([os.environ.get('IMPAD_ADB_BINARY', 'adb'), '-s', serial, 'wait-for-device'], env=env, check=True, timeout=120)
+    devices = subprocess.check_output([os.environ.get('IMPAD_ADB_BINARY', 'adb'), 'devices'], env=env, text=True).splitlines()[1:]
     connected = [line.split()[0] for line in devices if line.strip()]
     if connected != [serial]:
-        raise RuntimeError('The model ADB server must expose exactly the dedicated emulator')
-    state['runtime'] = {'root': str(root), 'serial': serial, 'socket': str(socket)}
+        raise RuntimeError('The model ADB server must expose exactly the dedicated ReDroid')
+    state['runtime'] = {'root': str(root), 'serial': serial, 'socket': str(socket), 'environment': 'redroid'}
     state_path.write_text(json.dumps(state, indent=2))
     runtime_instructions = workspace / 'work/analysis/runtime-device.json'
     runtime_instructions.parent.mkdir(parents=True, exist_ok=True)
     runtime_instructions.write_text(json.dumps({
         'appId': policy.app_id, 'serial': serial, 'baseline': policy.runtime_baseline,
-        'instructions': f'Run adb app-launch to restore the managed runtime configuration and start {policy.package_name}. After adding the profile, run impad-build for guarded host checks/tests/build; do not retry Gradle inside the network-disabled sandbox. Build logs are under work/analysis/host-build. Use adb device commands to inspect the disposable AVD. Interrupted requests are cancelled by the relay. Independent runtime verification runs after every completed turn.'}, indent=2))
+        'instructions': f'Run adb app-launch to restore the managed runtime configuration and start {policy.package_name}. After adding the profile, run impad-build for guarded host checks/tests/build; do not retry Gradle inside the network-disabled sandbox. Build logs are under work/analysis/host-build. Use adb device commands to inspect the disposable ReDroid. Interrupted requests are cancelled by the relay. Independent runtime verification runs after every completed turn.'}, indent=2))
+
+
+def probe_candidate(root, evidence, candidate):
+    app = AppSmoke(root, Probe(root / 'framework'))
+    app.probe.output = evidence
+    smoke.configure_app_id(candidate['appId'])
+    try:
+        report = app.run_candidate(candidate)
+    finally:
+        smoke.EVIDENCE = evidence
+    shutil.copyfile(evidence / 'evidence/smoke-report.json', evidence / 'smoke-report.json')
+    return report
 
 
 def verify_runtime(directory):
@@ -96,9 +121,9 @@ def verify_runtime(directory):
         smoke.adb('install', '-r', '-g', str(root / f'{policy.app_id}.apk'), timeout=240)
         result = smoke.adb('install', '-r', str(module_apk), timeout=120)
         (smoke.EVIDENCE / 'module-install.txt').write_bytes(result.stdout + result.stderr)
-        smoke.reboot()
-        smoke.configure_manager()
-        result = smoke.main(mode='probe')
+        candidate = dict(state['report'], appId=policy.app_id)
+        report = probe_candidate(root, smoke.EVIDENCE, candidate)
+        result = 0 if report['status'] == 'RUNTIME_SMOKE_VERIFIED' else 1
     except Exception:
         try:
             smoke.snapshot('failure')
@@ -122,7 +147,7 @@ def verify_runtime(directory):
         guidance = ''
         if diagnostic.get('hookInstallation') == f'INSTALLED_{len(policy.required_hook_ids)}':
             guidance = ' The controller observed installed hooks; missing module injection is not supported by this probe. Reassess the selected decision method, its callers, early returns and cached results.'
-        raise ValueError('Independent AVD verification failed: ' + report.get('reason', report['status'])
+        raise ValueError('Independent ReDroid verification failed: ' + report.get('reason', report['status'])
                          + '. Controller runtime observations: ' + json.dumps(summary) + guidance
                          + '. Inspect screenshots, UI XML and hook logs in ' + str(evidence.relative_to(workspace)))
     if report.get('apkSha256') != state['report']['identity']['apkSha256']:
@@ -133,7 +158,7 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('--directory', type=Path, required=True)
     parser.add_argument('--root', type=Path, required=True)
-    parser.add_argument('--serial', default='emulator-5554')
+    parser.add_argument('--serial', default=SERIAL)
     args = parser.parse_args()
     initialize(args.directory.resolve(), args.root.resolve(), args.serial)
 

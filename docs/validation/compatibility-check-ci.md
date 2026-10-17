@@ -2,7 +2,7 @@
 
 当前发布模块包名为 `io.github.nku100.impad`，显示名为 `I'm Pad`。包名从旧版 WeChatPad 变更后，需卸载旧包再安装新包，并在 LSPosed 中为目标应用启用模块作用域。微信、QQ 与企业微信使用独立应用策略和 Target 清单；只有完成对应运行时验收并合入主分支的 profile 才代表正式支持。
 
-`compatibility-app.yml` 是共享入口，微信和企微分别由自己的定时/手动 workflow 调用；默认从对应官方来源发现最新 ARM64 APK。下载后以 APK 内实际版本、官方签名和 SHA-256 为准。已正式支持且 APK 摘要未变化时提前结束，不启动静态矩阵、构建、Codex 或 AVD；手动选中 `force_recheck` 可重新静态检查。需要分析时再按候选版本选择静态回归窗口：新候选加上版本码最高的两个已正式支持旧版，已支持候选检查候选本身和最多两个较早的正式支持版本。报告列明本次实际检查的版本，历史 profile 保留。
+`compatibility-app.yml` 是共享入口，微信和企微分别由自己的定时/手动 workflow 调用；默认从对应官方来源发现最新 ARM64 APK。下载后以 APK 内实际版本、官方签名和 SHA-256 为准。已正式支持且 APK 摘要未变化时提前结束，不启动静态矩阵、构建、Codex 或 ReDroid；手动选中 `force_recheck` 可重新静态检查。需要分析时再按候选版本选择静态回归窗口：新候选加上版本码最高的两个已正式支持旧版，已支持候选检查候选本身和最多两个较早的正式支持版本。报告列明本次实际检查的版本，历史 profile 保留。
 
 ## 检查流程
 
@@ -17,33 +17,33 @@
 
 每次成功发现候选都会生成 `candidate-report.json`，包括候选包名、版本、ABI、签名、APK SHA-256、来源、逐 Hook 结果、基线版本、回归版本、流水线状态、阻塞原因，以及安全时生成的候选 profile。报告作为 14 天 artifact 上传，状态和 Hook 诊断也会写入 Actions job summary；最终状态通过 `latest` job output `pipeline_status` 暴露给后续步骤。
 
-候选经过静态检查和回归后，最多到 `STATIC_VERIFIED_PENDING_RUNTIME`。状态不会由 CI 改写为正式支持；开发者仍需在本地 AVD 完成登录界面冒烟，并按设计流程提交、合并 profile。未登记构建在主分支上继续进入 Codex 适配任务；已登记构建只检查现有 profile。Codex 成功的改动进入 draft PR，候选 profile 保持 `static-verified`。
+候选经过静态检查和回归后，最多到 `STATIC_VERIFIED_PENDING_RUNTIME`。状态不会由 CI 改写为正式支持；候选必须通过独立托管 ReDroid 验收，再由开发者审阅、合并 profile。未登记构建在主分支上继续进入 Codex 适配任务；已登记构建只检查现有 profile。Codex 成功的改动进入 draft PR，候选 profile 保持 `static-verified`。
 
 候选发现或下载失败会生成 `FETCH_FAILED` 报告；profile 清单或回归窗口无效会生成 `BASELINE_INVALID`；已登记回归失败会生成 `STATIC_REGRESSION_FAILED`。未知候选需要人工分析时，`NEEDS_HOOK_REVIEW` 是可供流水线继续分支处理的结果，不会被误报为 `UNKNOWN_BUILD`。
 
-在仓库的 **Actions** 页面选择 **Check WeChat compatibility**，再点 **Run workflow** 即可运行。静态检测不使用签名 Secrets；新候选的后续托管冒烟会安装 Magisk/LSPosed 并启动 AVD。
+在仓库的 **Actions** 页面选择 **Check WeChat compatibility**，再点 **Run workflow** 即可运行。静态检测不使用签名 Secrets；新候选的后续托管冒烟会安装 Magisk/LSPosed 并启动 ReDroid。
 
 ## 普通构建验证
 
 `Build module APK` 在 push、PR 和手动构建中运行核心、检查器、应用及 Python 流水线单元测试，检查模块元数据与打包内容，并对版本码最高的最多三个正式支持构建做真实 APK 静态回归。每次代码构建都会重新检查，已支持状态不会跳过回归。APK 仅从已登记的官方 URL 获取，按 SHA-256 缓存，每次使用前重新校验摘要；检查失败阻止构建通过并上传每个构建的日志和结果报告。
 
-普通构建和适配控制器共用 `scripts/ci/static_regression.py` 的下载校验及检查器调用。适配仍覆盖候选加最多两个旧版，使用预下载 APK 离线检查。普通构建不调用 Codex 或 AVD。单元测试验证解析、拒绝、缓存和 Hook 注册等逻辑；真实 APK 静态回归验证目标解析；实际注入和界面行为由动态冒烟验证。
+普通构建和适配控制器共用 `scripts/ci/static_regression.py` 的下载校验及检查器调用。适配仍覆盖候选加最多两个旧版，使用预下载 APK 离线检查。普通构建不调用 Codex 或 ReDroid。单元测试验证解析、拒绝、缓存和 Hook 注册等逻辑；真实 APK 静态回归验证目标解析；实际注入和界面行为由动态冒烟验证。
 
 ## 单版本运行验证
 
-`Validate WeChat runtime` 用于重放一个已支持版本的构建和托管 AVD 验证。它选择官网最新 APK；若该精确 APK 尚未登记并完成运行验证，则停止并提示先运行兼容适配，不自动换成已支持的其他版本。
+`Validate ImPad runtime` 用于重放一个已支持版本的构建和托管 ReDroid 验证。它选择官网最新 APK；若该精确 APK 尚未登记并完成运行验证，则停止并提示先运行兼容适配，不自动换成已支持的其他版本。
 
-`Run WeChat runtime smoke` 的独立手动入口也检查官网最新 APK，使用同一套候选选择、官方下载和摘要校验逻辑。由适配流程调用时直接使用已经静态验证的精确候选产物。每次运行只启动一个版本的动态冒烟，静态回归仍最多覆盖三个版本。运行验证入口不调用 Codex、不创建 PR、不更新正式支持状态。
+`Run ImPad ReDroid smoke` 的独立手动入口也检查官网最新 APK，使用同一套候选选择、官方下载和摘要校验逻辑。由适配流程调用时直接使用已经静态验证的精确候选产物。每次运行只启动一个版本的动态冒烟，静态回归仍最多覆盖三个版本。运行验证入口不调用 Codex、不创建 PR、不更新正式支持状态。
 
 ## Codex 适配
 
 `run_codex` 默认开启。主分支手动或定时运行先检查本应用打开的适配 Issue，优先处理仓库所有者未消费的评论；没有新评论时检查官方最新 APK。只认可完整候选标记和机器人作者的记录，排除 PR。评论续接锁定原候选完整 APK 身份；新版发现复用同候选尚未完成的记录，手动关闭的记录不会重开。每轮保存代码补丁、候选报告、原生线程密文及诊断到不可变 Artifact，并更新 Issue 的恢复指针。Artifact 保留 90 天；Actions Cache 缓存 APK 和构建依赖，不作为唯一适配状态存储。恢复后重新校验官方 APK 的 SHA-256，复用 PR 前校验作者、候选和已记录提交。
 
-每次运行只驱动一个 Codex app-server continuation turn，固定使用 `gpt-6-luna` 和 `xhigh`，关闭多代理能力，不设置累计 Token 预算，也不使用手动重试开关。没有累计失败次数或固定运行轮数的停止条件；模型未完成、静态验收失败或托管运行拒绝时，后续评论续接或再次发现同一候选时继续原 Issue。任务仍受 GitHub Actions 单次运行时限、订阅用量限制和平台故障影响。静态验证通过但还未完成运行验收时会复用已验证改动并重跑托管 AVD；只有精确候选通过独立运行时验收并达到 `RUNTIME_VERIFIED` 后才关闭 Issue。模型自述完成不能绕过独立验收。
+每次运行只驱动一个 Codex app-server continuation turn，固定使用 `gpt-6-luna` 和 `xhigh`，关闭多代理能力，不设置累计 Token 预算，也不使用手动重试开关。没有累计失败次数或固定运行轮数的停止条件；模型未完成、静态验收失败或托管运行拒绝时，后续评论续接或再次发现同一候选时继续原 Issue。任务仍受 GitHub Actions 单次运行时限、订阅用量限制和平台故障影响。静态验证通过但还未完成运行验收时会复用已验证改动并重跑托管 ReDroid；只有精确候选通过独立运行时验收并达到 `RUNTIME_VERIFIED` 后才关闭 Issue。模型自述完成不能绕过独立验收。
 
 托管 runner 安装发行版 bubblewrap，并加载可用的专用 AppArmor profile。调用模型前通过同一 app-server 执行 workspace-write 沙箱命令，检查候选文件可读和工作目录可写；检查失败时不创建 Goal、不消耗模型 Token。模型获得包含完整 Git 历史和全部已跟踪文件的独立 checkout、原始 APK 和完整候选分析报告，自行选择所需上下文，并根据候选 APK 和运行行为确认适配结论。独立 checkout 不配置远端，不复制原仓库工作目录中的未跟踪文件或 Git 配置。外层 bubblewrap 仅挂载独立 checkout、独立用户目录、认证目录和工具；Gradle 只复制依赖与 wrapper 缓存，不暴露原仓库、项目构建缓存和控制器状态。预检验证原仓库与控制器状态不可读。模型可使用 jadx 检查真实 APK。控制器拒绝修改既有 profile、检查器、脚本、工作流和构建配置。新增 profile 必须使用已校验的身份和来源，状态只能为 `static-verified`。候选和最多两个较早正式支持版本分别经过共用检查器；核心测试、模块测试和 debug APK 构建通过后才发布 draft PR，并把 Issue 状态更新为 `WAITING_RUNTIME`。模型失败或静态检查失败时，Issue 和结果报告停留在 `NEEDS_HOOK_REVIEW`。
 
-PR 分支包含静态适配。流水线随后自动执行托管 AVD 登录界面冒烟，通过后记录结果并将候选更新为 `runtime-verified-hosted`；审阅合入主分支后再由兼容检测确认 `FORMALLY_SUPPORTED`。本地 AVD 可用于失败诊断或补充验证。
+PR 分支包含静态适配。流水线随后自动执行托管 ReDroid 登录界面冒烟，通过后记录结果并将候选更新为 `runtime-verified-hosted`；审阅合入主分支后再由兼容检测确认 `FORMALLY_SUPPORTED`。历史 AVD 记录只用于诊断参考。
 
 ## 订阅认证配置
 
@@ -92,15 +92,15 @@ age --decrypt --identity ~/.config/impad/ci-trace.agekey \
 
 ## 托管运行时验证
 
-兼容检测由主分支手动或定时触发。Codex 适配的静态检查和构建成功后，同一次运行调用 `runtime-smoke.yml`，复用已校验的微信 APK 和模块 APK。托管 AVD 使用固定系统镜像、修补 ramdisk、Magisk 和官方 LSPosed；工作流安装框架、启用模块并验证无模块基线。
+兼容检测由主分支手动或定时触发。Codex 适配的静态检查和构建成功后，同一次运行调用 `runtime-smoke.yml`，复用已校验的微信 APK 和模块 APK。托管 ReDroid 使用固定 ARM64 Android 14 容器、Magisk、Zygisk Next 和官方 LSPosed；工作流安装框架、启用模块并验证无模块基线。
 
 通过标准为模块注入成功、Hook 安装无错误、Phone & Tablet 登录入口出现，且可进入稳定的二维码页。无需扫码、登录账号或验证双设备服务器会话。
 
-成功输出 `RUNTIME_VERIFIED`，更新候选为 `runtime-verified-hosted`，记录 PR 和 Issue；合并后才正式支持。失败输出 `RUNTIME_REJECTED`，保持草稿 PR，并上传截图、UI 树和日志。取消或跳过时保留 `STATIC_VERIFIED_PENDING_RUNTIME`，Issue 标记为 `WAITING_RUNTIME`，不发表运行失败评论，也不晋级候选。PR 被改动时拒绝使用旧运行结果晋级。托管冒烟串行执行，最多排队 100 次运行，后来的运行不会替换已有等待任务。
+成功输出 `RUNTIME_VERIFIED`，更新候选为 `runtime-verified-hosted`，记录 PR 和 Issue；合并后才正式支持。失败输出 `RUNTIME_REJECTED`，保持草稿 PR，并上传截图、UI 树和日志。取消或跳过时保留 `STATIC_VERIFIED_PENDING_RUNTIME`，Issue 标记为 `WAITING_RUNTIME`，不发表运行失败评论，也不晋级候选。PR 被改动时拒绝使用旧运行结果晋级。托管冒烟使用独立并发组串行执行，不取消正在执行的运行；排队行为由 GitHub Actions 控制。
 
 `runtime-validation.yml` 可手动用官网最新且已登记的精确 APK 重放构建、静态检查、跨任务 artifact、托管冒烟和结果判定；不调用 Codex，不创建 PR 或修改正式支持清单。
 
-勾选 `rebuild_ramdisk` 可同时从官方输入重建 root ramdisk，校验与 Release 产物逐字节一致，再执行冒烟。制作步骤及本地命令见 [AVD root ramdisk 制作](../environment/ramdisk-build.md)。
+环境版本、摘要、入口及证据说明见 [ReDroid 运行环境](../environment/redroid-runtime.md)。旧 `rebuild_ramdisk` 输入已移除。
 
 会话记录在后台封存为独立 age 密文分段：32 条事件、1 MiB 缓冲或 15 秒间隔均可触发；后台调度繁忙时分段可能超过数量或大小阈值。协议分段不落地明文，封存加密不占用控制器读取事件的锁。
 可信 action 在模型运行期间约每分钟上传 `impad-codex-live-*` artifact，包含本轮新增的完整密文分段与 runner 的内存、磁盘、进程名和 cgroup 计数；上传凭据不会传给模型。诊断采集与上传在后台执行，不要求 Codex 暂停，也不等待模型轮次完成；同一时刻仅运行一次诊断上传，较慢的上传会延迟下一次快照。
@@ -112,14 +112,14 @@ SIGTERM/SIGINT 会触发控制器诊断和加密收尾；SIGKILL、runner 丢失
 JADX 启动器使用共享文件锁串行执行反编译，JVM 堆上限为 4 GiB、反编译线程数默认为 2，避免多个反编译进程按整机内存比例同时分配堆。
 实时快照同时读取实际进程的 cgroup 内存计数，并尽力采集本轮内核日志和 runner 服务日志；服务日志可能包含凭据，只上传 `runner-logs.json.age` 密文，不上传原始内容。日志不可读时明确记录 `unavailable`。
 
-适配 job 先启动单个临时 API 37.2 AVD（2 核、4 GiB 内存），用共用流程验证无模块时没有平板入口，并准备 Magisk、官方 LSPosed 和模块作用域。准备失败时不创建模型 Goal。
+适配 job 在 Ubuntu 24.04 ARM64 上先启动单个临时 ReDroid 14 容器（4 KB 页），用共用流程验证无模块时没有平板入口，并准备 Magisk、官方 LSPosed 和模块作用域。准备失败时不创建模型 Goal。
 每轮生成临时 debug keystore，基线、模型构建和宿主验收通过 `WECHATPAD_DEBUG_KEYSTORE` 显式选择同一份密钥，避免不同 HOME 下默认 debug key 不一致；此密钥不用于正式发布。
 运行报告从本次探测的新鲜 logcat 提取模块加载、兼容状态、Hook 安装及实际描述符，失败反馈直接提供这些观察。未观察到记录不等于证明注入失败；已安装 Hook 而入口缺失时，应重新核查所选方法的调用路径、提前返回和缓存。
-模型沙箱通过工作区文件请求中转访问专用 ADB server，宿主控制器执行命令并返回原始输出；预检确认固定模拟器可访问。中转固定设备、限制设备命令和本地文件路径，外部网络仍关闭。禁网沙箱禁止 Unix socket 的 connect 调用，因此不让模型直接连接 ADB socket。
-模型使用 `adb wechat-launch` 在安装、清数据或重启后恢复 16 KB 兼容设置并启动微信；设置和 Magisk 路径与独立冒烟共用。添加 profile 后，可用 `impad-build` 请求宿主执行已有改动范围保护、静态回归、测试和构建，日志写入 `work/analysis/host-build`。此命令不接受额外参数，不代替最终验收。
-中转检测被取消的客户端请求并终止对应进程组；普通设备命令超时为 30 秒，传文件和等待设备为 120 秒，安装为 240 秒。独立 AVD 冒烟结束后，还验证受控启动、截图二进制输出和取消请求后的队列恢复，报告保存为 `tooling/tooling-report.json`。
-同一个 Goal 每轮依次通过静态检查、测试、构建和 AVD 行为验收。运行验收安装可信控制器保存的精确候选 APK 和本轮模块，验证两个 hook、平板入口和稳定二维码页面；失败证据复制到模型工作区，交回原会话修正。更换证据目录不会重置连续三次同类错误的停止计数。
-通过这轮验收后才创建草稿 PR，随后原有独立 job 在新的干净 AVD 再次冒烟，只有该独立结果可以晋级 `runtime-verified-hosted`。运行中的诊断继续加密保存，适配 AVD 的普通失败证据单独上传为 `impad-adaptation-avd`。
+模型沙箱通过工作区文件请求中转访问专用 ADB server，宿主控制器执行命令并返回原始输出；预检确认固定 ReDroid 端点可访问。中转固定设备、限制设备命令和本地文件路径，外部网络仍关闭。禁网沙箱禁止 Unix socket 的 connect 调用，因此不让模型直接连接 ADB socket。
+模型使用 `adb wechat-launch` 在安装、清数据或重启后恢复受控启动设置并启动微信；设置和 Magisk 路径与独立冒烟共用。添加 profile 后，可用 `impad-build` 请求宿主执行已有改动范围保护、静态回归、测试和构建，日志写入 `work/analysis/host-build`。此命令不接受额外参数，不代替最终验收。
+中转检测被取消的客户端请求并终止对应进程组；普通设备命令超时为 30 秒，传文件和等待设备为 120 秒，安装为 240 秒。独立 ReDroid 冒烟结束后，还验证受控启动、截图二进制输出和取消请求后的队列恢复，报告保存为 `tooling/tooling-report.json`。
+同一个 Goal 每轮依次通过静态检查、测试、构建和 ReDroid 行为验收。运行验收安装可信控制器保存的精确候选 APK 和本轮模块，按应用策略验证 Hook；微信、企微验证平板入口和稳定二维码页面，QQ 验证 MSF 归属的手机／平板请求 AppID 对照；失败证据复制到模型工作区，交回原会话修正。更换证据目录不会重置连续三次同类错误的停止计数。
+通过这轮验收后才创建草稿 PR，随后原有独立 job 在新的干净 ReDroid 再次冒烟，只有该独立结果可以晋级 `runtime-verified-hosted`。运行中的诊断继续加密保存，适配 ReDroid 的普通失败证据单独上传为各应用的 `adaptation-redroid` artifact。
 
 
 ### 可恢复的自动适配
