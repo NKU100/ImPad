@@ -223,8 +223,11 @@ class AppSmoke:
         try:
             path = self.root / (name + '.apk')
             checked_digest(path, profile['identity']['apkSha256'])
-            smoke.adb('uninstall', smoke.APP_PACKAGE)
-            smoke.adb('install', str(path), timeout=180)
+            smoke.adb('shell', 'am', 'force-stop', smoke.APP_PACKAGE)
+            smoke.adb('install', '-r', '-d', str(path), timeout=180)
+            smoke.adb('shell', 'pm', 'clear', smoke.APP_PACKAGE)
+            if runtime_probe.manager_state(smoke)['scopeVerified'] is not True:
+                raise RuntimeError('QQ scope lost during version replacement')
             # Establish first-use login navigation before the isolated fresh launch.
             smoke.mobile_input('login-ready')
             expectation = self.inputs[name]['manifestAppIds']
