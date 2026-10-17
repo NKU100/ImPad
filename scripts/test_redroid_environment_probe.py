@@ -19,3 +19,25 @@ class ReDroidEnvironmentProbeTest(unittest.TestCase):
 
 if __name__ == '__main__':
     unittest.main()
+
+class BootReconnectTest(unittest.TestCase):
+    def test_retries_when_root_restart_temporarily_offlines_transport(self):
+        from unittest.mock import patch
+        import subprocess
+        from scripts.ci.redroid_environment_probe import Probe
+        with tempfile.TemporaryDirectory() as directory:
+            probe = Probe(Path(directory))
+            properties = iter([
+                subprocess.CompletedProcess([], 1, b'', b'adb: device offline'),
+                subprocess.CompletedProcess([], 0, b'properties', b'')])
+            seen = []
+            def shell(command, name, **kwargs):
+                seen.append(name)
+                if command == 'getprop sys.boot_completed':
+                    return subprocess.CompletedProcess([], 0, b'1', b'')
+                if command == 'getprop; ps -A':
+                    return next(properties)
+                raise AssertionError(command)
+            with patch.object(probe, 'run'), patch.object(probe, 'adb'), patch.object(probe, 'shell', side_effect=shell), patch('scripts.ci.redroid_environment_probe.time.sleep'):
+                probe.boot('framework')
+            self.assertEqual(seen.count('framework-properties'), 2)

@@ -57,8 +57,14 @@ class Probe:
             if result.returncode == 0 and result.stdout.strip() == b'1':
                 self.adb(['root'], label + '-adb-root')
                 self.adb(['wait-for-device'], label + '-adb-ready', timeout=30)
-                self.shell('getprop; ps -A', label + '-properties')
-                return
+                reconnect_deadline = min(deadline, time.monotonic() + 30)
+                while time.monotonic() < reconnect_deadline:
+                    self.run(['adb', 'connect', SERIAL], label + '-root-connect', check=False)
+                    properties = self.shell('getprop; ps -A', label + '-properties', check=False, timeout=10)
+                    if properties.returncode == 0:
+                        return
+                    time.sleep(1)
+                raise RuntimeError(f'{label} root transport did not reconnect')
             time.sleep(3)
         raise RuntimeError(f'{label} boot timed out')
 
