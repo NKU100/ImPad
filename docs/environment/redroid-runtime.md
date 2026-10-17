@@ -4,11 +4,9 @@
 
 ## 入口
 
-- `compatibility-app.yml`：适配 job 启动独立容器，验证无模块基线和框架后才启动模型。每轮构建通过后安装精确候选与本轮模块，独立验证行为；失败证据交回同一会话。
-- `runtime-smoke.yml`：共用最终验收入口，接受应用 ID、候选 artifact 和模块 artifact；重新校验候选摘要、签名和静态规则后在新容器执行验收。
-- `runtime-validation.yml`：为已验证的精确版本构建应用作用域模块，调用同一最终入口，不调用模型或发布支持状态。
+- `compatibility-app.yml`：仅由三个应用入口调用；适配 job 启动独立容器，验证无模块基线和框架后才启动模型。每轮构建通过后安装精确候选与本轮模块，独立验证行为；失败证据交回同一会话。
+- `runtime-validation.yml`：统一手动／自动验收入口；手动选择版本并构建模块，自动调用复用候选 artifact 和模块 artifact；重新校验候选摘要、签名和静态规则后在新容器执行验收。
 - `redroid-app-smoke.yml`：固定微信、企微及两版 QQ 回归，另在 ARM64 runner 验证 SDK 工具、模块构建和原生观察器。`source_run_id` 可复用输入完全相同的历史 artifact。
-- `redroid-environment-probe.yml`：只检查框架环境；通过不代表应用适配通过。
 
 固定回归清单位于 `environment/redroid-smoke/`。单候选验收使用静态验证报告中的 `suggestedProfile`，保持 `static-verified`，不会因输入准备而晋级。正式支持仍要求独立验收和人工合并。
 

@@ -92,7 +92,7 @@ age --decrypt --identity ~/.config/impad/ci-trace.agekey \
 
 ## 托管运行时验证
 
-兼容检测由主分支手动或定时触发。Codex 适配的静态检查和构建成功后，同一次运行调用 `runtime-smoke.yml`，复用已校验的微信 APK 和模块 APK。托管 ReDroid 使用固定 ARM64 Android 14 容器、Magisk、Zygisk Next 和官方 LSPosed；工作流安装框架、启用模块并验证无模块基线。
+兼容检测由主分支手动或定时触发。Codex 适配的静态检查和构建成功后，同一次运行调用 `runtime-validation.yml`，复用已校验的微信 APK 和模块 APK。托管 ReDroid 使用固定 ARM64 Android 14 容器、Magisk、Zygisk Next 和官方 LSPosed；工作流安装框架、启用模块并验证无模块基线。
 
 通过标准为模块注入成功、Hook 安装无错误、Phone & Tablet 登录入口出现，且可进入稳定的二维码页。无需扫码、登录账号或验证双设备服务器会话。
 

@@ -1,26 +1,6 @@
 name: Run app compatibility pipeline
 
 on:
-  workflow_dispatch:
-    inputs:
-      app_id:
-        description: Registered application policy to check
-        type: choice
-        options: [wechat, wecom]
-        required: true
-        default: wechat
-      force_recheck:
-        description: Run static regression even when the exact APK is already supported
-        type: boolean
-        default: false
-      run_codex:
-        description: Adapt verified unknown builds with gpt-6-luna/xhigh
-        type: boolean
-        default: true
-      baseline_apk_sha256:
-        description: Select a runtime-verified baseline variant when the preferred version is ambiguous
-        type: string
-        default: ''
   workflow_call:
     inputs:
       app_id:
@@ -990,7 +970,7 @@ jobs:
     permissions:
       contents: read
       actions: read
-    uses: ./.github/workflows/runtime-smoke.yml
+    uses: ./.github/workflows/runtime-validation.yml
     with:
       module_run_id: ${{ github.run_id }}
       app_id: ${{ needs.prepare.outputs.app_id }}

@@ -59,19 +59,33 @@ class AdaptationCheckpointTest(unittest.TestCase):
         runtime = shared.split('\n  runtime:', 1)[1].split('\n  runtime-result:', 1)[0]
         self.assertIn("if: ${{ !cancelled() && needs.adapt.outputs.pr_url != '' }}", runtime)
 
-    def test_common_workflow_locks_before_any_jobs_for_both_entry_paths(self):
+    def test_common_workflow_locks_before_jobs_and_is_called_by_each_app(self):
         root = Path(__file__).resolve().parents[1]
         shared = (root / '.github/workflows/compatibility-app.yml').read_text()
         header, jobs = shared.split('\njobs:', 1)
         self.assertIn('\nconcurrency:\n  group: impad-codex-managed-auth\n  cancel-in-progress: false', header)
         self.assertNotIn('concurrency:', jobs)
-        self.assertIn('  workflow_dispatch:', header)
+        self.assertNotIn('  workflow_dispatch:', header)
         self.assertIn('  workflow_call:', header)
         self.assertNotIn('queue: max', shared)
-        for app in ('wechat', 'wecom'):
+        for app in ('wechat', 'wecom', 'qq'):
             shell = (root / f'.github/workflows/compatibility-{app}.yml').read_text()
             self.assertIn('uses: ./.github/workflows/compatibility-app.yml', shell)
             self.assertNotIn('concurrency:', shell)
+
+    def test_runtime_validation_is_shared_by_manual_replay_and_adaptation(self):
+        root = Path(__file__).resolve().parents[1]
+        shared = (root / '.github/workflows/compatibility-app.yml').read_text()
+        validation = (root / '.github/workflows/runtime-validation.yml').read_text()
+        self.assertIn('uses: ./.github/workflows/runtime-validation.yml', shared)
+        self.assertFalse((root / '.github/workflows/runtime-smoke.yml').exists())
+        self.assertIn('  workflow_dispatch:', validation)
+        self.assertIn('  workflow_call:', validation)
+        build = validation.split('      - name: Check real APK and build replay module', 1)[1].split('      - name:', 1)[0]
+        self.assertIn("if: inputs.module_run_id == ''", build)
+        result = validation.split('  result:', 1)[1]
+        self.assertIn("inputs.module_run_id == ''", result)
+        self.assertIn('runtime-smoke/evidence/smoke-report.json', result)
 
     def test_abrupt_exit_reuses_code_and_session_from_same_published_snapshot(self):
         from scripts.ci.adaptation_checkpoint import reuse_published_checkpoint
