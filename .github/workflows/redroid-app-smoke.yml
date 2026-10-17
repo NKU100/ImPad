@@ -2,6 +2,11 @@ name: Validate apps on hosted ReDroid
 
 on:
   workflow_dispatch:
+    inputs:
+      source_run_id:
+        description: Reuse verified inputs from a prior run when module and APK inputs are unchanged
+        type: string
+        default: ''
   push:
     branches: [codex/qq-sigbus-diagnostic]
     paths:
@@ -13,9 +18,11 @@ on:
 
 permissions:
   contents: read
+  actions: read
 
 jobs:
   prepare:
+    if: inputs.source_run_id == ''
     runs-on: ubuntu-24.04
     timeout-minutes: 35
     steps:
@@ -61,6 +68,7 @@ jobs:
 
   runtime:
     needs: prepare
+    if: always() && (needs.prepare.result == 'success' || inputs.source_run_id != '')
     runs-on: ubuntu-24.04-arm
     timeout-minutes: 35
     steps:
@@ -69,6 +77,8 @@ jobs:
         with:
           name: redroid-app-inputs
           path: work/redroid-inputs
+          run-id: ${{ inputs.source_run_id || github.run_id }}
+          github-token: ${{ github.token }}
       - name: Install host tools
         run: sudo apt-get update -qq && sudo apt-get install -y --no-install-recommends adb kmod tesseract-ocr 7zip
       - name: Boot pinned framework and verify all three applications
