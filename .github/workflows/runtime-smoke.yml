@@ -58,7 +58,7 @@ jobs:
       - uses: android-actions/setup-android@v4
         with:
           packages: ''
-      - run: sdkmanager 'platforms;android-37.2' 'build-tools;37.0.0' 'ndk;29.0.14206865'
+      - run: sdkmanager 'cmdline-tools;latest' 'platforms;android-37.2' 'build-tools;37.0.0' 'ndk;29.0.14206865'
       - name: Reuse exact module build
         uses: actions/download-artifact@v8
         with:

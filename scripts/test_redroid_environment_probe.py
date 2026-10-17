@@ -38,9 +38,29 @@ class BootReconnectTest(unittest.TestCase):
                 if command == 'getprop; ps -A':
                     return next(properties)
                 raise AssertionError(command)
-            with patch.object(probe, 'run'), patch.object(probe, 'adb'), patch.object(probe, 'shell', side_effect=shell), patch('scripts.ci.redroid_environment_probe.time.sleep'):
+            with patch.object(probe, 'run'), patch.object(probe, 'adb', return_value=subprocess.CompletedProcess([], 0, b'', b'')), patch.object(probe, 'shell', side_effect=shell), patch('scripts.ci.redroid_environment_probe.time.sleep'):
                 probe.boot('framework')
             self.assertEqual(seen.count('framework-properties'), 2)
+
+    def test_reconnects_after_root_command_closes_the_transport(self):
+        from unittest.mock import patch
+        import subprocess
+        from scripts.ci.redroid_environment_probe import Probe
+        with tempfile.TemporaryDirectory() as directory:
+            probe = Probe(Path(directory))
+            roots = iter([subprocess.CompletedProcess([], 1, b'', b'closed'), subprocess.CompletedProcess([], 0, b'already root', b'')])
+            def adb(args, name, **kwargs):
+                if args == ['root']:
+                    result = next(roots)
+                    if kwargs.get('check', True) and result.returncode:
+                        raise RuntimeError('root connection closed')
+                    return result
+                return subprocess.CompletedProcess([], 0, b'', b'')
+            def shell(command, name, **kwargs):
+                return subprocess.CompletedProcess([], 0, b'1' if command == 'getprop sys.boot_completed' else b'properties', b'')
+            with patch.object(probe, 'run') as run, patch.object(probe, 'adb', side_effect=adb), patch.object(probe, 'shell', side_effect=shell), patch('scripts.ci.redroid_environment_probe.time.sleep'):
+                probe.boot('magisk')
+            self.assertGreaterEqual(run.call_count, 2)
 
 class LifecycleTest(unittest.TestCase):
     def test_failed_framework_setup_always_cleans_up_and_saves_failure(self):

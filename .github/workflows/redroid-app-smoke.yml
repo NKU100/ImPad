@@ -36,7 +36,7 @@ jobs:
         with:
           packages: ''
       - name: Install module and collector SDK
-        run: sdkmanager 'platforms;android-37.2' 'build-tools;37.0.0' 'ndk;29.0.14206865'
+        run: sdkmanager 'cmdline-tools;latest' 'platforms;android-37.2' 'build-tools;37.0.0' 'ndk;29.0.14206865'
       - name: Prepare exact official APKs and native ARM64 collector
         run: python3 -m scripts.ci.redroid_prepare_apps --root work/redroid-inputs
       - name: Test and build module with isolated compatibility profiles
@@ -125,7 +125,7 @@ jobs:
         run: bash scripts/ci/prepare_arm64_sdk_host.sh
       - name: Install adaptation SDK and build native ARM64 observer
         run: |
-          sdkmanager 'platforms;android-37.2' 'build-tools;37.0.0' 'ndk;29.0.14206865'
+          sdkmanager 'cmdline-tools;latest' 'platforms;android-37.2' 'build-tools;37.0.0' 'ndk;29.0.14206865'
           python3 -m scripts.ci.redroid_prepare_apps --root work/host-tools --tools-only
       - name: Verify adaptation tests and module build on the actual ARM64 host
         run: |

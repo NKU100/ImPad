@@ -55,7 +55,12 @@ class Probe:
         while time.monotonic() < deadline:
             result = self.shell('getprop sys.boot_completed', label + '-boot', check=False, timeout=10)
             if result.returncode == 0 and result.stdout.strip() == b'1':
-                self.adb(['root'], label + '-adb-root')
+                root_result = self.adb(['root'], label + '-adb-root', check=False)
+                if root_result.returncode:
+                    self.run([os.environ.get('IMPAD_ADB_BINARY', 'adb'), 'disconnect', SERIAL], label + '-root-disconnect', check=False)
+                    self.run([os.environ.get('IMPAD_ADB_BINARY', 'adb'), 'connect', SERIAL], label + '-root-retry-connect', check=False)
+                    time.sleep(1)
+                    continue
                 self.adb(['wait-for-device'], label + '-adb-ready', timeout=30)
                 reconnect_deadline = min(deadline, time.monotonic() + 30)
                 while time.monotonic() < reconnect_deadline:
