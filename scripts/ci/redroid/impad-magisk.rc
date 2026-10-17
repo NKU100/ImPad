@@ -1,0 +1,8 @@
+on post-fs-data
+    exec u:r:su:s0 root root -- /system/bin/sh /system/etc/impad-magisk/bootstrap.sh
+on nonencrypted
+    exec u:r:su:s0 root root -- /debug_ramdisk/magisk --service
+on property:sys.boot_completed=1
+    exec u:r:su:s0 root root -- /debug_ramdisk/magisk --boot-complete
+on property:init.svc.zygote=restarting
+    exec u:r:su:s0 root root -- /debug_ramdisk/magisk --zygote-restart
