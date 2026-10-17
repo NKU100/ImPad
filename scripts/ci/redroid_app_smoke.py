@@ -9,7 +9,6 @@ import shlex
 import subprocess
 import threading
 import time
-import zipfile
 
 from scripts.ci import runtime_smoke as smoke
 from scripts.ci.apps.qq import packet_capture, prepare_probe, request_protocol, runtime_policy, runtime_probe
@@ -90,8 +89,8 @@ class AppSmoke:
         # All APKs are checked against preparation evidence before installation.
         for app, profile in self.inputs.items():
             checked_digest(self.root / (app + '.apk'), profile['identity']['apkSha256'])
-        with zipfile.ZipFile(self.probe.output / 'assets/lsposed.zip') as archive:
-            (self.root / 'manager.apk').write_bytes(archive.read('manager.apk'))
+        manager = subprocess.check_output(['7z', 'e', '-so', str(self.probe.output / 'assets/lsposed.zip'), 'manager.apk'], timeout=60)
+        (self.root / 'manager.apk').write_bytes(manager)
         for name in ('manager.apk', 'module/app-debug.apk'):
             smoke.adb('install', '-r', str(self.root / name), timeout=120)
         for app in ('qq', 'wechat', 'wecom'):

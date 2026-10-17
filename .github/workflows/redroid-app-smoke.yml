@@ -70,7 +70,7 @@ jobs:
           name: redroid-app-inputs
           path: work/redroid-inputs
       - name: Install host tools
-        run: sudo apt-get update -qq && sudo apt-get install -y --no-install-recommends adb kmod tesseract-ocr
+        run: sudo apt-get update -qq && sudo apt-get install -y --no-install-recommends adb kmod tesseract-ocr 7zip
       - name: Boot pinned framework and verify all three applications
         env:
           GH_TOKEN: ${{ github.token }}
