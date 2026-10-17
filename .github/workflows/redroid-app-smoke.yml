@@ -1,0 +1,94 @@
+name: Validate apps on hosted ReDroid
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [codex/qq-sigbus-diagnostic]
+    paths:
+      - .github/workflows/redroid-app-smoke.yml
+      - scripts/ci/redroid_app_smoke.py
+      - scripts/ci/redroid_ui_smoke.py
+      - scripts/ci/redroid_prepare_apps.py
+      - environment/redroid-smoke/**
+
+permissions:
+  contents: read
+
+jobs:
+  prepare:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-java@v6
+        with:
+          distribution: temurin
+          java-version: '21'
+          cache: gradle
+      - uses: android-actions/setup-android@v4
+        with:
+          packages: ''
+      - name: Install module and collector SDK
+        run: sdkmanager 'platforms;android-37.2' 'build-tools;37.0.0' 'ndk;29.0.14206865'
+      - name: Prepare exact official APKs and native ARM64 collector
+        run: python3 -m scripts.ci.redroid_prepare_apps --root work/redroid-inputs
+      - name: Test and build module with isolated compatibility profiles
+        run: |
+          ./gradlew --no-daemon :app:testDebugUnitTest :compat-core:test :compat-checker:test
+          ./gradlew --no-daemon -PruntimeLocalAssets=work/redroid-inputs :app:assembleDebug :app:verifyModuleMetadata
+          mkdir -p work/redroid-inputs/module
+          cp app/build/outputs/apk/debug/app-debug.apk work/redroid-inputs/module/app-debug.apk
+      - name: Upload prepared runtime inputs
+        uses: actions/upload-artifact@v7
+        with:
+          name: redroid-app-inputs
+          path: |
+            work/redroid-inputs/*.apk
+            work/redroid-inputs/inputs.json
+            work/redroid-inputs/module/
+            work/redroid-inputs/qq-probe/
+            work/redroid-inputs/ui-hierarchy.jar
+          retention-days: 3
+      - name: Upload static verification evidence
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: redroid-static-evidence
+          path: |
+            work/redroid-inputs/*-static.txt
+            work/redroid-inputs/*-signer.txt
+          retention-days: 7
+
+  runtime:
+    needs: prepare
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/download-artifact@v8
+        with:
+          name: redroid-app-inputs
+          path: work/redroid-inputs
+      - name: Install host tools
+        run: sudo apt-get update -qq && sudo apt-get install -y --no-install-recommends adb kmod tesseract-ocr
+      - name: Boot pinned framework and verify all three applications
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: python3 -m scripts.ci.redroid_environment_probe --output work/redroid-app-smoke --app-inputs work/redroid-inputs
+      - name: Upload runtime evidence
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: redroid-app-evidence
+          path: |
+            work/redroid-app-smoke/*.txt
+            work/redroid-app-smoke/*.json
+            work/redroid-app-smoke/summary.md
+            work/redroid-app-smoke/apps/
+          retention-days: 7
+      - name: Publish result
+        if: always()
+        run: |
+          if [ -f work/redroid-app-smoke/summary.md ]; then
+            cat work/redroid-app-smoke/summary.md >> "$GITHUB_STEP_SUMMARY"
+          fi

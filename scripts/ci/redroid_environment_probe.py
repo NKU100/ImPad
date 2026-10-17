@@ -69,7 +69,7 @@ class Probe:
                   'androidboot.redroid_width=720', 'androidboot.redroid_height=1280'], label + '-start')
         self.boot(label)
 
-    def execute(self):
+    def execute(self, app_inputs=None):
         try:
             if platform.machine() not in ('aarch64', 'arm64'):
                 raise RuntimeError('Native ARM64 host required')
@@ -134,6 +134,12 @@ class Probe:
             if b'libzygisk.so' not in state.stdout or b'lspd' not in state.stdout:
                 raise RuntimeError('Next injection or LSPosed daemon not observed')
             self.report['status'] = 'FRAMEWORK_ENVIRONMENT_READY'
+            if app_inputs is not None:
+                self.report.update(stage='APPLICATION_ACCEPTANCE', status='APPLICATION_ACCEPTANCE_FAILED',
+                                   acceptanceKind='THREE_APP_RUNTIME_REGRESSION')
+                from scripts.ci.redroid_app_smoke import AppSmoke
+                AppSmoke(app_inputs, self).execute()
+                self.report['status'] = 'APPLICATION_ACCEPTANCE_VERIFIED'
         except Exception as error:
             self.report['reason'] = f'{type(error).__name__}: {error}'
         finally:
@@ -144,14 +150,15 @@ class Probe:
             self.run(['sudo', 'docker', 'rm', '-f', CONTAINER], 'cleanup', check=False)
             (self.output / 'report.json').write_text(json.dumps(self.report, indent=2) + '\n')
             (self.output / 'summary.md').write_text(f"ReDroid: **{self.report['status']}** at {self.report['stage']}.\n\n" + self.report.get('reason', '') + '\n\nFramework boot does not establish application hook or request acceptance.\n')
-        return self.report['status'] == 'FRAMEWORK_ENVIRONMENT_READY'
+        return self.report['status'] == ('APPLICATION_ACCEPTANCE_VERIFIED' if app_inputs is not None else 'FRAMEWORK_ENVIRONMENT_READY')
 
 
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('--output', type=Path, required=True)
+    parser.add_argument('--app-inputs', type=Path)
     args = parser.parse_args()
-    raise SystemExit(0 if Probe(args.output).execute() else 1)
+    raise SystemExit(0 if Probe(args.output).execute(args.app_inputs) else 1)
 
 
 if __name__ == '__main__':
