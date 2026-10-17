@@ -109,7 +109,7 @@ class AdbDeviceTest(unittest.TestCase):
         self.assertIn('bionic.linker.16kb.app_compat.enabled true', calls[1][-1])
         self.assertIn('/debug_ramdisk/magisk', calls[1][-1])
         self.assertEqual(['shell','am','force-stop','com.tencent.mm'], calls[2][3:])
-        self.assertEqual('monkey', calls[3][4])
+        self.assertEqual(['shell', 'am', 'start', '-W', '-n', 'com.tencent.mm/.ui.LauncherUI'], calls[3][3:])
 
     def test_managed_build_and_launch_do_not_accept_arbitrary_arguments(self):
         with tempfile.TemporaryDirectory() as temporary:

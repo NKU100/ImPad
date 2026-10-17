@@ -1,5 +1,6 @@
 """Execute sandbox device requests without granting the model network access."""
 import json
+import importlib
 import os
 from pathlib import Path
 import re
@@ -123,10 +124,12 @@ class DeviceRelay:
         if args[0] in {'app-launch', 'wechat-launch'}:
             policy = self.policy if args[0] == 'app-launch' else get_policy('wechat')
             from scripts.ci.runtime_smoke import MAGISK, PAGE_SIZE_BACKCOMPAT_COMMAND
+            strategy = importlib.import_module(policy.runtime_ui_strategy)
+            component = getattr(strategy, 'launcher_component', policy.package_name + '/.ui.LauncherUI')
             commands = [prefix + ['wait-for-device'],
                         prefix + ['shell', shlex.join([MAGISK, 'su', '-c', PAGE_SIZE_BACKCOMPAT_COMMAND])],
                         prefix + ['shell', 'am', 'force-stop', policy.package_name],
-                        prefix + ['shell', 'monkey', '-p', policy.package_name, '-c', 'android.intent.category.LAUNCHER', '1']]
+                        prefix + ['shell', 'am', 'start', '-W', '-n', component]]
             for command in commands:
                 result = self.execute(command, cwd, request, 60)
                 if result[0]:
