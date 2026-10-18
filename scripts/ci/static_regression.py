@@ -1,5 +1,6 @@
 """Run the shared checker on exact, digest-verified official APKs."""
 import argparse
+from http.client import HTTPException
 import json
 import re
 import shlex
@@ -67,32 +68,50 @@ def check_apk(repository, targets, apk, digest, log, offline=False, app_id='wech
         subprocess.run(command, cwd=repository, stdout=output, stderr=subprocess.STDOUT, check=True, timeout=300)
 
 
-def main():
-    parser = argparse.ArgumentParser()
-    parser.add_argument('--app-id', default='wechat')
-    parser.add_argument('--targets', type=Path)
-    parser.add_argument('--cache', type=Path)
-    parser.add_argument('--reports', type=Path, default=Path('work/static-regression'))
-    args = parser.parse_args()
-    policy = get_policy(args.app_id)
-    targets = args.targets or Path(policy.targets_path)
-    cache = args.cache or Path('.cache') / f'{policy.app_id}-apks'
-    profiles = registered_window(json.loads(targets.read_text()), policy.app_id)
-    args.reports.mkdir(parents=True, exist_ok=True)
+def run_regression(app_id, reports, targets=None, cache=None):
+    policy = get_policy(app_id)
+    targets = targets or Path(policy.targets_path)
+    cache = cache or Path('.cache') / f'{policy.app_id}-apks'
+    reports.mkdir(parents=True, exist_ok=True)
     summary = []
-    failed = False
+    try:
+        profiles = registered_window(json.loads(targets.read_text()), policy.app_id)
+    except (OSError, ValueError) as error:
+        summary.append({'appId': policy.app_id, 'status': 'FAILED', 'error': str(error)})
+        (reports / 'results.json').write_text(json.dumps(summary, indent=2) + '\n')
+        return summary
     for profile in profiles:
         identity = profile['identity']
         key = f"{policy.app_id}-{identity['packageName']}-{identity['abi']}-{identity['versionCode']}-{identity['apkSha256']}"
         try:
             apk = ensure_apk(profile, cache, policy.app_id)
-            check_apk(Path.cwd(), targets, apk, identity['apkSha256'], args.reports / (key + '.log'), app_id=policy.app_id)
+            check_apk(Path.cwd(), targets, apk, identity['apkSha256'], reports / (key + '.log'), app_id=policy.app_id)
             summary.append({'appId': policy.app_id, 'identity': identity, 'status': 'PASSED'})
-        except (OSError, ValueError, subprocess.SubprocessError) as error:
-            failed = True
+        except (OSError, ValueError, HTTPException, subprocess.SubprocessError) as error:
             summary.append({'appId': policy.app_id, 'identity': identity, 'status': 'FAILED', 'error': str(error)})
-        (args.reports / 'results.json').write_text(json.dumps(summary, indent=2) + '\n')
-    if failed:
+    (reports / 'results.json').write_text(json.dumps(summary, indent=2) + '\n')
+    return summary
+
+
+def main():
+    parser = argparse.ArgumentParser()
+    apps = parser.add_mutually_exclusive_group()
+    apps.add_argument('--app-id')
+    apps.add_argument('--all-apps', action='store_true')
+    parser.add_argument('--targets', type=Path)
+    parser.add_argument('--cache', type=Path)
+    parser.add_argument('--reports', type=Path, default=Path('work/static-regression'))
+    args = parser.parse_args()
+    if args.all_apps and (args.targets is not None or args.cache is not None):
+        parser.error('--all-apps uses each application policy and its own APK cache')
+    app_ids = ['wechat', 'qq', 'wecom'] if args.all_apps else [args.app_id or 'wechat']
+    summary = []
+    for app_id in app_ids:
+        reports = args.reports / app_id if args.all_apps else args.reports
+        summary.extend(run_regression(app_id, reports, args.targets, args.cache))
+    args.reports.mkdir(parents=True, exist_ok=True)
+    (args.reports / 'results.json').write_text(json.dumps(summary, indent=2) + '\n')
+    if any(row['status'] != 'PASSED' for row in summary):
         raise SystemExit('Static regression failed; see per-build logs and results.json')
 
 

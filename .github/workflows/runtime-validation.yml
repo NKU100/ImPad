@@ -18,6 +18,14 @@ on:
         description: Select an exact runtime-verified profile when registered variants share the latest version
         type: string
         default: ''
+      module_run_id:
+        description: Reuse the exact module APK from a completed build run instead of rebuilding debug
+        type: string
+        default: ''
+      module_artifact:
+        description: Module artifact in the selected build run
+        type: string
+        default: impad-module-apk
 
   workflow_call:
     inputs:
@@ -66,7 +74,7 @@ jobs:
           packages: ''
       - run: sdkmanager 'cmdline-tools;latest' 'platforms;android-37.2' 'build-tools;37.0.0' 'ndk;29.0.14206865'
       - name: Validate reused artifact inputs
-        if: inputs.module_run_id != ''
+        if: inputs.module_run_id != '' && inputs.candidate_mode == ''
         env:
           CANDIDATE_ARTIFACT: ${{ inputs.candidate_artifact }}
         run: test -n "$CANDIDATE_ARTIFACT"
@@ -79,7 +87,7 @@ jobs:
           run-id: ${{ inputs.module_run_id }}
           github-token: ${{ github.token }}
       - name: Reuse statically verified candidate
-        if: inputs.module_run_id != ''
+        if: inputs.module_run_id != '' && inputs.candidate_artifact != ''
         uses: actions/download-artifact@v8
         with:
           name: ${{ inputs.candidate_artifact }}
@@ -87,7 +95,7 @@ jobs:
           run-id: ${{ inputs.module_run_id }}
           github-token: ${{ github.token }}
       - name: Prepare registered replay candidate and app-scoped module assets
-        if: inputs.module_run_id == ''
+        if: inputs.module_run_id == '' || inputs.candidate_artifact == ''
         env:
           TARGETS_PATH: ${{ steps.policy.outputs.targets_path }}
         run: |
@@ -115,6 +123,9 @@ jobs:
           ./gradlew --no-daemon -PruntimeLocalAssets=work/runtime-smoke :app:assembleDebug :app:verifyModuleMetadata
           mkdir -p work/runtime-smoke/module
           cp app/build/outputs/apk/debug/app-debug.apk work/runtime-smoke/module/app-debug.apk
+      - name: Stage reused module without rebuilding or changing its bytes
+        if: inputs.module_run_id != ''
+        run: python3 -m scripts.ci.stage_runtime_module --directory work/runtime-smoke/module
       - name: Verify signer and static rules and compile native collector
         run: python3 -m scripts.ci.redroid_prepare_apps --root work/runtime-smoke --candidate work/runtime-smoke/candidate-report.json
       - uses: actions/upload-artifact@v7
@@ -184,7 +195,7 @@ jobs:
 
   result:
     needs: [prepare, smoke]
-    if: always() && inputs.module_run_id == '' && needs.prepare.result == 'success'
+    if: always() && (inputs.module_run_id == '' || inputs.candidate_mode != '') && needs.prepare.result == 'success'
     runs-on: ubuntu-latest
     env:
       APP_ID: ${{ needs.prepare.outputs.app_id }}

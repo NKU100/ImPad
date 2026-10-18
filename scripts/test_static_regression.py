@@ -1,12 +1,78 @@
 import hashlib
+from http.client import HTTPResponse
+import io
+import json
 import tempfile
 import unittest
 from pathlib import Path
 from unittest.mock import patch
-from scripts.ci.static_regression import registered_window, ensure_apk, check_apk
+from scripts.ci.static_regression import registered_window, ensure_apk, check_apk, main
 
 
 class StaticRegressionTest(unittest.TestCase):
+    def test_truncated_http_response_records_failure_and_checks_remaining_apps(self):
+        class Socket:
+            def makefile(self, mode):
+                return io.BytesIO(b'HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\n\r\n8\r\nabc')
+
+        def fetch_apk(profile, cache, app_id):
+            if app_id == 'qq':
+                response = HTTPResponse(Socket())
+                response.begin()
+                response.read()
+            return Path('fixture.apk')
+
+        with tempfile.TemporaryDirectory() as root:
+            reports = Path(root) / 'reports'
+            with patch('sys.argv', ['static_regression', '--all-apps', '--reports', str(reports)]), \
+                    patch('scripts.ci.static_regression.ensure_apk', side_effect=fetch_apk), \
+                    patch('scripts.ci.static_regression.check_apk'):
+                with self.assertRaises(SystemExit):
+                    main()
+            rows = json.loads((reports / 'results.json').read_text())
+            self.assertEqual({'wechat', 'qq', 'wecom'}, {row['appId'] for row in rows})
+            self.assertTrue(all(row['status'] == 'FAILED' for row in rows if row['appId'] == 'qq'))
+            self.assertTrue(all(row['status'] == 'PASSED' for row in rows if row['appId'] == 'wecom'))
+            self.assertTrue((reports / 'qq/results.json').is_file())
+
+    def test_all_apps_write_separate_reports_and_combined_results(self):
+        with tempfile.TemporaryDirectory() as root:
+            reports = Path(root) / 'reports'
+
+            def run_checker(repository, targets, apk, digest, log, **kwargs):
+                log.parent.mkdir(parents=True, exist_ok=True)
+                log.write_text(kwargs['app_id'])
+
+            with patch('sys.argv', ['static_regression', '--all-apps', '--reports', str(reports)]), \
+                    patch('scripts.ci.static_regression.ensure_apk', return_value=Path('fixture.apk')), \
+                    patch('scripts.ci.static_regression.check_apk', side_effect=run_checker):
+                main()
+            combined = json.loads((reports / 'results.json').read_text())
+            self.assertEqual({'wechat', 'qq', 'wecom'}, {row['appId'] for row in combined})
+            for app_id in ['wechat', 'qq', 'wecom']:
+                rows = json.loads((reports / app_id / 'results.json').read_text())
+                self.assertGreater(len(rows), 0)
+                self.assertTrue(all(row['appId'] == app_id and row['status'] == 'PASSED' for row in rows))
+                self.assertEqual(len(rows), len(list((reports / app_id).glob('*.log'))))
+
+    def test_all_apps_continue_after_one_app_fails_and_exit_unsuccessfully(self):
+        with tempfile.TemporaryDirectory() as root:
+            reports = Path(root) / 'reports'
+
+            def run_checker(repository, targets, apk, digest, log, **kwargs):
+                if kwargs['app_id'] == 'qq':
+                    raise ValueError('QQ regression failed')
+
+            with patch('sys.argv', ['static_regression', '--all-apps', '--reports', str(reports)]), \
+                    patch('scripts.ci.static_regression.ensure_apk', return_value=Path('fixture.apk')), \
+                    patch('scripts.ci.static_regression.check_apk', side_effect=run_checker):
+                with self.assertRaises(SystemExit):
+                    main()
+            combined = json.loads((reports / 'results.json').read_text())
+            self.assertEqual({'wechat', 'qq', 'wecom'}, {row['appId'] for row in combined})
+            self.assertTrue(all(row['status'] == 'FAILED' for row in combined if row['appId'] == 'qq'))
+            self.assertTrue(all(row['status'] == 'PASSED' for row in combined if row['appId'] == 'wecom'))
+
     def test_window_uses_three_highest_supported_builds(self):
         profiles = [{'identity': {'packageName': 'com.tencent.mm', 'abi': 'arm64-v8a', 'versionCode': n,
                                   'versionName': f'8.0.{n}', 'apkSha256': f'{n:064x}',

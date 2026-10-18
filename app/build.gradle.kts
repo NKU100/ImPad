@@ -109,6 +109,12 @@ android {
                 signingConfig = signingConfigs.getByName("stable")
             }
         }
+        release {
+            isDebuggable = false
+            if (hasStableSigningKey) {
+                signingConfig = signingConfigs.getByName("stable")
+            }
+        }
     }
 
     compileOptions {
@@ -162,12 +168,21 @@ tasks.withType<Test>().configureEach {
     useJUnitPlatform()
 }
 
-tasks.register("verifyModuleMetadata") {
-    dependsOn("assembleDebug")
+val requireReleaseSigning = tasks.register("requireReleaseSigning") {
+    doLast {
+        check(hasStableSigningKey) { "Release APK requires a configured stable signing key" }
+    }
+}
+tasks.matching { it.name == "packageRelease" }.configureEach {
+    dependsOn(requireReleaseSigning)
+}
+
+fun registerModuleMetadataVerification(taskName: String, variant: String) = tasks.register(taskName) {
+    dependsOn("assemble${variant.replaceFirstChar(Char::uppercase)}")
 
     doLast {
-        val apk = layout.buildDirectory.file("outputs/apk/debug/app-debug.apk").get().asFile
-        check(apk.isFile) { "Debug APK was not produced: $apk" }
+        val apk = layout.buildDirectory.file("outputs/apk/$variant/app-$variant.apk").get().asFile
+        check(apk.isFile) { "$variant APK was not produced: $apk" }
 
         val sdkPath = System.getenv("ANDROID_HOME")
             ?: rootProject.file("local.properties").takeIf(File::isFile)?.let { localPropertiesFile ->
@@ -189,6 +204,20 @@ tasks.register("verifyModuleMetadata") {
         check(applicationId == "io.github.nku100.impad") {
             "Unexpected application id: $applicationId"
         }
+
+        val debugProcess = ProcessBuilder(
+            apkanalyzer.absolutePath, "manifest", "debuggable", apk.absolutePath,
+        ).redirectErrorStream(true).start()
+        val debuggable = debugProcess.inputStream.bufferedReader().use { it.readText() }.trim()
+        check(debugProcess.waitFor() == 0) { "apkanalyzer failed to inspect debuggable: $debuggable" }
+        check(debuggable == (variant == "debug").toString()) {
+            "Unexpected debuggable value for $variant APK: $debuggable"
+        }
+        val apksigner = File(sdkPath, "build-tools/37.0.0/apksigner")
+        val signatureProcess = ProcessBuilder(apksigner.absolutePath, "verify", apk.absolutePath)
+            .redirectErrorStream(true).start()
+        val signatureResult = signatureProcess.inputStream.bufferedReader().use { it.readText() }
+        check(signatureProcess.waitFor() == 0) { "APK signature verification failed: $signatureResult" }
 
         val aapt = File(sdkPath, "build-tools/37.0.0/aapt")
         check(aapt.isFile) { "aapt was not found: $aapt" }
@@ -217,7 +246,8 @@ tasks.register("verifyModuleMetadata") {
             val scopePackages = archive.getInputStream(scope).bufferedReader().use { reader ->
                 reader.readLines().map(String::trim).filter(String::isNotEmpty)
             }
-            val expectedScopePackages = runtimeLocalAssetsRoot?.resolve("resources/META-INF/xposed/scope.list")
+            val expectedScopePackages = runtimeLocalAssetsRoot?.takeIf { variant == "debug" }
+                ?.resolve("resources/META-INF/xposed/scope.list")
                 ?.takeIf(File::isFile)
                 ?.readLines()
                 ?.map(String::trim)
@@ -253,6 +283,14 @@ tasks.register("verifyModuleMetadata") {
                     "Packaged profiles differ from $assetPath"
                 }
             }
+            if (variant == "release") {
+                check(archive.entries().asSequence().none { it.name.startsWith("assets/compatibility-local/") }) {
+                    "Release APK contains experimental compatibility targets"
+                }
+            }
         }
     }
 }
+
+registerModuleMetadataVerification("verifyModuleMetadata", "debug")
+registerModuleMetadataVerification("verifyReleaseModuleMetadata", "release")

@@ -8,6 +8,16 @@ import kotlin.test.assertSame
 
 class AppAdapterRegistryTest {
     @Test
+    fun defaultRegistryRoutesAllSupportedAppsInEveryBuildType() {
+        val registry = AppAdapterRegistry()
+        assertEquals("wechat", registry.find("com.tencent.mm", "com.tencent.mm")?.compatibilityPolicy?.appId)
+        assertEquals("qq", registry.find("com.tencent.mobileqq", "com.tencent.mobileqq:MSF")?.compatibilityPolicy?.appId)
+        assertEquals("wecom", registry.find("com.tencent.wework", "com.tencent.wework:push")?.compatibilityPolicy?.appId)
+        assertNull(registry.find("com.tencent.mobileqq", "com.tencent.mobileqq"))
+        assertNull(registry.find("com.tencent.mm", "com.tencent.mm:push"))
+    }
+
+    @Test
     fun routesOnlyTheRegisteredPackageAndAcceptedProcess() {
         val adapter = FakeAdapter("example.app")
         val registry = AppAdapterRegistry(listOf(adapter))

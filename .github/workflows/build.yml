@@ -2,8 +2,16 @@ name: Build module APK
 
 on:
   push:
+    branches: ['**']
+    tags: ['v*']
   pull_request:
   workflow_dispatch:
+    inputs:
+      build_type:
+        description: Module build type
+        type: choice
+        options: [release, debug]
+        default: release
 
 permissions:
   contents: read
@@ -35,17 +43,20 @@ jobs:
           sudo apt-get update
           sudo apt-get install --yes age
           python3 -m unittest discover -s scripts -p 'test_*.py'
-          ./gradlew --no-daemon :compat-core:test :compat-checker:test :app:testDebugUnitTest :app:verifyModuleMetadata
+          ./gradlew --no-daemon :compat-core:test :compat-checker:test :app:testDebugUnitTest :app:testReleaseUnitTest :app:verifyModuleMetadata
 
       - name: Restore official APK cache
         uses: actions/cache@v5
         with:
-          path: .cache/wechat-apks
-          key: impad-static-apks-${{ hashFiles('compatibility/wechat/targets.json') }}
-          restore-keys: impad-static-apks-
+          path: |
+            .cache/wechat-apks
+            .cache/qq-apks
+            .cache/wecom-apks
+          key: impad-static-apks-v2-${{ hashFiles('compatibility/*/targets.json') }}
+          restore-keys: impad-static-apks-v2-
 
       - name: Run registered-build static regression
-        run: python3 -m scripts.ci.static_regression
+        run: python3 -m scripts.ci.static_regression --all-apps
 
       - name: Upload static regression diagnostics
         if: always()
@@ -56,58 +67,34 @@ jobs:
           if-no-files-found: ignore
           retention-days: 14
 
-      - name: Build debug APK
-        if: github.ref == 'refs/heads/main' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
+      - name: Build APK with stable signing key
+        id: stable-build
+        if: >-
+          (github.event_name == 'push' || github.event_name == 'workflow_dispatch') &&
+          (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v'))
         shell: bash
         env:
           WECHATPAD_KEYSTORE_BASE64: ${{ secrets.WECHATPAD_KEYSTORE_BASE64 }}
           WECHATPAD_KEYSTORE_PASSWORD: ${{ secrets.WECHATPAD_KEYSTORE_PASSWORD }}
           WECHATPAD_KEY_ALIAS: ${{ secrets.WECHATPAD_KEY_ALIAS }}
           WECHATPAD_KEY_PASSWORD: ${{ secrets.WECHATPAD_KEY_PASSWORD }}
+          REQUESTED_BUILD_TYPE: ${{ inputs.build_type || 'auto' }}
         run: |
-          set -euo pipefail
-
-          configured_secrets=0
-          for value in \
-            "$WECHATPAD_KEYSTORE_BASE64" \
-            "$WECHATPAD_KEYSTORE_PASSWORD" \
-            "$WECHATPAD_KEY_ALIAS" \
-            "$WECHATPAD_KEY_PASSWORD"; do
-            if [[ -n "$value" ]]; then
-              configured_secrets=$((configured_secrets + 1))
-            fi
-          done
-
-          if [[ "$configured_secrets" -eq 0 ]]; then
-            echo '::warning::ImPad signing Secrets are not configured; using the runner debug key. Reinstall the module to update if the signer changes between runs.'
-            ./gradlew --no-daemon :app:assembleDebug
-            exit 0
-          fi
-
-          if [[ "$configured_secrets" -ne 4 ]]; then
-            echo 'Incomplete ImPad signing Secrets: configure all four Secrets or remove them all to use the runner debug key.' >&2
-            exit 1
-          fi
-
-          keystore_path="$RUNNER_TEMP/wechatpad-signing.jks"
-          printf '%s' "$WECHATPAD_KEYSTORE_BASE64" | base64 --decode > "$keystore_path"
-          test -s "$keystore_path"
-          chmod 600 "$keystore_path"
-
-          WECHATPAD_KEYSTORE="$keystore_path" \
-          WECHATPAD_KEYSTORE_PASSWORD="$WECHATPAD_KEYSTORE_PASSWORD" \
-          WECHATPAD_KEY_ALIAS="$WECHATPAD_KEY_ALIAS" \
-          WECHATPAD_KEY_PASSWORD="$WECHATPAD_KEY_PASSWORD" \
-            ./gradlew --no-daemon :app:assembleDebug
+          bash scripts/ci/build_module.sh "$REQUESTED_BUILD_TYPE"
 
       - name: Build debug APK with runner debug key
-        if: github.ref != 'refs/heads/main' || github.event_name == 'pull_request'
-        run: ./gradlew --no-daemon :app:assembleDebug
+        if: >-
+          github.event_name == 'pull_request' ||
+          ((github.event_name == 'push' || github.event_name == 'workflow_dispatch') && github.ref != 'refs/heads/main' &&
+          !startsWith(github.ref, 'refs/tags/v'))
+        env:
+          REQUESTED_BUILD_TYPE: ${{ inputs.build_type || 'debug' }}
+        run: bash scripts/ci/build_module.sh "$REQUESTED_BUILD_TYPE"
 
       - name: Upload module APK
         uses: actions/upload-artifact@v7
         with:
           name: impad-module-apk
-          path: app/build/outputs/apk/debug/app-debug.apk
+          path: work/module-artifact/
           if-no-files-found: error
           retention-days: 14

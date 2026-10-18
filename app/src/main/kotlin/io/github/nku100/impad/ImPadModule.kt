@@ -7,8 +7,6 @@ import io.github.libxposed.api.XposedModuleInterface.ModuleLoadedParam
 import io.github.libxposed.api.XposedModuleInterface.PackageLoadedParam
 import io.github.nku100.impad.compat.CompatibilityStatus
 import io.github.nku100.impad.compat.CompatibilityTarget
-import io.github.nku100.impad.apps.wechat.WeChatAppAdapter
-import io.github.nku100.impad.apps.wecom.WeComAppAdapter
 import io.github.nku100.impad.runtime.AppAdapter
 import io.github.nku100.impad.runtime.AppAdapterRegistry
 import io.github.nku100.impad.runtime.InstalledBuildIdentityReader
@@ -24,10 +22,7 @@ import kotlinx.serialization.json.Json
 class ImPadModule : XposedModule() {
     private var currentProcessName: String? = null
     private val handledPackages = mutableSetOf<String>()
-    private val adapters = AppAdapterRegistry(
-        listOfNotNull(WeChatAppAdapter(), WeComAppAdapter().takeIf { BuildConfig.DEBUG },
-            io.github.nku100.impad.apps.qq.QqAppAdapter().takeIf { BuildConfig.DEBUG }),
-    )
+    private val adapters = AppAdapterRegistry()
 
     override fun onModuleLoaded(param: ModuleLoadedParam) {
         super.onModuleLoaded(param)

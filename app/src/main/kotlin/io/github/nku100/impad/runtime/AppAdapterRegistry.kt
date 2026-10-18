@@ -1,6 +1,12 @@
 package io.github.nku100.impad.runtime
 
-class AppAdapterRegistry(adapters: List<AppAdapter>) {
+class AppAdapterRegistry(
+    adapters: List<AppAdapter> = listOf(
+        io.github.nku100.impad.apps.wechat.WeChatAppAdapter(),
+        io.github.nku100.impad.apps.qq.QqAppAdapter(),
+        io.github.nku100.impad.apps.wecom.WeComAppAdapter(),
+    ),
+) {
     private val byPackage = adapters.associateBy(AppAdapter::packageName)
 
     init {
