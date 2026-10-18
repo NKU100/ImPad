@@ -6,7 +6,7 @@ import sys
 from pathlib import Path
 
 
-def prepare_qq_java(tools, env):
+def prepare_analysis_java(tools, env):
     real_home = (Path(env['IMPAD_REAL_JAVA']).parent.parent if env.get('IMPAD_REAL_JAVA') else Path(env['JAVA_HOME'])).resolve()
     def link(source, target):
         if target.is_symlink() and target.resolve() == source.resolve():
@@ -52,6 +52,7 @@ def model_command(directory, env, command):
     env['JAVA_TOOL_OPTIONS'] = f'-Duser.home="{home}"'
     env['GRADLE_USER_HOME'] = str(gradle)
     env['TMPDIR'] = '/tmp'
+    env['IMPAD_JADX_HEAP'] = '2g'
     env['IMPAD_JADX_LOCK'] = str(workspace / 'work/analysis/jadx.lock')
     args = ['bwrap', '--die-with-parent', '--new-session', '--unshare-pid',
             '--proc', '/proc', '--dev', '/dev', '--tmpfs', '/tmp']
@@ -77,6 +78,9 @@ def model_command(directory, env, command):
     jadx = shutil.which('jadx', path=env['PATH'])
     if jadx:
         bind(Path(jadx).resolve().parent.parent)
+    dexsql = shutil.which('dexsql', path=env['PATH'])
+    if dexsql:
+        bind(Path(dexsql).resolve().parent.parent)
     state = json.loads((directory / 'state.json').read_text())
     if state.get('runtime'):
         tools = directory / 'device-tools'
@@ -88,8 +92,8 @@ def model_command(directory, env, command):
         builder = tools / 'bin/impad-build'
         shutil.copyfile(Path(__file__).with_name('host-build.sh'), builder)
         builder.chmod(0o755)
+        prepare_analysis_java(tools, env)
         if env.get('APP_ID') == 'qq':
-            prepare_qq_java(tools, env)
             smoke = tools / 'bin/impad-smoke'
             shutil.copyfile(Path(__file__).with_name('host-runtime.sh'), smoke)
             smoke.chmod(0o755)

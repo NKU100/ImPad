@@ -22,6 +22,17 @@ Missing or undecodable requests cannot pass. This verifies request identity
 only, not account authentication, server acceptance or phone coexistence.
 
 Use the managed jadx launcher, impad-build and fixed-device adb launcher.
+JADX analysis is serialized with a 2 GiB JVM heap budget and two default
+decompilation threads, shared across all applications. Do not bypass the limits.
+DexSQL CLI is also available. Use `dexsql -t 2 query --input <apk> --sql <sql>`
+to locate classes, method signatures, string references and callers, then use
+JADX to inspect the selected logic. `dexsql tables --input <apk>` lists the schema;
+`dexsql decode --input <apk> --method <descriptor>` emits Smali.
+For ambiguous multi-DEX methods, query methods.file_id for the definition
+(access_flags IS NOT NULL), then pass --file-id to decode. Save useful SQL,
+results and input APK SHA-256 under work/analysis/dexsql. Batch related queries
+with repeated --sql to avoid reloading the APK. Do not use --trusted-input or
+assume a previous process retains its dataset. Static results do not prove runtime behavior.
 After adding the profile, run impad-smoke for guarded static validation and
 the fixed request identity smoke on the trusted host. It accepts no arguments;
 do not run the observer through ordinary model-side adb shell calls.

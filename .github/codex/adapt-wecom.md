@@ -2,8 +2,15 @@ Adapt the unknown WeCom APK described in `work/analysis/candidate-report.json`.
 The candidate APK is `work/apks/candidate-<apkSha256>.apk`. Older registered
 WeCom APKs, when available, are staged as `<versionCode>-<apkSha256>.apk` in
 `work/apks`. Use the managed `jadx` launcher for targeted inspection; it
-serializes invocations and caps each WeCom JVM heap at 2 GiB. Do not run the
+serializes invocations and caps each JVM heap at 2 GiB. Do not run the
 underlying jadx binary directly or bypass its resource limits.
+
+DexSQL CLI is available for locating classes, method signatures, string references
+and callers before targeted JADX inspection. Use `dexsql -t 2 query --input <apk>
+--sql <sql>` and `dexsql tables --input <apk>` for the schema. Save useful SQL,
+results and input APK SHA-256 under work/analysis/dexsql. Batch related queries
+with repeated --sql; each new process reloads its inputs. Do not use --trusted-input.
+Static query results do not prove that the tablet login flow reaches a selected method.
 
 Inspect the candidate's actual device-type and Android-pad decision paths before
 registering Hook descriptors. Verify that each selected method is reached by the

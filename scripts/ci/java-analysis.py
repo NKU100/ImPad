@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Serialize JADX-backed Java analysis inside the QQ model sandbox."""
+"""Serialize JADX-backed Java analysis inside the model sandbox."""
 import fcntl
 import os
 import sys
@@ -12,7 +12,7 @@ def main():
         fcntl.flock(lock, fcntl.LOCK_EX)
         # Keep ownership across exec, until the analysis JVM exits.
         os.set_inheritable(lock, True)
-        arguments = ['-Xmx1536m'] + [value for value in arguments if not value.startswith(('-Xmx', '-XX:MaxHeapSize='))]
+        arguments = ['-Xmx' + os.environ['IMPAD_JADX_HEAP']] + [value for value in arguments if not value.startswith(('-Xmx', '-XX:MaxHeapSize='))]
     os.execv(os.environ['IMPAD_REAL_JAVA'], [os.environ['IMPAD_REAL_JAVA'], *arguments])
 
 

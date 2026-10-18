@@ -21,14 +21,14 @@ time.sleep(.2)
 p.unlink()
 ''')
             real.chmod(0o755)
-            env = dict(os.environ, IMPAD_REAL_JAVA=str(real), IMPAD_JAVA_LOCK=str(root / 'lock'))
+            env = dict(os.environ, IMPAD_REAL_JAVA=str(real), IMPAD_JAVA_LOCK=str(root / 'lock'), IMPAD_JADX_HEAP='2g')
             command = ['python3', str(Path('scripts/ci/java-analysis.py').resolve()), '-Xmx8g', '-XX:MaxHeapSize=8g', '-cp', 'jadx/lib/*', 'Inspect']
             children = [subprocess.Popen(command, cwd=root, env=env) for _ in range(2)]
             self.assertEqual([0, 0], [child.wait(timeout=10) for child in children])
             events = [json.loads(line) for line in (root/'events').read_text().splitlines()]
             self.assertEqual(2, len(events))
             for args in events:
-                self.assertEqual('-Xmx1536m', args[0])
+                self.assertEqual('-Xmx2g', args[0])
                 self.assertNotIn('-Xmx8g', args)
                 self.assertNotIn('-XX:MaxHeapSize=8g', args)
                 self.assertEqual(['-cp', 'jadx/lib/*', 'Inspect'], args[1:])
@@ -43,17 +43,17 @@ p.unlink()
             self.assertEqual(['-Xmx4g','-version'],json.loads(result.stdout))
 
     def test_shadow_java_home_routes_java_and_preserves_jdk(self):
-        from scripts.ci.codex_sandbox import prepare_qq_java
+        from scripts.ci.codex_sandbox import prepare_analysis_java
         with tempfile.TemporaryDirectory() as temporary:
             root=Path(temporary);jdk=root/'jdk';(jdk/'bin').mkdir(parents=True)
             for name in ('java','javac'):(jdk/'bin'/name).write_text(name)
             (jdk/'release').write_text('jdk release')
             env={'JAVA_HOME':str(jdk),'IMPAD_JADX_LOCK':str(root/'jadx.lock')}
-            prepare_qq_java(root/'tools',env)
+            prepare_analysis_java(root/'tools',env)
             shadow=Path(env['JAVA_HOME'])
             self.assertEqual(str(jdk.resolve()/'bin/java'),env['IMPAD_REAL_JAVA'])
             self.assertEqual('javac',(shadow/'bin/javac').read_text())
             self.assertEqual('jdk release',(shadow/'release').read_text())
             self.assertIn('Serialize JADX',(shadow/'bin/java').read_text())
             self.assertNotEqual(env['IMPAD_JADX_LOCK'],env['IMPAD_JAVA_LOCK'])
-            prepare_qq_java(root/'tools',env)
+            prepare_analysis_java(root/'tools',env)

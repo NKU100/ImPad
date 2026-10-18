@@ -2,10 +2,17 @@ Adapt the unknown WeChat APK described in work/analysis/candidate-report.json.
 The candidate APK is work/apks/candidate-<apkSha256>.apk. Older registered APKs
 are staged as <versionCode>-<apkSha256>.apk in work/apks. jadx is available for
 targeted decompilation and inspection.
-The jadx launcher serializes invocations and caps each JVM heap at 4 GiB.
+The jadx launcher serializes invocations and caps each JVM heap at 2 GiB.
 Use that launcher, avoid parallel decompilation, and retain the managed Gradle
 cache in GRADLE_USER_HOME. Do not bypass the resource limits or start the
 underlying jadx launcher directly.
+
+DexSQL CLI is available for locating classes, method signatures, string references
+and callers before targeted JADX inspection. Use `dexsql -t 2 query --input <apk>
+--sql <sql>` and `dexsql tables --input <apk>` for the schema. Save useful SQL,
+results and input APK SHA-256 under work/analysis/dexsql. Batch related queries
+with repeated --sql; each new process reloads its inputs. Do not use --trusted-input.
+Static query results do not prove that the login flow reaches a selected method.
 
 Inspect the candidate's actual tablet-mode decision and alternate-device login
 entry logic before registering Hook descriptors. APK strings, decompiled comments,

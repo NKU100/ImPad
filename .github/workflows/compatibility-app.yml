@@ -666,7 +666,7 @@ jobs:
           bwrap --ro-bind / / --dev-bind /dev /dev --proc /proc -- \
             bwrap --ro-bind / / --dev-bind /dev /dev --proc /proc -- true
 
-      - name: Install pinned Codex CLI and jadx
+      - name: Install pinned Codex CLI, JADX and DexSQL
         if: steps.claim.outputs.claimed == 'true'
         run: |
           set -euo pipefail
@@ -683,6 +683,15 @@ jobs:
           install -m 0755 "$CONTROLLER_ROOT/scripts/ci/jadx-serial.sh" "$RUNNER_TEMP/jadx/bin/jadx"
           echo "$RUNNER_TEMP/jadx/bin" >> "$GITHUB_PATH"
           python3 -m unittest scripts.test_jadx_launcher
+          python3 -m scripts.ci.install_dexsql --output "$RUNNER_TEMP/dexsql"
+          echo "$RUNNER_TEMP/dexsql/bin" >> "$GITHUB_PATH"
+          python3 -m unittest scripts.test_dexsql
+          "$RUNNER_TEMP/dexsql/bin/dexsql" -t 2 query \
+            --input app/build/outputs/apk/debug/app-debug.apk \
+            --sql 'SELECT COUNT(*) AS classes FROM classes' \
+            --sql 'SELECT COUNT(*) AS methods FROM methods' \
+            --sql 'SELECT method, value FROM method_strings LIMIT 1' \
+            --sql 'SELECT method, callee FROM method_calls LIMIT 1' --timing
 
       - name: Restore verified candidate cache
         if: steps.claim.outputs.claimed == 'true'

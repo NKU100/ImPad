@@ -109,7 +109,8 @@ age --decrypt --identity ~/.config/impad/ci-trace.agekey \
 正常结束仍保留完整 `session.jsonl.age`。异常结束时按分段文件名排序分别解密即可恢复已上传的前缀，未形成完整分段或尚未上传的尾部可能丢失。
 SIGTERM/SIGINT 会触发控制器诊断和加密收尾；SIGKILL、runner 丢失或平台终止整个 action 时，只能依靠此前已上传的快照，不保证最后一次上传成功。
 
-JADX 启动器使用共享文件锁串行执行反编译，JVM 堆上限为 4 GiB、反编译线程数默认为 2，避免多个反编译进程按整机内存比例同时分配堆。
+JADX 启动器使用共享文件锁串行执行反编译，三个应用统一使用 2 GiB JVM 堆预算、反编译线程数默认为 2；直接调用 JADX Java API 也经过串行包装器并使用同一预算，避免多个反编译进程按整机内存比例同时分配堆。
+静态分析另提供 DexSQL CLI `v0.1.1`，安装器按宿主系统和 CPU 选择官方二进制，并校验固定 SHA-256；同版本 `LICENSE` 和 `LICENSE-AUXILIARY` 一并校验、保留。安装目录只读挂载进模型沙箱，通过 `PATH` 调用，无需 MCP 配置。模型先以 `dexsql -t 2 query --input <apk> --sql <sql>` 筛选类、方法、字符串引用和调用关系，再用 JADX 阅读逻辑；关键 SQL、输出和输入 APK 哈希保存在 `work/analysis/dexsql/`。重复 `--sql` 可在同一次加载后查询；每个新 CLI 进程重新加载输入。线程数 2 是使用约定，不是进程内存上限；尚未测量 ARM64 CI 的内存收益。静态查询不能替代运行时自测和独立验收。
 实时快照同时读取实际进程的 cgroup 内存计数，并尽力采集本轮内核日志和 runner 服务日志；服务日志可能包含凭据，只上传 `runner-logs.json.age` 密文，不上传原始内容。日志不可读时明确记录 `unavailable`。
 
 适配 job 在 Ubuntu 24.04 ARM64 上先启动单个临时 ReDroid 14 容器（4 KB 页），用共用流程验证无模块时没有平板入口，并准备 Magisk、官方 LSPosed 和模块作用域。准备失败时不创建模型 Goal。

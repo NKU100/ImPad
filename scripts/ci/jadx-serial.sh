@@ -2,7 +2,6 @@
 set -euo pipefail
 : "${IMPAD_JADX_LOCK:?JADX lock must be configured by the trusted controller}"
 # A shared lock covers commands launched concurrently by separate model tools.
-heap=4g
-if [[ "${APP_ID:-wechat}" == wecom ]]; then heap=2g; fi
-exec flock "$IMPAD_JADX_LOCK" env JAVA_OPTS="-Xms256m -Xmx$heap" JADX_OPTS='' \
+: "${IMPAD_JADX_HEAP:?JADX heap budget must be configured by the trusted controller}"
+exec flock "$IMPAD_JADX_LOCK" env JAVA_OPTS="-Xms256m -Xmx${IMPAD_JADX_HEAP}" JADX_OPTS='' \
   "$(dirname "$0")/jadx.real" -j 2 "$@"
