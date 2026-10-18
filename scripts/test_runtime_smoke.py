@@ -18,6 +18,22 @@ spec.loader.exec_module(smoke)
 
 
 class UiEvidenceTest(unittest.TestCase):
+    def test_wechat_launch_resolves_activity_without_monkey(self):
+        from scripts.ci.apps.wechat import runtime_policy as wechat_ui
+        xml = '<hierarchy><node package="com.tencent.mm"/></hierarchy>'
+        with patch.object(smoke, 'APP_PACKAGE', 'com.tencent.mm'), \
+             patch.object(smoke, 'UI_STRATEGY', wechat_ui), \
+             patch.object(smoke, 'enable_page_size_backcompat'), \
+             patch.object(smoke, 'snapshot', return_value=('MobileInputUI', xml)), \
+             patch.object(smoke.time, 'sleep'), patch.object(smoke, 'adb',
+                 return_value=subprocess.CompletedProcess([], 0, b'com.tencent.mm/.ui.LauncherUI\n', b'')) as adb:
+            with patch.dict(wechat_ui.__dict__):
+                wechat_ui.__dict__.pop('launcher_component', None)
+                smoke.mobile_input('baseline-mobile')
+            self.assertIn(('shell', 'am', 'start', '-n', 'com.tencent.mm/.ui.LauncherUI'),
+                          [call.args for call in adb.call_args_list])
+            self.assertFalse(any('monkey' in call.args for call in adb.call_args_list))
+
     def test_ocr_label_ignores_adjacent_icon_noise_but_rejects_duplicate_labels(self):
         header = 'level\tpage_num\tblock_num\tpar_num\tline_num\tleft\ttop\twidth\theight\tconf\ttext\n'
         rows = '5\t1\t1\t1\t1\t158\t670\t32\t15\t36\t2s\n5\t1\t1\t1\t1\t230\t654\t55\t35\t82\tI\'m\n5\t1\t1\t1\t1\t302\t654\t72\t35\t94\tPad\n'
@@ -189,7 +205,7 @@ class UiEvidenceTest(unittest.TestCase):
         ui = '<hierarchy><node package="com.tencent.mm" text="Log in on Tablet Only" bounds="[0,0][100,100]" /></hierarchy>'
         mobile = '<hierarchy><node package="com.tencent.mm" text="Mobile Number" /></hierarchy>'
         observations = [('LoginSelectUI', ui), ('MobileInputUI', mobile), ('MobileInputUI', mobile), ('MobileInputUI', mobile)]
-        with patch.object(smoke, 'enable_page_size_backcompat'), patch.object(smoke, 'adb'), patch.object(smoke, 'snapshot', side_effect=observations), patch.object(smoke, 'tap') as click, patch.object(smoke.time, 'sleep'):
+        with patch.object(smoke, 'enable_page_size_backcompat'), patch.object(smoke, 'adb'), patch.object(smoke, 'launcher_component', return_value='com.tencent.mm/.ui.LauncherUI'), patch.object(smoke, 'snapshot', side_effect=observations), patch.object(smoke, 'tap') as click, patch.object(smoke.time, 'sleep'):
             self.assertEqual(smoke.mobile_input('module'), mobile)
             self.assertEqual(click.call_count, 1)
 

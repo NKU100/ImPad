@@ -176,14 +176,23 @@ def enable_page_size_backcompat():
     su(PAGE_SIZE_BACKCOMPAT_COMMAND)
 
 
+def launcher_component():
+    component = getattr(UI_STRATEGY, 'launcher_component', None)
+    if component:
+        return component
+    output = adb('shell', 'cmd', 'package', 'resolve-activity', '--brief',
+                 '-a', 'android.intent.action.MAIN', '-c',
+                 'android.intent.category.LAUNCHER', APP_PACKAGE).stdout.decode().splitlines()
+    components = [line.strip() for line in output if line.strip().startswith(APP_PACKAGE + '/')]
+    if len(components) != 1:
+        raise RuntimeError('App launcher component is missing or ambiguous')
+    return components[0]
+
+
 def mobile_input(label):
     enable_page_size_backcompat()
     adb('shell', 'am', 'force-stop', APP_PACKAGE)
-    launcher_component = getattr(UI_STRATEGY, 'launcher_component', None)
-    if launcher_component:
-        adb('shell', 'am', 'start', '-n', launcher_component)
-    else:
-        adb('shell', 'monkey', '-p', APP_PACKAGE, '-c', 'android.intent.category.LAUNCHER', '1')
+    adb('shell', 'am', 'start', '-n', launcher_component())
     ready = 0
     for attempt in range(30):
         activity, ui = snapshot(label + '-current')

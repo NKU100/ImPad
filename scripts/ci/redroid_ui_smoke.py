@@ -28,13 +28,6 @@ def probe(app, root, inputs, module_hash):
               'input': inputs[app], 'moduleApkSha256': module_hash, 'noAccountAuthentication': True}
     try:
         report['target'] = query_target()
-        launcher = s.adb('shell', 'cmd', 'package', 'resolve-activity', '--brief',
-                         '-a', 'android.intent.action.MAIN', '-c',
-                         'android.intent.category.LAUNCHER', s.APP_PACKAGE).stdout.decode().splitlines()
-        components = [line.strip() for line in launcher if line.strip().startswith(s.APP_PACKAGE + '/')]
-        if len(components) != 1:
-            raise RuntimeError('App launcher component is missing or ambiguous')
-        s.UI_STRATEGY.launcher_component = components[0]
         for package in ('com.tencent.mobileqq', 'com.tencent.mm', 'com.tencent.wework'):
             s.adb('shell', 'am', 'force-stop', package)
         if runtime_probe.installed_hash(s, s.APP_PACKAGE) != inputs[app]['identity']['apkSha256']:
