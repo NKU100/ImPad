@@ -106,5 +106,3 @@ def probe(app, root, inputs, module_hash):
         (s.EVIDENCE / 'report.json').write_text(json.dumps(report, indent=2) + '\n')
     print(json.dumps(report, sort_keys=True), flush=True)
     return report
-
-
