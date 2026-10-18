@@ -25,7 +25,7 @@ requires a non-empty `stringAnchor`. Never invent string anchors. The guarded
 candidate checker must confirm each exact descriptor against the candidate APK.
 
 When `work/analysis/runtime-device.json` exists, the disposable rooted ReDroid is
-ready with the candidate APK and official LSPosed. Use `adb wechat-launch` after
+ready with the candidate APK and official LSPosed. Use `adb app-launch` after
 install, clear, or reboot to restore page-size compatibility and launch the
 candidate. Run `impad-build` after profile or source changes to request the
 guarded host checks and APK build. Read its output under
@@ -36,7 +36,7 @@ Use the fixed-device adb launcher to inspect UI, activity state, logcat, and
 LSPosed logs. Save screenshots and UI evidence under `work/analysis`. Do not
 scan QR codes or sign in to an account. The controller reinstalls the exact APK
 and module before independently checking the tablet login entry, installed
-hooks, and a stable QR page after each completed turn. A unique static match
+hooks, and a stable QR page when you mark the Goal complete. A unique static match
 does not prove that the Hook controls the requested behavior. Trace the selected
 decision through its callers, early returns, and caches. A helper method is
 useful only if the actual login path reaches it and uses its result. If module
@@ -44,10 +44,25 @@ loading or Hook installation is observed without the tablet entry, reassess the
 Hook selection. Check fresh logcat and LSPosed files; an empty module log alone
 is inconclusive.
 
-Allowed changes: `compatibility/wecom/targets.json`, app and compat-core source,
-and their test directories. Do not modify the checker executable, workflow,
-scripts, build configuration, credentials, or historical verification records.
-Leave all changes uncommitted.
+Allowed changes: compatibility/wecom/targets.json,
+app/src/main/kotlin/io/github/nku100/impad/apps/wecom/,
+app/src/test/kotlin/io/github/nku100/impad/apps/wecom/,
+compat-core/src/test/kotlin/, and the shared files listed below.
+Keep existing tests unchanged; only add new test files.
+
+Shared files allowed by the controller are:
+
+- app/src/main/kotlin/io/github/nku100/impad/ImPadModule.kt
+- app/src/main/kotlin/io/github/nku100/impad/runtime/AppAdapter.kt
+- app/src/main/kotlin/io/github/nku100/impad/runtime/AppAdapterRegistry.kt
+- app/src/main/kotlin/io/github/nku100/impad/runtime/HookInstaller.kt
+- app/src/main/kotlin/io/github/nku100/impad/runtime/RuntimeCompatibilityResolver.kt
+- compat-core/src/main/kotlin/io/github/nku100/impad/compat/CandidatePipeline.kt
+- compat-core/src/main/kotlin/io/github/nku100/impad/compat/CompatibilityResolver.kt
+
+Do not modify other applications, other source files, the checker executable,
+controller scripts, workflows, build configuration, credentials, or historical
+verification records. Leave changes uncommitted.
 
 Use the repository history, documentation, prior adaptations, and candidate
 analysis you need. Confirm Hook behavior against the exact candidate and runtime
@@ -60,3 +75,13 @@ runtime validation. If a check fails, use its evidence to continue in the same
 task. Do not claim success based on a final response. If the Hook logic cannot
 be established safely, leave the target manifest unchanged and explain what
 evidence is missing.
+
+Before marking the Goal complete, run your own checks using impad-build and
+inspect installed hooks and actual runtime behavior with the fixed-device adb.
+Static success alone is insufficient. The Goal covers the exact candidate's
+required runtime behavior, not merely a build or profile registration.
+Ordinary turn completion saves a checkpoint; it does not automatically run
+full acceptance. Recoverable acceptance failures must be fixed in the same Goal.
+After successful controller acceptance and draft PR publication, a separate CI
+job validates the artifacts in a fresh ReDroid. A rejection there is recorded
+for a subsequent adaptation run; it does not restart this model loop immediately.

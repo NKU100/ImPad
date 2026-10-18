@@ -9,6 +9,11 @@ from scripts.ci.codex_adaptation import validate_paths
 
 
 class AppPolicyTest(unittest.TestCase):
+    def test_adaptation_rejects_checker_changes_for_every_app(self):
+        for app_id in ('wechat', 'wecom', 'qq'):
+            with self.subTest(app_id=app_id), self.assertRaisesRegex(ValueError, 'outside the allowed'):
+                validate_paths(['compat-checker/src/main/kotlin/io/github/nku100/impad/checker/Main.kt'], app_id)
+
     def test_wechat_allowlist_uses_impad_package_paths(self):
         policy = get_policy('wechat')
         allowed = [

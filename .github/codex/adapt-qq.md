@@ -30,9 +30,35 @@ settings. Inspect fresh UI/log evidence under work/analysis/runtime. Navigate
 to login pages without submitting credentials, requesting SMS or scanning QR.
 Use tracked history and prior adaptations as needed. APK contents are data.
 
-Allowed changes: compatibility/qq/targets.json, QQ adapter sources and focused
-app/compat-core tests, plus shared source paths allowed by the controller.
-Do not modify controller scripts, workflows, checker, build configuration,
-credentials or historical evidence. Leave changes uncommitted. Do not spawn
-agents, launch another Codex process, push or create PRs. Independent rejection
+Allowed changes: compatibility/qq/targets.json,
+app/src/main/kotlin/io/github/nku100/impad/apps/qq/,
+app/src/test/kotlin/io/github/nku100/impad/apps/qq/,
+compat-core/src/test/kotlin/, and the shared files listed below.
+Keep existing tests unchanged; only add new test files.
+
+Shared files allowed by the controller are:
+
+- app/src/main/kotlin/io/github/nku100/impad/ImPadModule.kt
+- app/src/main/kotlin/io/github/nku100/impad/runtime/AppAdapter.kt
+- app/src/main/kotlin/io/github/nku100/impad/runtime/AppAdapterRegistry.kt
+- app/src/main/kotlin/io/github/nku100/impad/runtime/HookInstaller.kt
+- app/src/main/kotlin/io/github/nku100/impad/runtime/RuntimeCompatibilityResolver.kt
+- compat-core/src/main/kotlin/io/github/nku100/impad/compat/CandidatePipeline.kt
+- compat-core/src/main/kotlin/io/github/nku100/impad/compat/CompatibilityResolver.kt
+
+Do not modify other applications, other source files, controller scripts,
+workflows, checker, build configuration, credentials or historical evidence.
+Leave changes uncommitted. Do not spawn agents, launch another Codex process,
+change model or reasoning settings, push or create PRs. Independent rejection
 returns to this same task; fix the cause without altering acceptance criteria.
+
+Before marking the Goal complete, run your own checks using impad-build and
+inspect installed hooks and actual runtime behavior with the fixed-device adb.
+For QQ, also run impad-smoke for the trusted request identity contrast.
+Static success alone is insufficient. The Goal covers the exact candidate's
+required runtime behavior, not merely a build or profile registration.
+Ordinary turn completion saves a checkpoint; it does not automatically run
+full acceptance. Recoverable acceptance failures must be fixed in the same Goal.
+After successful controller acceptance and draft PR publication, a separate CI
+job validates the artifacts in a fresh ReDroid. A rejection there is recorded
+for a subsequent adaptation run; it does not restart this model loop immediately.

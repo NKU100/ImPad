@@ -37,7 +37,6 @@ POLICY_SHARED_PATHS = (
     "app/src/main/kotlin/io/github/nku100/impad/runtime/RuntimeCompatibilityResolver.kt",
     "compat-core/src/main/kotlin/io/github/nku100/impad/compat/CandidatePipeline.kt",
     "compat-core/src/main/kotlin/io/github/nku100/impad/compat/CompatibilityResolver.kt",
-    "compat-checker/src/main/kotlin/io/github/nku100/impad/checker/Main.kt",
 )
 
 
@@ -60,7 +59,6 @@ POLICIES = {
             "app/src/main/kotlin/io/github/nku100/impad/runtime/RuntimeCompatibilityResolver.kt",
             "compat-core/src/main/kotlin/io/github/nku100/impad/compat/CandidatePipeline.kt",
             "compat-core/src/main/kotlin/io/github/nku100/impad/compat/CompatibilityResolver.kt",
-            "compat-checker/src/main/kotlin/io/github/nku100/impad/checker/Main.kt",
         ),
         supported_abis=("arm64-v8a",),
         signer_sha256="0fe4ff85c215918396dadc7cd8ce6963339af33d37751a56e54c7206b63a3c7c",
@@ -87,7 +85,6 @@ POLICIES = {
             "app/src/main/kotlin/io/github/nku100/impad/runtime/RuntimeCompatibilityResolver.kt",
             "compat-core/src/main/kotlin/io/github/nku100/impad/compat/CandidatePipeline.kt",
             "compat-core/src/main/kotlin/io/github/nku100/impad/compat/CompatibilityResolver.kt",
-            "compat-checker/src/main/kotlin/io/github/nku100/impad/checker/Main.kt",
         ),
         supported_abis=("arm64-v8a",),
         signer_sha256="66896ae0aae48b9e963a3e034fa2ca813ca2f661f53619a92263a8a5c2e3f388",
