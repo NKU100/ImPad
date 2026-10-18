@@ -131,4 +131,4 @@ JADX 启动器使用共享文件锁串行执行反编译，三个应用统一使
 
 原生状态仅保存 `sessions`、`archived_sessions` 和原生 `state_*`、`goals_*`、`thread_history_*` SQLite 数据库，排除认证、配置及符号链接，用 `CODEX_CHECKPOINT_RECIPIENT` 公钥加密，与现有会话日志的 `CODEX_TRACE_RECIPIENT` 分开。部署前需要设置匹配的 `CODEX_CHECKPOINT_IDENTITY` Secret 和 `CODEX_CHECKPOINT_RECIPIENT` Actions 变量；流水线会验证二者匹配。私钥仅由可信控制器使用，不传给模型。`CODEX_AUTH_JSON` 每轮另行注入并清理。Codex CLI 固定为已通过线程恢复测试的 `0.162.0-alpha.17.2`。
 
-不设置 token 预算。每次显式执行一个模型 turn，由可信控制器独立验收；Goal 保持 paused，避免平台自动继续与控制器抢跑。未完成的代码和线程状态留给后续调度，运行仍受 GitHub job 超时约束。结果追加为 Issue 评论；独立托管运行时验收通过后自动关闭 Issue，失败则保持打开。临时 `codex-thread-resume-smoke.yml` 继续保留。
+不设置 token 预算。每次显式执行一个模型 turn，由可信控制器独立验收；Goal 保持 paused，避免平台自动继续与控制器抢跑。未完成的代码和线程状态留给后续调度，运行仍受 GitHub job 超时约束。结果追加为 Issue 评论；独立托管运行时验收通过后自动关闭 Issue，失败则保持打开。

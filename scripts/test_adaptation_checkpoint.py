@@ -38,15 +38,15 @@ class AdaptationCheckpointTest(unittest.TestCase):
         self.assertIn('Match the latest APK to the unfinished adaptation', shared)
         self.assertIn('steps.candidate-checkpoint.outputs.same_candidate', shared)
 
-    def test_artifact_runtime_credentials_and_sandbox_preflight_are_available_to_smoke(self):
+    def test_checkpoint_artifact_credentials_are_exposed_to_production_controller(self):
         root = Path(__file__).resolve().parents[1]
-        smoke = (root/'.github/workflows/codex-thread-resume-smoke.yml').read_text()
-        shared = (root/'.github/workflows/compatibility-app.yml').read_text()
-        for workflow in (smoke, shared):
-            self.assertIn('ACTIONS_RUNTIME_TOKEN', workflow)
-            self.assertIn('core.setSecret', workflow)
-            self.assertIn('ACTIONS_RESULTS_URL', workflow)
-        self.assertEqual(4, smoke.count('apparmor_restrict_unprivileged_userns'))
+        shared = (root / '.github/workflows/compatibility-app.yml').read_text()
+        credential_step = shared.split('      - name: Expose masked artifact transport credentials to trusted controller', 1)[1].split('      - name:', 1)[0]
+        self.assertIn('ACTIONS_RUNTIME_TOKEN', credential_step)
+        self.assertIn('ACTIONS_RESULTS_URL', credential_step)
+        self.assertIn('ACTIONS_RUNTIME_URL', credential_step)
+        self.assertIn('core.setSecret', credential_step)
+        self.assertIn('core.exportVariable', credential_step)
 
     def test_owner_feedback_resume_skips_discovery_based_window_selection(self):
         shared = (Path(__file__).resolve().parents[1]/'.github/workflows/compatibility-app.yml').read_text()
