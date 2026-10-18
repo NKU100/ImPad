@@ -10,7 +10,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from scripts.ci.app_policy import get_policy
-from scripts.ci.codex_adaptation import candidate_key, validate_paths
+from scripts.ci.codex_adaptation import candidate_key, validate_paths, validate_existing_tests, unverified_report, patch_tree
 from scripts.ci.discover_latest_wechat import append_github_output
 
 
@@ -30,7 +30,11 @@ def git(worktree, *args, env=None):
 
 
 def _permitted(path, policy):
-    return path == policy.targets_path or path in policy.shared_source_paths or path.startswith(policy.app_source_prefix)
+    try:
+        validate_paths([path], policy.app_id)
+        return True
+    except ValueError:
+        return False
 
 
 def _read_json(path, fallback):
@@ -49,6 +53,7 @@ def capture_checkpoint(directory, issue_context=None):
         raise ValueError('Checkpoint appId does not match the candidate')
     worktree = Path(state['worktree'])
     base = state.get('agent_base', state['base'])
+    validate_existing_tests(worktree, state.get('existing_tests', {}))
 
     original_index = worktree / '.git/index'
     index_copy = directory / 'checkpoint.index'
@@ -76,17 +81,27 @@ def capture_checkpoint(directory, issue_context=None):
         index_copy.unlink(missing_ok=True)
 
     validated_report = _read_json(directory / 'candidate-report.json', {})
+    patch_digest = sha256(patch_path)
+    validation_patch = directory / 'adaptation.patch'
     stage = ('static-verified-pending-runtime'
              if validated_report.get('status') == 'STATIC_VERIFIED_PENDING_RUNTIME'
-             and (directory / 'adaptation.patch').is_file()
+             and validated_report.get('identity') == report['identity']
+             and validated_report.get('validatedBaseCommit') == base
+             and validated_report.get('validatedPatchSha256') == patch_digest
+             and validation_patch.is_file() and sha256(validation_patch) == patch_digest
+             and not excluded
              else 'adaptation-in-progress')
+    if stage == 'adaptation-in-progress':
+        validated_report = unverified_report(report)
+    (directory / 'candidate-report.json').write_text(json.dumps(validated_report, indent=2) + '\n')
     diagnostics = _read_json(directory / 'goal-diagnostics.json', None)
     runtime_report = _read_json(directory / 'runtime-report.json', None)
     resume = issue_context if issue_context is not None else _read_json(directory / 'resume-context.json', {})
     prior_handoff = resume.get('handoff', {}) if isinstance(resume, dict) else {}
     issue_resume = resume.get('issue', resume) if isinstance(resume, dict) else {}
     issue_fields = ('status', 'checkpointRunId', 'checkpointArtifact', 'existingPr', 'existingPrHead',
-                    'previousRun', 'previousBlockers', 'ownerComments', 'consumedCommentId')
+                    'previousRun', 'previousBlockers', 'ownerComments', 'consumedCommentId',
+                    'publicationCheckpoints')
     from scripts.ci.adaptation_summary import read_summary
     handoff = {
         'summary': read_summary(worktree / 'work/analysis/adaptation-summary.json'),
@@ -104,11 +119,14 @@ def capture_checkpoint(directory, issue_context=None):
         'identity': report['identity'],
         'baseCommit': state['base'],
         'stage': stage,
-        'patchSha256': sha256(patch_path),
+        'patchSha256': patch_digest,
         'handoffSha256': sha256(handoff_path),
         'excludedPaths': excluded,
         'updatedAt': datetime.now(timezone.utc).isoformat(),
     }
+    if stage == 'static-verified-pending-runtime':
+        manifest['validatedPatchSha256'] = patch_digest
+        manifest['validatedBaseCommit'] = base
     native_path = directory / 'native-session.tar.age'
     native_thread = _read_json(directory / 'native-thread.json', {})
     if native_path.is_file() and native_thread.get('threadId'):
@@ -160,6 +178,7 @@ def restore_checkpoint(directory, checkpoint_directory, issue_context=None):
     validate_paths(tracked + untracked, policy.app_id)
     if any((worktree / path).is_symlink() for path in tracked + untracked):
         raise ValueError('Checkpoint must not restore symbolic links')
+    validate_existing_tests(worktree, state.get('existing_tests', {}))
 
     if handoff.get('summary'):
         summary_path = worktree / 'work/analysis/adaptation-summary.json'
@@ -167,6 +186,9 @@ def restore_checkpoint(directory, checkpoint_directory, issue_context=None):
         summary_path.write_text(json.dumps(handoff['summary']) + '\n')
     issue_status = context.get('status')
     needs_model = not (manifest.get('stage') == 'static-verified-pending-runtime'
+                       and manifest.get('validatedPatchSha256') == manifest['patchSha256']
+                       and manifest.get('validatedBaseCommit') == state.get('agent_base', state['base'])
+                       and manifest.get('baseCommit') == state['base']
                        and issue_status != 'RUNTIME_REJECTED' and not context.get('ownerComments'))
     restored = {
         'status': context.get('status', 'ADAPTATION_RUNNING'),
@@ -181,6 +203,18 @@ def restore_checkpoint(directory, checkpoint_directory, issue_context=None):
         'handoff': handoff,
         'baseCommit': manifest.get('baseCommit'),
     }
+    publication_checkpoints = list(handoff.get('issue', {}).get('publicationCheckpoints', []))
+    if manifest.get('stage') == 'static-verified-pending-runtime' and not manifest.get('excludedPaths'):
+        checkpoint = {
+            'base': manifest['baseCommit'],
+            'tree': patch_tree(worktree, manifest['baseCommit'], patch_path),
+        }
+        if context.get('checkpointRunId'):
+            checkpoint['runId'] = context['checkpointRunId']
+        if checkpoint not in publication_checkpoints:
+            publication_checkpoints.append(checkpoint)
+    if publication_checkpoints:
+        restored['publicationCheckpoints'] = publication_checkpoints
     if manifest.get('nativeThreadId'):
         from scripts.ci.codex_session_checkpoint import restore_session
         session = checkpoint_directory / 'native-session.tar.age'

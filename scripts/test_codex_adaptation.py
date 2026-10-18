@@ -72,6 +72,8 @@ class CodexAdaptationTest(unittest.TestCase):
             self.assertEqual('', git(checkout, 'remote'))
             supplied = json.loads((checkout / 'work/analysis/candidate-report.json').read_text())
             self.assertEqual(report, supplied)
+            self.assertTrue((task / 'candidate-report.json').is_file())
+            self.assertEqual(report, json.loads((task / 'candidate-report.json').read_text()))
             state = json.loads((task / 'state.json').read_text())
             self.assertEqual(git(repository, 'rev-parse', 'HEAD'), state['base'])
             self.assertEqual(git(checkout, 'rev-parse', 'HEAD'), state['agent_base'])
@@ -171,6 +173,22 @@ class CodexAdaptationTest(unittest.TestCase):
                 validate(task)
 
             checker_run.assert_called_once()
+            from scripts.ci.adaptation_checkpoint import capture_checkpoint
+            validated = json.loads((task / 'candidate-report.json').read_text())
+            self.assertEqual(base, validated['validatedBaseCommit'])
+            self.assertEqual(sha256(task / 'adaptation.patch'), validated['validatedPatchSha256'])
+            checkpoint = capture_checkpoint(task)
+            self.assertEqual('static-verified-pending-runtime', checkpoint['stage'])
+            self.assertEqual(validated['validatedPatchSha256'], checkpoint['patchSha256'])
+
+            with patch('scripts.ci.codex_adaptation.check_apk', side_effect=check_with_policy), \
+                    patch('scripts.ci.codex_adaptation.run_bounded', side_effect=RuntimeError('build failed')):
+                with self.assertRaisesRegex(RuntimeError, 'build failed'):
+                    validate(task)
+            failed = json.loads((task / 'candidate-report.json').read_text())
+            self.assertEqual('NEEDS_HOOK_REVIEW', failed['status'])
+            self.assertNotIn('validatedPatchSha256', failed)
+            self.assertEqual('adaptation-in-progress', capture_checkpoint(task)['stage'])
 
     def test_unknown_verified_candidate_can_run_even_when_static_inference_passed(self):
         self.assertTrue(eligible_candidate(self.report, self.targets))

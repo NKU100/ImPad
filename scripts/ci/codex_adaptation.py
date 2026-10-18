@@ -7,6 +7,7 @@ import os
 import re
 import signal
 import subprocess
+import tempfile
 from pathlib import Path
 
 from scripts.ci.app_policy import get_policy, policy_for_report, validate_targets
@@ -161,6 +162,17 @@ def git(cwd, *arguments):
     return subprocess.check_output(["git", *arguments], cwd=cwd).decode().strip()
 
 
+def patch_tree(checkout, base, patch_path):
+    """Reconstruct a checkpoint tree without changing the checkout or its index."""
+    with tempfile.TemporaryDirectory() as temporary:
+        env = dict(os.environ, GIT_INDEX_FILE=str(Path(temporary) / 'index'))
+        subprocess.run(['git', 'read-tree', base], cwd=checkout, env=env, check=True)
+        if Path(patch_path).stat().st_size:
+            subprocess.run(['git', 'apply', '--cached', str(Path(patch_path).resolve())],
+                           cwd=checkout, env=env, check=True, stderr=subprocess.PIPE)
+        return subprocess.check_output(['git', 'write-tree'], cwd=checkout, env=env).decode().strip()
+
+
 def prepare(repository, report_path, candidate_apk, directory):
     report = json.loads(report_path.read_text())
     policy = policy_for_report(report)
@@ -203,6 +215,7 @@ def prepare(repository, report_path, candidate_apk, directory):
              "worktree": str(worktree), "base": base, "agent_base": agent_base, "before": before, "report": report,
              "apks": apks, "existing_tests": existing_tests}
     (directory / "state.json").write_text(json.dumps(state, indent=2))
+    (directory / "candidate-report.json").write_text(json.dumps(report, indent=2) + '\n')
 
 
 def run_model(directory, prompt_path):
@@ -210,8 +223,16 @@ def run_model(directory, prompt_path):
     run_model_goal(directory, prompt_path)
 
 
+def unverified_report(report):
+    result = {key: value for key, value in report.items()
+              if key not in {'validatedPatchSha256', 'validatedBaseCommit'}}
+    result['status'] = 'NEEDS_HOOK_REVIEW'
+    return result
+
+
 def validate(directory):
     state = json.loads((directory / "state.json").read_text())
+    (directory / "candidate-report.json").write_text(json.dumps(unverified_report(state['report']), indent=2) + '\n')
     policy = get_policy(state.get("appId"))
     worktree = Path(state["worktree"])
     if git(worktree, "rev-parse", "HEAD") != state.get("agent_base", state["base"]):
@@ -234,10 +255,12 @@ def validate(directory):
         subprocess.run(["git", "add", "--", path], cwd=worktree, check=True)
     subprocess.run(["git", "diff", "--check", state.get("agent_base", state["base"])], cwd=worktree, check=True)
     with (directory / "adaptation.patch").open("w") as patch:
-        subprocess.run(["git", "diff", "--binary", state.get("agent_base", state["base"])], cwd=worktree, stdout=patch, check=True)
+        subprocess.run(["git", "diff", "--binary", "--full-index", state.get("agent_base", state["base"])], cwd=worktree, stdout=patch, check=True)
     report = dict(candidate, status="STATIC_VERIFIED_PENDING_RUNTIME", blockers=[],
                   checkedVersions=list(dict.fromkeys(version for version, _, _ in state["apks"])),
-                  suggestedProfile=next(p for p in after if p["identity"] == candidate["identity"]))
+                  suggestedProfile=next(p for p in after if p["identity"] == candidate["identity"]),
+                  validatedPatchSha256=sha256(directory / 'adaptation.patch'),
+                  validatedBaseCommit=state.get('agent_base', state['base']))
     if policy.app_id == 'qq':
         from scripts.ci.apps.qq.runtime_probe import manifest_expectation
         candidate_apk = worktree / state['apks'][0][1]

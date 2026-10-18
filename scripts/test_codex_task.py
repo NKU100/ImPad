@@ -52,6 +52,8 @@ class CodexTaskTest(unittest.TestCase):
                         return state['body']
                     if args[:2] == ('issue','edit'):
                         state['body'] = Path(args[-1]).read_text()
+                    elif args[:2] == ('issue','close'):
+                        state['closed'] = True
                     elif args[:2] == ('issue','comment'):
                         state['comments'].append({'id':5,'user':{'login':'github-actions[bot]'},'body':Path(args[-1]).read_text()})
                     elif args[:3] == ('api','--method','PATCH'):
@@ -60,6 +62,7 @@ class CodexTaskTest(unittest.TestCase):
                 with patch('scripts.ci.codex_task.gh', side_effect=github):
                     for status in ('blocked','verified'):
                         publish_outcome('NKU100/ImPad', 11, report, status, 'https://github.com/NKU100/ImPad/actions/runs/1234', directory)
+                self.assertTrue(state.get('closed'), 'Final hosted acceptance must still close the issue')
                 self.assertEqual(0 if created else 1, len(state['comments']))
                 text = state['body'] if created else state['comments'][0]['body']
                 self.assertIn('适配成功', text)
@@ -83,9 +86,77 @@ class CodexTaskTest(unittest.TestCase):
             self.assertEqual('interrupted', create.call_args.args[2])
             self.assertEqual(artifact['name'], create.call_args.kwargs['artifact'])
 
+    def test_verified_orphan_creates_a_resumable_record_instead_of_skipping(self):
+        report = candidate_report()
+        artifact = {'id': 12, 'expired': False,
+                    'name': 'impad-wechat-codex-adaptation-live-1-2-' + 'a' * 64 + '-verified',
+                    'workflow_run': {'id': 1234, 'head_branch': 'main'}}
+        with tempfile.TemporaryDirectory() as root:
+            directory = Path(root)
+            def github(*args):
+                return json.dumps([{'artifacts': [artifact]}]) if 'actions/artifacts?' in str(args) else '[]'
+            with patch('scripts.ci.codex_task.eligible_candidate', return_value=True), \
+                    patch('scripts.ci.codex_task.gh', side_effect=github), \
+                    patch('scripts.ci.codex_task.create_outcome_issue', return_value=11) as create, \
+                    patch('scripts.ci.codex_task.append_github_output') as output, \
+                    patch.dict(os.environ, {'GITHUB_OUTPUT': str(directory / 'output')}):
+                claim('NKU100/ImPad', report, [], directory, 'https://github.com/NKU100/ImPad/actions/runs/5678')
+            self.assertEqual(1, create.call_count)
+            self.assertEqual(artifact['name'], create.call_args.kwargs['artifact'])
+            values = output.call_args.args[1]
+            self.assertEqual('11', values['issue'])
+            self.assertEqual('1234', values['checkpoint_run_id'])
+            self.assertEqual(artifact['name'], values['checkpoint_artifact'])
+
     def test_new_issue_without_uploaded_checkpoint_does_not_invent_pointer(self):
         body = '<!-- impad-state\nRun: https://github.com/NKU100/ImPad/actions/runs/1234\n-->\n'
         self.assertEqual((None,None), checkpoint_reference(body, 'NKU100/ImPad', 'wecom'))
+
+    def test_owner_input_resumes_the_verified_orphan_record_without_duplicate_issue(self):
+        report = candidate_report()
+        artifact_name = 'impad-wechat-codex-adaptation-live-1-2-' + 'a' * 64 + '-verified'
+        artifact = {'id': 12, 'expired': False, 'name': artifact_name,
+                    'workflow_run': {'id': 1234, 'head_branch': 'main'}}
+        issues, comments = [], []
+        with tempfile.TemporaryDirectory() as root:
+            directory = Path(root)
+            def github(*args):
+                if 'actions/artifacts?' in str(args):
+                    return json.dumps([{'artifacts': [artifact]}])
+                if 'issues?state=all' in str(args):
+                    return json.dumps([issues])
+                if 'comments?' in str(args):
+                    return json.dumps([comments])
+                if args[:2] == ('issue', 'create'):
+                    issues.append({'number': 11, 'state': 'open',
+                                   'user': {'login': 'github-actions[bot]', 'type': 'Bot'},
+                                   'labels': [{'name': 'impad-adaptation'}],
+                                   'body': Path(args[args.index('--body-file') + 1]).read_text()})
+                    return 'https://github.com/NKU100/ImPad/issues/11'
+                if args[:2] == ('issue', 'edit') and '--body-file' in args:
+                    issues[0]['body'] = Path(args[args.index('--body-file') + 1]).read_text()
+                if args[0] == 'api':
+                    return issues[0]['body']
+                return ''
+            output = directory / 'output'
+            with patch('scripts.ci.codex_task.eligible_candidate', return_value=True), \
+                    patch('scripts.ci.codex_task.gh', side_effect=github), \
+                    patch.dict(os.environ, {'GITHUB_OUTPUT': str(output)}):
+                claim('NKU100/ImPad', report, [], directory, 'https://github.com/NKU100/ImPad/actions/runs/5678')
+                self.assertEqual(1, len(issues))
+                self.assertIn('Status: `INTERRUPTED`', issues[0]['body'])
+                self.assertIn(artifact_name, issues[0]['body'])
+                comments.append({'id': 1, 'body': 'Continue publication',
+                                 'user': {'login': 'NKU100', 'type': 'User'}})
+                output.unlink()
+                claim('NKU100/ImPad', report, [], directory, 'https://github.com/NKU100/ImPad/actions/runs/5679')
+            values = dict(line.split('=', 1) for line in output.read_text().splitlines())
+            self.assertEqual(1, len(issues))
+            self.assertEqual('true', values['claimed'])
+            self.assertEqual('11', values['issue'])
+            self.assertEqual('1234', values['checkpoint_run_id'])
+            self.assertEqual(artifact_name, values['checkpoint_artifact'])
+            self.assertEqual('Continue publication', json.loads((directory / 'resume-context.json').read_text())['ownerComments'][0]['body'])
 
     def test_pinned_report_provides_cache_identity_without_discovery(self):
         from scripts.ci.codex_task import candidate_cache_settings
@@ -204,6 +275,68 @@ class CodexTaskTest(unittest.TestCase):
             self.assertIn('Adaptation PR: https://github.com/NKU100/ImPad/pull/17', body)
             self.assertIn('PR head: `' + 'c' * 40 + '`', body)
             self.assertIn('checkpoint_saved=true', output.read_text())
+
+    def test_controller_verified_publication_failure_keeps_issue_resumable(self):
+        from scripts.ci.codex_task import pending, issue_body
+        for issue_number, pr_url, report_status in (
+            (11, '', 'NEEDS_HOOK_REVIEW'), (0, '', 'NEEDS_HOOK_REVIEW'),
+            (11, 'https://github.com/NKU100/ImPad/pull/15', 'NEEDS_HOOK_REVIEW'),
+            (11, 'https://github.com/NKU100/ImPad/pull/15', 'STATIC_VERIFIED_PENDING_RUNTIME'),
+        ):
+            with self.subTest(issue=issue_number, pr=pr_url, status=report_status), tempfile.TemporaryDirectory() as root:
+                directory = Path(root)
+                report = dict(candidate_report(), status=report_status)
+                (directory / 'candidate-report.json').write_text(json.dumps(report))
+                (directory / 'checkpoint.json').write_text(json.dumps({
+                    'schemaVersion': 1, 'candidateKey': candidate_key(report),
+                    'stage': 'static-verified-pending-runtime'}))
+                (directory / 'goal-diagnostics.json').write_text(json.dumps({'status': 'verified', 'inputDelivered': True}))
+                (directory / 'resume-context.json').write_text(json.dumps({'ownerComments': [{'id': 1, 'body': 'continue'}]}))
+                body = issue_body(report, 'ADAPTATION_RUNNING', 'https://github.com/NKU100/ImPad/actions/runs/1234',
+                                  pr_url=pr_url, pr_head='c' * 40 if pr_url else '')
+                issue = {'number': 11, 'body': body, 'state': 'open',
+                         'user': {'login': 'github-actions[bot]', 'type': 'Bot'},
+                         'labels': [{'name': 'impad-adaptation'}]}
+                comments = []
+                issues = [issue] if issue_number else []
+                def github(*args):
+                    if 'issues?state=all' in str(args):
+                        return json.dumps([issues])
+                    if 'comments?' in str(args):
+                        return json.dumps([comments])
+                    if args[:2] == ('issue', 'create'):
+                        issue['body'] = Path(args[args.index('--body-file') + 1]).read_text()
+                        issues.append(issue)
+                        return 'https://github.com/NKU100/ImPad/issues/11'
+                    if args[:2] == ('issue', 'edit') and '--body-file' in args:
+                        issue['body'] = Path(args[args.index('--body-file') + 1]).read_text()
+                    elif args[:2] == ('issue', 'close'):
+                        issue['state'] = 'closed'
+                    elif args[:2] == ('issue', 'comment'):
+                        comments.append({'id': 5, 'user': {'login': 'github-actions[bot]', 'type': 'Bot'},
+                                         'body': Path(args[args.index('--body-file') + 1]).read_text()})
+                    elif args[0] == 'api':
+                        return issue['body']
+                    return ''
+                with patch('scripts.ci.codex_task.gh', side_effect=github), \
+                        patch('scripts.ci.codex_task.eligible_candidate', return_value=True), \
+                        patch.dict(os.environ, {'GITHUB_OUTPUT': str(directory / 'output')}):
+                    record_checkpoint('NKU100/ImPad', directory / 'candidate-report.json', directory, issue_number,
+                                      'https://github.com/NKU100/ImPad/actions/runs/5678', 'wechat')
+                    self.assertEqual(1, len(issues))
+                    self.assertEqual('open', issue['state'])
+                    self.assertNotIn('Status: `RUNTIME_VERIFIED`', issue['body'])
+                    self.assertIn('Status: `WAITING_RUNTIME`' if report_status == 'STATIC_VERIFIED_PENDING_RUNTIME'
+                                  else 'Status: `INTERRUPTED`', issue['body'])
+                    self.assertEqual(('5678', 'impad-wechat-codex-adaptation'),
+                                     checkpoint_reference(issue['body'], 'NKU100/ImPad', 'wechat'))
+                    self.assertIn('Consumed owner comment: `1`', issue['body'])
+                    comments.append({'id': 20, 'body': 'retry publication',
+                                     'user': {'login': 'NKU100', 'type': 'User'}})
+                    self.assertEqual('true', pending('NKU100/ImPad', 'wechat')['pending_adaptation'])
+                    claim('NKU100/ImPad', report, [], directory, 'https://github.com/NKU100/ImPad/actions/runs/5679')
+                    self.assertEqual(1, len(issues))
+                    self.assertEqual([20], [c['id'] for c in json.loads((directory / 'resume-context.json').read_text())['ownerComments']])
 
     def test_claim_automatically_resumes_checkpoint_and_keeps_existing_pr(self):
         issue = record('RUNTIME_REJECTED')

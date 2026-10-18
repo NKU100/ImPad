@@ -10,7 +10,7 @@ from pathlib import Path
 
 from scripts.ci.adaptation_summary import read_summary, render_result
 from scripts.ci.app_policy import get_policy, policy_for_report
-from scripts.ci.codex_adaptation import candidate_key, eligible_candidate
+from scripts.ci.codex_adaptation import candidate_key, eligible_candidate, patch_tree
 from scripts.ci.discover_latest_wechat import append_github_output
 
 
@@ -350,10 +350,6 @@ def claim(repo, report, targets, directory, run_url, app_id=None):
         print(f"Resuming adaptation record #{previous['number']} from its latest available checkpoint.")
         return
     orphan = orphan_checkpoint(repo, report)
-    if orphan and orphan['name'].endswith('-verified'):
-        append_github_output(Path(os.environ['GITHUB_OUTPUT']), {'claimed':'false', 'issue':'0', 'checkpoint_run_id':'', 'checkpoint_artifact':'', 'existing_pr':''})
-        print('The candidate has a completed controller checkpoint; no duplicate model run was started.')
-        return
     if orphan:
         checkpoint_url = f"https://github.com/{repo}/actions/runs/{orphan['workflow_run']['id']}"
         number = create_outcome_issue(repo, report, 'interrupted', run_url, directory,
@@ -373,6 +369,91 @@ def managed_pr_author(author, owner):
     if author.get('is_bot') is True:
         return author.get('login') in {'github-actions[bot]', 'app/github-actions'}
     return author.get('login') == owner
+
+
+PR_FIELDS = 'url,headRefName,headRefOid,state,baseRefName,author,body,isDraft,isCrossRepository'
+
+
+def validate_managed_pr(pr, branch_prefix, repo, issue, expected_head='', allow_unlinked=False):
+    branch = pr.get('headRefName', '')
+    if not (branch == branch_prefix or re.fullmatch(re.escape(branch_prefix) + r'-run-[0-9]+', branch)):
+        raise ValueError("Existing adaptation PR does not use the candidate's managed branch")
+    links = re.findall(r'\btracks #([0-9]+)\b', pr.get('body') or '')
+    if (pr.get('state') != 'OPEN' or pr.get('baseRefName') != 'main'
+            or pr.get('isCrossRepository')
+            or not managed_pr_author(pr.get('author'), repo.split('/')[0])
+            or (links != [str(issue)] and not (allow_unlinked and not links))):
+        raise ValueError('Existing adaptation PR is no longer a matching open managed PR')
+    if expected_head and pr.get('headRefOid') != expected_head:
+        raise ValueError('Existing adaptation PR changed after the last checkpoint')
+
+
+def recover_publication(repo, checkout, directory, resume, report, branch, issue, run_url, body, title):
+    prs = json.loads(gh('pr', 'list', '--repo', repo, '--head', branch, '--state', 'all',
+                       '--json', PR_FIELDS))
+    if len(prs) > 1:
+        raise ValueError('Multiple adaptation PRs use the candidate branch')
+    previous_pr = prs[0] if prs else None
+    if previous_pr:
+        validate_managed_pr(previous_pr, branch, repo, issue, allow_unlinked=True)
+        if previous_pr['headRefName'] != branch:
+            raise ValueError('Recovered adaptation PR has a different candidate branch')
+        if not adaptation_pr_reference('Adaptation PR: ' + previous_pr.get('url', ''), repo):
+            raise ValueError('Recovered adaptation PR belongs to a different repository')
+        if not re.findall(r'\btracks #([0-9]+)\b', previous_pr.get('body') or ''):
+            checkpoint_runs = {resume.get('checkpointRunId', '')}
+            checkpoint_runs.update(checkpoint.get('runId', '')
+                                   for checkpoint in resume.get('publicationCheckpoints', []))
+            if not any(re.fullmatch(r'[0-9]+', str(checkpoint_run))
+                       and f'[Adaptation run](https://github.com/{repo}/actions/runs/{checkpoint_run})'
+                       in previous_pr.get('body', '') for checkpoint_run in checkpoint_runs):
+                raise ValueError('Unlinked adaptation PR does not match the checkpoint run')
+    ref = 'refs/heads/' + branch
+    refs = subprocess.check_output(['git', 'ls-remote', '--refs', 'origin', ref], cwd=checkout).decode().splitlines()
+    if not refs:
+        if previous_pr:
+            raise ValueError('Recovered adaptation PR branch no longer exists')
+        return '', None
+    if len(refs) != 1 or refs[0].split()[1] != ref:
+        raise ValueError('Candidate branch lookup is ambiguous')
+    remote_head = refs[0].split()[0]
+    if previous_pr and previous_pr['headRefOid'] != remote_head:
+        raise ValueError('Recovered adaptation PR changed after branch lookup')
+    subprocess.run(['git', 'fetch', '--quiet', '--no-tags', 'origin', ref], cwd=checkout, check=True)
+    fetched_head = subprocess.check_output(['git', 'rev-parse', 'FETCH_HEAD'], cwd=checkout).decode().strip()
+    if fetched_head != remote_head:
+        raise ValueError('Candidate branch changed during recovery')
+    checkpoints = resume.get('publicationCheckpoints') or [{
+        'base': json.loads((directory / 'state.json').read_text())['base'],
+        'tree': patch_tree(checkout, 'HEAD', directory / 'adaptation.patch'),
+    }]
+    commit = subprocess.check_output(['git', 'show', '-s', '--format=%P%n%T%n%an%n%ae%n%cn%n%ce%n%s',
+                                      remote_head], cwd=checkout).decode().splitlines()
+    expected_author = ['NKU100', '21164383+NKU100@users.noreply.github.com', 'NKU100',
+                       '21164383+NKU100@users.noreply.github.com', title]
+    if (commit[2:] != expected_author
+            or commit[:2] not in [[checkpoint['base'], checkpoint['tree']] for checkpoint in checkpoints]):
+        raise ValueError('Candidate branch does not match the published checkpoint commit')
+    if previous_pr:
+        url = previous_pr['url']
+        if not previous_pr.get('isDraft'):
+            gh('pr', 'ready', url, '--repo', repo, '--undo')
+        gh('pr', 'edit', url, '--repo', repo, '--body-file', str(body))
+    else:
+        url = gh('pr', 'create', '--repo', repo, '--base', 'main', '--head', branch, '--draft',
+                 '--title', title, '--body-file', str(body))
+    previous_pr = json.loads(gh('pr', 'view', url, '--repo', repo, '--json', PR_FIELDS))
+    validate_managed_pr(previous_pr, branch, repo, issue, remote_head)
+    resume.update(existingPr=url, existingPrHead=remote_head)
+    (directory / 'resume-context.json').write_text(json.dumps(resume, indent=2) + '\n')
+    if issue:
+        current = gh('api', f'repos/{repo}/issues/{issue}', '--jq', '.body')
+        checkpoint_url = f"https://github.com/{repo}/actions/runs/{resume['checkpointRunId']}" if resume.get('checkpointRunId') else ''
+        metadata = issue_body(report, 'INTERRUPTED', run_url, url, checkpoint_url,
+                              resume.get('checkpointArtifact', ''), remote_head)
+        write_issue(repo, issue, visible_issue_body(current, report, run_url) + '\n\n' +
+                    metadata[metadata.index('<!-- impad-adaptation'):], directory)
+    return url, previous_pr
 
 
 def publish(repo, directory, issue, run_url, app_id=None):
@@ -395,22 +476,24 @@ def publish(repo, directory, issue, run_url, app_id=None):
     previous_pr = None
     if existing_pr:
         previous_pr = json.loads(gh("pr", "view", existing_pr, "--repo", repo, "--json",
-                                    "headRefName,headRefOid,state,baseRefName,author,body,isDraft"))
-        previous_branch = previous_pr.get("headRefName", "")
-        if not (previous_branch == branch_prefix or previous_branch.startswith(branch_prefix + "-run-")):
-            raise ValueError("Existing adaptation PR does not use the candidate's managed branch")
-        if (previous_pr.get("state") != "OPEN" or previous_pr.get("baseRefName") != "main"
-                or not managed_pr_author(previous_pr.get("author"), repo.split('/')[0])
-                or f"tracks #{issue}" not in previous_pr.get("body", "")):
-            raise ValueError("Existing adaptation PR is no longer a matching open managed PR")
-        if expected_pr_head and previous_pr.get("headRefOid") != expected_pr_head:
-            raise ValueError("Existing adaptation PR changed after the last checkpoint")
-        branch = previous_branch
+                                    PR_FIELDS))
+        validate_managed_pr(previous_pr, branch_prefix, repo, issue, expected_pr_head)
+        branch = previous_pr['headRefName']
     checkout = Path(os.environ["GITHUB_WORKSPACE"])
     head = subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=checkout).decode().strip()
     current_main = gh("api", f"repos/{repo}/git/ref/heads/main", "--jq", ".object.sha")
     if head != state["base"] or current_main != head:
         raise ValueError("Main changed during adaptation; manual reconciliation is required")
+    body = directory / "pr-body.md"
+    versions = ", ".join(report["checkedVersions"])
+    body.write_text(f"Adds the verified {policy.display_name} {report['identity']['versionName']} build as a static-verified profile.\n\n"
+                    f"The shared checker passed for: {versions}. Shared-core and module tests and the debug APK build passed.\n\n"
+                    f"Hosted runtime smoke will verify {policy.display_name} hook installation and the policy-specific login page before this PR is ready.\n\n"
+                    f"[Adaptation run]({run_url})" + (f"; tracks #{issue}.\n" if issue else ".\n"))
+    title = f"feat: support {policy.display_name} {report['identity']['versionName']}"
+    if not existing_pr:
+        existing_pr, previous_pr = recover_publication(repo, checkout, directory, resume, report,
+                                                      branch, issue, run_url, body, title)
     if previous_pr and not previous_pr.get('isDraft'):
         gh('pr', 'ready', existing_pr, '--repo', repo, '--undo')
     subprocess.run(["git", "switch", "-c", branch], cwd=checkout, check=True)
@@ -423,13 +506,6 @@ def publish(repo, directory, issue, run_url, app_id=None):
         subprocess.run(["git", "push", lease, "origin", "HEAD:refs/heads/" + branch], cwd=checkout, check=True)
     else:
         subprocess.run(["git", "push", "origin", "HEAD:refs/heads/" + branch], cwd=checkout, check=True)
-    body = directory / "pr-body.md"
-    versions = ", ".join(report["checkedVersions"])
-    body.write_text(f"Adds the verified {policy.display_name} {report['identity']['versionName']} build as a static-verified profile.\n\n"
-                    f"The shared checker passed for: {versions}. Shared-core and module tests and the debug APK build passed.\n\n"
-                    f"Hosted runtime smoke will verify {policy.display_name} hook installation and the policy-specific login page before this PR is ready.\n\n"
-                    f"[Adaptation run]({run_url})" + (f"; tracks #{issue}.\n" if issue else ".\n"))
-    title = f"feat: support {policy.display_name} {report['identity']['versionName']}"
     if previous_pr:
         url = existing_pr
         gh("pr", "edit", url, "--repo", repo, "--title", title, "--body-file", str(body))
@@ -507,7 +583,7 @@ def record_checkpoint(repo, report_path, directory, issue, run_url, app_id=None,
         context_path.write_text(json.dumps(context, indent=2) + '\n')
     if not issue:
         outcome = diagnostics.get('status', 'interrupted')
-        if live or outcome == 'verified':
+        if live or (outcome == 'verified' and report.get('status') == 'STATIC_VERIFIED_PENDING_RUNTIME'):
             append_github_output(Path(os.environ['GITHUB_OUTPUT']), {'checkpoint_saved':'true', 'issue':'0', 'consumed_comment_id':str(context.get('consumedCommentId', 0))})
             return
         outcome = 'blocked' if outcome == 'blocked' else 'interrupted'
@@ -528,13 +604,14 @@ def record_checkpoint(repo, report_path, directory, issue, run_url, app_id=None,
         write_issue(repo, issue, visible + '\n\n' + hidden, directory)
     else:
         outcome = diagnostics.get('status', 'interrupted')
-        if outcome == 'verified' and pr_url:
+        if (outcome == 'verified' and pr_url
+                and report.get('status') == 'STATIC_VERIFIED_PENDING_RUNTIME'):
             metadata = issue_body(report, 'WAITING_RUNTIME', run_url, pr_url, run_url, expected_artifact, pr_head_match[1] if pr_head_match else '')
             visible_body = visible_issue_body(current_body, report, run_url)
             write_issue(repo, issue, visible_body + '\n\n' + metadata[metadata.index('<!-- impad-adaptation'):], directory)
             append_github_output(Path(os.environ['GITHUB_OUTPUT']), {'checkpoint_saved':'true', 'consumed_comment_id':str(context.get('consumedCommentId', 0))})
             return
-        if outcome not in {'verified', 'blocked'}:
+        if outcome != 'blocked':
             outcome = 'interrupted'
         summary = read_summary(directory / 'checkout/work/analysis/adaptation-summary.json')
         publish_outcome(repo, issue, report, outcome, run_url, directory, summary,
