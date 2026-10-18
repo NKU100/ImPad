@@ -4,14 +4,14 @@ from scripts.ci.discovery_gate import discovery_decision
 
 class DiscoveryGateTest(unittest.TestCase):
     def setUp(self):
-        self.url = 'https://dldir1v6.qq.com/weixin/android/weixin8079android3200_arm64.apk'
+        self.url = 'https://example.invalid/app.apk'
         self.digest = 'a' * 64
         self.profile = {'sourceUrl': self.url, 'verificationStatus': 'runtime-verified-local',
                         'identity': {'apkSha256': self.digest, 'versionCode': 3200}}
 
     def test_failed_candidate_without_new_input_waits(self):
-        self.assertEqual('WAITING_FOR_INPUT', discovery_decision([], self.url, self.digest, False, 'wecom-package-arm64-83835-' + self.digest))
-        self.assertEqual('ANALYZE_CANDIDATE', discovery_decision([], self.url, 'b'*64, False, 'wecom-package-arm64-83835-' + self.digest))
+        self.assertEqual('WAITING_FOR_INPUT', discovery_decision([], self.url, self.digest, False, 'candidate-' + self.digest))
+        self.assertEqual('ANALYZE_CANDIDATE', discovery_decision([], self.url, 'b'*64, False, 'candidate-' + self.digest))
 
     def test_exact_supported_apk_skips_heavy_jobs(self):
         for status in ('runtime-verified-local', 'runtime-verified-hosted'):

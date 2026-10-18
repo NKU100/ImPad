@@ -31,7 +31,7 @@ on:
     inputs:
       app_id:
         type: string
-        default: wechat
+        required: true
       module_run_id:
         type: string
         required: true
@@ -57,7 +57,7 @@ jobs:
       app_id: ${{ steps.policy.outputs.app_id }}
       artifact_prefix: ${{ steps.policy.outputs.artifact_prefix }}
     env:
-      APP_ID: ${{ inputs.app_id || 'wechat' }}
+      APP_ID: ${{ inputs.app_id }}
       CANDIDATE_MODE: ${{ inputs.candidate_mode || 'latest' }}
       APK_SHA256: ${{ inputs.apk_sha256 || '' }}
     steps:

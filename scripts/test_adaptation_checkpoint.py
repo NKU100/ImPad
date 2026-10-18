@@ -88,6 +88,19 @@ class AdaptationCheckpointTest(unittest.TestCase):
         self.assertIn("inputs.module_run_id == ''", result)
         self.assertIn('runtime-smoke/evidence/smoke-report.json', result)
 
+    def test_reusable_runtime_validation_requires_an_explicit_application(self):
+        validation = (Path(__file__).resolve().parents[1] / '.github/workflows/runtime-validation.yml').read_text()
+        manual_inputs = validation.split('  workflow_dispatch:', 1)[1].split('  workflow_call:', 1)[0]
+        reusable_inputs = validation.split('  workflow_call:', 1)[1].split('\npermissions:', 1)[0]
+        manual_app_id = manual_inputs.split('      app_id:', 1)[1].split('      candidate_mode:', 1)[0]
+        reusable_app_id = reusable_inputs.split('      app_id:', 1)[1].split('      module_run_id:', 1)[0]
+
+        self.assertIn('default: wechat', manual_app_id)
+        self.assertIn('required: true', reusable_app_id)
+        self.assertNotIn('default: wechat', reusable_app_id)
+        self.assertIn('APP_ID: ${{ inputs.app_id }}', validation)
+        self.assertNotIn("inputs.app_id || 'wechat'", validation)
+
     def test_abrupt_exit_reuses_code_and_session_from_same_published_snapshot(self):
         from scripts.ci.adaptation_checkpoint import reuse_published_checkpoint
         with tempfile.TemporaryDirectory() as root:

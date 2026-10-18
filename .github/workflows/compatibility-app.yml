@@ -68,7 +68,14 @@ jobs:
         run: python3 -m scripts.ci.codex_task pending --app-id "$APP_ID" --directory "$RUNNER_TEMP"
 
       - name: Test official candidate discovery and cache validation
-        run: python3 -m unittest scripts.test_discover_latest_wechat scripts.test_candidate_selection scripts.test_discovery_gate
+        run: |
+          case "$APP_ID" in
+            wechat) discovery_test=scripts.test_discover_latest_wechat ;;
+            wecom) discovery_test=scripts.test_wecom_discovery_policy ;;
+            qq) discovery_test=scripts.test_qq_policy ;;
+            *) echo "Unsupported APP_ID: $APP_ID" >&2; exit 1 ;;
+          esac
+          python3 -m unittest "$discovery_test" scripts.test_candidate_selection scripts.test_discovery_gate
 
       - name: Test latest-three compatibility window selection
         run: python3 -m unittest scripts.test_select_compatibility_window

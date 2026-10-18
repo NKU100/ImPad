@@ -10,6 +10,16 @@ from scripts.ci.static_regression import registered_window, ensure_apk, check_ap
 
 
 class StaticRegressionTest(unittest.TestCase):
+    def test_cli_requires_an_app_or_all_apps_instead_of_defaulting_to_wechat(self):
+        with tempfile.TemporaryDirectory() as root, patch(
+            'sys.argv', ['static_regression', '--reports', str(Path(root) / 'reports')]
+        ), patch('scripts.ci.static_regression.run_regression') as run_regression:
+            with self.assertRaises(SystemExit) as failure:
+                main()
+
+        self.assertEqual(failure.exception.code, 2)
+        run_regression.assert_not_called()
+
     def test_truncated_http_response_records_failure_and_checks_remaining_apps(self):
         class Socket:
             def makefile(self, mode):

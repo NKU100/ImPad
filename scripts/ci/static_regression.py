@@ -95,7 +95,7 @@ def run_regression(app_id, reports, targets=None, cache=None):
 
 def main():
     parser = argparse.ArgumentParser()
-    apps = parser.add_mutually_exclusive_group()
+    apps = parser.add_mutually_exclusive_group(required=True)
     apps.add_argument('--app-id')
     apps.add_argument('--all-apps', action='store_true')
     parser.add_argument('--targets', type=Path)
@@ -104,7 +104,7 @@ def main():
     args = parser.parse_args()
     if args.all_apps and (args.targets is not None or args.cache is not None):
         parser.error('--all-apps uses each application policy and its own APK cache')
-    app_ids = ['wechat', 'qq', 'wecom'] if args.all_apps else [args.app_id or 'wechat']
+    app_ids = ['wechat', 'qq', 'wecom'] if args.all_apps else [args.app_id]
     summary = []
     for app_id in app_ids:
         reports = args.reports / app_id if args.all_apps else args.reports
