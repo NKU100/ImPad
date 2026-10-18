@@ -13,21 +13,15 @@ class QqAppAdapter : AppAdapter {
                          registrar: HookRegistrar, log: ModuleLog) {
         val application = classLoader.loadClass("com.tencent.common.app.QFixApplicationImplProxy")
         val attach = application.getDeclaredMethod("attachBaseContext", android.content.Context::class.java)
-        var bootstrap: HookRegistration? = null
-        bootstrap = registrar.hook(attach, "impad_qq_classloader_bootstrap") { call ->
-            try {
-                val result = call.proceed()
-                val context = checkNotNull(call.arguments[0] as? android.content.Context)
-                installAfterTinker(context.classLoader, descriptors, registrar, log)
-                result
-            } finally {
-                bootstrap?.unhook()
-            }
+        PostAttachClassLoaderBridge(registrar).install(attach, "impad_qq_classloader_bootstrap", { call ->
+            checkNotNull(call.arguments[0] as? android.content.Context).classLoader
+        }) { readyClassLoader ->
+            installAfterAttach(readyClassLoader, descriptors, registrar, log)
         }
-        log.write(Log.INFO, "waiting for Tinker class loader", null)
+        log.write(Log.INFO, "waiting for QQ application class loader", null)
     }
 
-    private fun installAfterTinker(classLoader: ClassLoader, descriptors: Map<String, String>,
+    private fun installAfterAttach(classLoader: ClassLoader, descriptors: Map<String, String>,
                                    registrar: HookRegistrar, log: ModuleLog) {
         try {
             val deviceType = TargetMethodResolver.resolve(classLoader, requireNotNull(descriptors["device_type"]))
