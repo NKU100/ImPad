@@ -367,6 +367,14 @@ def claim(repo, report, targets, directory, run_url, app_id=None):
     print('Starting a new candidate; an issue will be created only if the run blocks or is interrupted.')
 
 
+def managed_pr_author(author, owner):
+    if not isinstance(author, dict):
+        return False
+    if author.get('is_bot') is True:
+        return author.get('login') in {'github-actions[bot]', 'app/github-actions'}
+    return author.get('login') == owner
+
+
 def publish(repo, directory, issue, run_url, app_id=None):
     state = json.loads((directory / "state.json").read_text())
     report = json.loads((directory / "candidate-report.json").read_text())
@@ -387,12 +395,12 @@ def publish(repo, directory, issue, run_url, app_id=None):
     previous_pr = None
     if existing_pr:
         previous_pr = json.loads(gh("pr", "view", existing_pr, "--repo", repo, "--json",
-                                    "headRefName,headRefOid,state,baseRefName,author,body"))
+                                    "headRefName,headRefOid,state,baseRefName,author,body,isDraft"))
         previous_branch = previous_pr.get("headRefName", "")
         if not (previous_branch == branch_prefix or previous_branch.startswith(branch_prefix + "-run-")):
             raise ValueError("Existing adaptation PR does not use the candidate's managed branch")
         if (previous_pr.get("state") != "OPEN" or previous_pr.get("baseRefName") != "main"
-                or previous_pr.get("author", {}).get("login") not in {"github-actions[bot]", "NKU100"}
+                or not managed_pr_author(previous_pr.get("author"), repo.split('/')[0])
                 or f"tracks #{issue}" not in previous_pr.get("body", "")):
             raise ValueError("Existing adaptation PR is no longer a matching open managed PR")
         if expected_pr_head and previous_pr.get("headRefOid") != expected_pr_head:
@@ -403,6 +411,8 @@ def publish(repo, directory, issue, run_url, app_id=None):
     current_main = gh("api", f"repos/{repo}/git/ref/heads/main", "--jq", ".object.sha")
     if head != state["base"] or current_main != head:
         raise ValueError("Main changed during adaptation; manual reconciliation is required")
+    if previous_pr and not previous_pr.get('isDraft'):
+        gh('pr', 'ready', existing_pr, '--repo', repo, '--undo')
     subprocess.run(["git", "switch", "-c", branch], cwd=checkout, check=True)
     subprocess.run(["git", "apply", "--index", str(directory / "adaptation.patch")], cwd=checkout, check=True)
     subprocess.run(["git", "config", "user.name", "NKU100"], cwd=checkout, check=True)
@@ -422,7 +432,7 @@ def publish(repo, directory, issue, run_url, app_id=None):
     title = f"feat: support {policy.display_name} {report['identity']['versionName']}"
     if previous_pr:
         url = existing_pr
-        gh("pr", "edit", url, "--repo", repo, "--title", title, "--body-file", str(body), "--draft")
+        gh("pr", "edit", url, "--repo", repo, "--title", title, "--body-file", str(body))
     else:
         url = gh("pr", "create", "--repo", repo, "--base", "main", "--head", branch, "--draft",
                  "--title", title, "--body-file", str(body))
