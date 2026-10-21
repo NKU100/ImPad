@@ -16,6 +16,32 @@ class ReDroidEnvironmentProbeTest(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, 'Asset hash mismatch'):
                 checked_digest(asset, digest)
 
+    def test_copied_init_rc_has_android_init_mode_independent_of_umask(self):
+        from scripts.ci.redroid_environment_probe import Probe
+
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            template = root / 'template.rc'
+            copied = root / 'context/system/etc/init/impad-magisk.rc'
+            copied.parent.mkdir(parents=True)
+            template.write_text('service test /system/bin/test\n')
+            template.chmod(0o640)
+            template_mode = template.stat().st_mode & 0o777
+            sibling = copied.parent / 'existing.conf'
+            sibling.write_text('preserve')
+            sibling.chmod(0o600)
+
+            old_umask = __import__('os').umask(0o002)
+            try:
+                Probe.copy_init_rc(template, copied)
+            finally:
+                __import__('os').umask(old_umask)
+
+            self.assertEqual(copied.stat().st_mode & 0o777, 0o644)
+            self.assertEqual(template.stat().st_mode & 0o777, template_mode)
+            self.assertEqual(sibling.stat().st_mode & 0o777, 0o600)
+            self.assertEqual(copied.read_bytes(), template.read_bytes())
+
 
 if __name__ == '__main__':
     unittest.main()
@@ -82,8 +108,19 @@ class LifecycleTest(unittest.TestCase):
         from scripts.ci.redroid_environment_probe import Probe
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
-            profile = json.loads(Path('environment/redroid-smoke/qq.json').read_text())[-1]
-            candidate = {'appId': 'qq', 'identity': profile['identity']}
+            identity = {
+                'packageName': 'com.tencent.mobileqq', 'versionName': '9.3.1',
+                'versionCode': 14378, 'abi': 'arm64-v8a', 'apkSha256': 'a' * 64,
+                'signerSha256': 'ea6e97ad6c34f7039a9c6daba732c97d0e098e83ede2b4d52c76eb0184ac7a38',
+            }
+            candidate = {
+                'schemaVersion': 1, 'appId': 'qq', 'status': 'PREPARED',
+                'identity': identity,
+                'sourceUrl': 'https://downv6.qq.com/qqweb/QQ_1/android_apk/9.3.1.apk',
+                'apkFiles': [{'path': 'qq.apk', 'role': 'base', 'sha256': identity['apkSha256']}],
+                'expectedPlan': {'selection': 'UNIQUE', 'ruleId': 'qq_device_type_001',
+                                 'strategyId': 'qq_tablet_001', 'targets': {}},
+            }
             (root / 'candidate-report.json').write_text(json.dumps(candidate))
             (root / 'module').mkdir()
             (root / 'module/app-debug.apk').write_bytes(b'module')
@@ -92,7 +129,7 @@ class LifecycleTest(unittest.TestCase):
                 self.assertFalse(probe.execute(root))
             report = json.loads((root / 'evidence/smoke-report.json').read_text())
             self.assertEqual(report['status'], 'ACCEPTANCE_UNAVAILABLE')
-            self.assertEqual(report['apkSha256'], profile['identity']['apkSha256'])
+            self.assertEqual(report['apkSha256'], identity['apkSha256'])
             self.assertEqual(report['moduleApkSha256'], hashlib.sha256(b'module').hexdigest())
 
     def test_diagnostic_timeout_does_not_skip_container_removal(self):

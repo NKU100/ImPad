@@ -2,6 +2,18 @@
 import re
 import xml.etree.ElementTree as ET
 from scripts.ci.apps.wecom.runtime_policy import has_app_ui
+from scripts.ci.apps.qq.request_protocol import CONTRACT, SECURITY_COMMANDS
+
+EXPECTATION_FIELDS = frozenset({'contract', 'apkSha256', 'phoneAppId', 'tabletAppId'})
+PROOF_FIELDS = frozenset({'contract', 'apkSha256', 'phoneAppId', 'tabletAppId', 'disabled', 'enabled'})
+CAPTURE_EVIDENCE_FIELDS = frozenset({
+    'contract', 'captureKind', 'frames', 'captureHealthy', 'errors', 'kernelDrops',
+    'partialStreams', 'ownershipVerified', 'owners', 'moduleEnabled', 'scopeVerified',
+    'observerSha256', 'collectorBinarySha256', 'ndkVersion', 'apkSha256', 'appUid',
+    'moduleApkSha256', 'processName',
+})
+OWNER_EVIDENCE_FIELDS = frozenset({'pid', 'uid', 'started', 'inode'})
+FRAME_EVIDENCE_FIELDS = frozenset({'command', 'packetAppId', 'sequence', 'firstObservedMonotonicNs'})
 
 hook_installation_log = 'installed 1 QQ hooks'
 launcher_component = 'com.tencent.mobileqq/.activity.SplashActivity'
@@ -47,15 +59,38 @@ def hook_diagnostics(logs):
             'resolvedHooks': [], 'records': list(dict.fromkeys(records))[-12:]}
 
 
+def build_request_identity_proof(expectation, disabled, enabled):
+    """Build the exact request proof from an APK-manifest expectation and captures."""
+    if (not isinstance(expectation, dict) or set(expectation) != EXPECTATION_FIELDS
+            or expectation.get('contract') != CONTRACT
+            or not isinstance(expectation.get('apkSha256'), str)
+            or re.fullmatch(r'[a-f0-9]{64}', expectation['apkSha256']) is None):
+        raise ValueError('QQ request identity expectation has an invalid schema or APK identity')
+    phone, tablet = expectation.get('phoneAppId'), expectation.get('tabletAppId')
+    if (type(phone) is not int or type(tablet) is not int
+            or not 0 < phone <= 0x7fffffff or not 0 < tablet <= 0x7fffffff
+            or phone == tablet):
+        raise ValueError('QQ request identity expectation has invalid phone/tablet AppIDs')
+    for label, capture in (('disabled', disabled), ('enabled', enabled)):
+        if (not isinstance(capture, dict) or set(capture) != CAPTURE_EVIDENCE_FIELDS
+                or capture.get('contract') != CONTRACT
+                or capture.get('apkSha256') != expectation['apkSha256']):
+            raise ValueError(f'QQ {label} request capture has an invalid schema or APK identity')
+    return {'contract': CONTRACT, 'apkSha256': expectation['apkSha256'],
+            'phoneAppId': phone, 'tabletAppId': tablet,
+            'disabled': disabled, 'enabled': enabled}
+
+
 def validate_request_evidence(proof, apk_sha256, module_sha256, expectation):
     from scripts.ci.apps.qq.packet_capture import CAPTURE_KIND, observer_source_digest
-    from scripts.ci.apps.qq.request_protocol import CONTRACT, SECURITY_COMMANDS
     digest = lambda value: isinstance(value, str) and re.fullmatch(r'[a-f0-9]{64}', value) is not None
-    if not isinstance(proof, dict) or not digest(apk_sha256) or not digest(module_sha256):
+    if (not isinstance(proof, dict) or set(proof) != PROOF_FIELDS
+            or not digest(apk_sha256) or not digest(module_sha256)):
         return False
-    if proof.get('contract') != CONTRACT:
+    if proof.get('contract') != CONTRACT or proof.get('apkSha256') != apk_sha256:
         return False
-    if (not isinstance(expectation, dict) or expectation.get('contract') != CONTRACT
+    if (not isinstance(expectation, dict) or set(expectation) != EXPECTATION_FIELDS
+            or expectation.get('contract') != CONTRACT
             or expectation.get('apkSha256') != apk_sha256
             or proof.get('phoneAppId') != expectation.get('phoneAppId')
             or proof.get('tabletAppId') != expectation.get('tabletAppId')):
@@ -71,7 +106,8 @@ def validate_request_evidence(proof, apk_sha256, module_sha256, expectation):
     commands = []
     for key, enabled, expected in [('disabled', False, phone), ('enabled', True, tablet)]:
         value = proof.get(key)
-        if not isinstance(value, dict) or value.get('contract') != CONTRACT:
+        if (not isinstance(value, dict) or set(value) != CAPTURE_EVIDENCE_FIELDS
+                or value.get('contract') != CONTRACT):
             return False
         if (value.get('moduleEnabled') is not enabled or value.get('scopeVerified') is not True
                 or value.get('captureHealthy') is not True or value.get('errors') != []
@@ -88,7 +124,8 @@ def validate_request_evidence(proof, apk_sha256, module_sha256, expectation):
         if not isinstance(owners, list) or not 1 <= len(owners) <= 64:
             return False
         for owner in owners:
-            if (not isinstance(owner, dict) or any(type(owner.get(k)) is not int or not 0 < owner[k] <= 0xffffffffffffffff for k in ('pid', 'uid', 'started', 'inode'))
+            if (not isinstance(owner, dict) or set(owner) != OWNER_EVIDENCE_FIELDS
+                    or any(type(owner.get(k)) is not int or not 0 < owner[k] <= 0xffffffffffffffff for k in ('pid', 'uid', 'started', 'inode'))
                     or owner['uid'] != value['appUid'] or owner['pid'] > 0x7fffffff):
                 return False
         uids.add(value['appUid']); binaries.add(value['collectorBinarySha256'])
@@ -97,9 +134,12 @@ def validate_request_evidence(proof, apk_sha256, module_sha256, expectation):
             return False
         seen = set()
         for frame in frames:
-            if (not isinstance(frame, dict) or not isinstance(frame.get('command'), str) or frame['command'] not in SECURITY_COMMANDS
+            if (not isinstance(frame, dict) or set(frame) != FRAME_EVIDENCE_FIELDS
+                    or not isinstance(frame.get('command'), str) or frame['command'] not in SECURITY_COMMANDS
                     or type(frame.get('packetAppId')) is not int or frame['packetAppId'] != expected
-                    or type(frame.get('sequence')) is not int or not 0 <= frame['sequence'] <= 0xffffffff):
+                    or type(frame.get('sequence')) is not int or not 0 <= frame['sequence'] <= 0xffffffff
+                    or type(frame.get('firstObservedMonotonicNs')) is not int
+                    or frame['firstObservedMonotonicNs'] <= 0):
                 return False
             seen.add(frame['command'])
         commands.append(seen)

@@ -51,14 +51,15 @@ class AdaptationCheckpointTest(unittest.TestCase):
 
     def test_owner_feedback_resume_skips_discovery_based_window_selection(self):
         shared = (Path(__file__).resolve().parents[1]/'.github/workflows/compatibility-app.yml').read_text()
-        step = shared.split('      - name: Select the latest-three regression window', 1)[1].split('      - name:', 1)[0]
-        self.assertIn("steps.pending-adaptation.outputs.pending_adaptation != 'true'", step)
-        self.assertIn("targets: ${{ steps.targets.outputs.matrix || '[]' }}", shared)
+        step = shared.split('      - name: Match the latest APK to the unfinished adaptation', 1)[1].split('      - name:', 1)[0]
+        self.assertIn("needs.prepare.outputs.pending_adaptation != 'true'", step)
+        self.assertIn('Select the report pinned by the unfinished adaptation', shared)
 
     def test_runtime_replay_is_not_suppressed_by_skipped_discovery_dependencies(self):
         shared = (Path(__file__).resolve().parents[1]/'.github/workflows/compatibility-app.yml').read_text()
         runtime = shared.split('\n  runtime:', 1)[1].split('\n  runtime-result:', 1)[0]
-        self.assertIn("if: ${{ !cancelled() && needs.adapt.outputs.pr_url != '' }}", runtime)
+        self.assertIn("needs.adapt.outputs.candidate_ready == 'true'", runtime)
+        self.assertNotIn("needs.adapt.outputs.pr_url != ''", runtime)
 
     def test_common_workflow_locks_before_jobs_and_is_called_by_each_app(self):
         root = Path(__file__).resolve().parents[1]
@@ -66,8 +67,13 @@ class AdaptationCheckpointTest(unittest.TestCase):
         header, jobs = shared.split('\njobs:', 1)
         self.assertIn('\nconcurrency:\n  group: impad-codex-managed-auth\n  cancel-in-progress: false', header)
         self.assertNotIn('concurrency:', jobs)
-        self.assertNotIn('  workflow_dispatch:', header)
+        self.assertIn('  workflow_dispatch:', header)
         self.assertIn('  workflow_call:', header)
+        dispatch = header.split('  workflow_dispatch:', 1)[1].split('  workflow_call:', 1)[0]
+        self.assertIn('app_id:', dispatch)
+        self.assertIn('required: true', dispatch)
+        self.assertIn('apk_url:', dispatch)
+        self.assertIn('operation:', dispatch)
         self.assertNotIn('queue: max', shared)
         for app in ('wechat', 'wecom', 'qq'):
             shell = (root / f'.github/workflows/compatibility-{app}.yml').read_text()
@@ -80,22 +86,28 @@ class AdaptationCheckpointTest(unittest.TestCase):
         validation = (root / '.github/workflows/runtime-validation.yml').read_text()
         self.assertIn('uses: ./.github/workflows/runtime-validation.yml', shared)
         self.assertFalse((root / '.github/workflows/runtime-smoke.yml').exists())
-        self.assertIn('  workflow_dispatch:', validation)
+        self.assertNotIn('  workflow_dispatch:', validation)
         self.assertIn('  workflow_call:', validation)
-        build = validation.split('      - name: Check real APK and build replay module', 1)[1].split('      - name:', 1)[0]
+        build = validation.split('      - name: Build module for the exact checked candidate', 1)[1].split('      - name:', 1)[0]
         self.assertIn("if: inputs.module_run_id == ''", build)
         result = validation.split('  result:', 1)[1]
-        self.assertIn("inputs.module_run_id == ''", result)
-        self.assertIn('runtime-smoke/evidence/smoke-report.json', result)
+        self.assertIn("if: always() && needs.prepare.result == 'success'", result)
+        self.assertNotIn("inputs.module_run_id == ''", result)
+        self.assertIn('candidate_mode: artifact', shared)
+        self.assertIn("directory / 'evidence/runtime-smoke'", result)
+        self.assertIn("evidence_root / 'evidence/smoke-report.json'", result)
 
     def test_reusable_runtime_validation_requires_an_explicit_application(self):
-        validation = (Path(__file__).resolve().parents[1] / '.github/workflows/runtime-validation.yml').read_text()
-        manual_inputs = validation.split('  workflow_dispatch:', 1)[1].split('  workflow_call:', 1)[0]
+        root = Path(__file__).resolve().parents[1]
+        shared = (root / '.github/workflows/compatibility-app.yml').read_text()
+        validation = (root / '.github/workflows/runtime-validation.yml').read_text()
+        manual_inputs = shared.split('  workflow_dispatch:', 1)[1].split('  workflow_call:', 1)[0]
         reusable_inputs = validation.split('  workflow_call:', 1)[1].split('\npermissions:', 1)[0]
-        manual_app_id = manual_inputs.split('      app_id:', 1)[1].split('      candidate_mode:', 1)[0]
+        manual_app_id = manual_inputs.split('      app_id:', 1)[1].split('      apk_url:', 1)[0]
         reusable_app_id = reusable_inputs.split('      app_id:', 1)[1].split('      module_run_id:', 1)[0]
 
-        self.assertIn('default: wechat', manual_app_id)
+        self.assertIn('required: true', manual_app_id)
+        self.assertNotIn('default:', manual_app_id)
         self.assertIn('required: true', reusable_app_id)
         self.assertNotIn('default: wechat', reusable_app_id)
         self.assertIn('APP_ID: ${{ inputs.app_id }}', validation)
@@ -141,7 +153,7 @@ class AdaptationCheckpointTest(unittest.TestCase):
         self.checkout.parent.mkdir()
         subprocess.run(['git', 'clone', '-q', str(self.repository), str(self.checkout)], check=True)
         self.state = {
-            'appId': 'wecom', 'targetsPath': 'compatibility/wecom/targets.json',
+            'appId': 'wecom',
             'base': self.base, 'agent_base': self.base, 'worktree': str(self.checkout),
             'report': {'appId': 'wecom', 'identity': self.identity, 'status': 'NEEDS_HOOK_REVIEW'},
             'existing_tests': {self.existing_test_relative: sha256(existing_test)},
@@ -216,7 +228,7 @@ class AdaptationCheckpointTest(unittest.TestCase):
 
     def test_new_app_and_core_tests_survive_checkpoint_restore(self):
         paths = ['app/src/test/kotlin/io/github/nku100/impad/apps/wecom/NewTest.kt',
-                 'compat-core/src/test/kotlin/io/github/nku100/impad/compat/NewCoreTest.kt']
+                 'compat-rules/src/test/kotlin/io/github/nku100/impad/rules/wecom/NewCoreTest.kt']
         for relative in paths:
             path = self.checkout / relative
             path.parent.mkdir(parents=True, exist_ok=True)
@@ -241,6 +253,18 @@ class AdaptationCheckpointTest(unittest.TestCase):
         task, checkout = self.fresh_task()
         self.assertFalse(restore_checkpoint(task, self.task, {'status': 'WAITING_RUNTIME'})['needsModel'])
         self.assertEqual('class NewTest\n', (checkout / relative).read_text())
+
+    def test_shared_static_validation_status_is_checkpointed_and_restored(self):
+        patch_path = self.task / 'adaptation.patch'
+        patch_path.write_bytes(b'')
+        report = dict(self.state['report'], status='STATIC_VERIFIED_PENDING_RUNTIME',
+                      validatedBaseCommit=self.base, validatedPatchSha256=sha256(patch_path))
+        (self.task / 'candidate-report.json').write_text(json.dumps(report))
+        manifest = capture_checkpoint(self.task)
+        self.assertEqual('static-verified-pending-runtime', manifest['stage'])
+        task, _ = self.fresh_task()
+        restored = restore_checkpoint(task, self.task, {'status': 'WAITING_RUNTIME'})
+        self.assertFalse(restored['needsModel'])
 
     def test_capture_excludes_a_new_test_symlink(self):
         relative = 'app/src/test/kotlin/io/github/nku100/impad/apps/wecom/LinkedTest.kt'
@@ -279,7 +303,7 @@ class AdaptationCheckpointTest(unittest.TestCase):
         task, _ = self.fresh_task()
         self.assertTrue(restore_checkpoint(task, self.task, {'status': 'WAITING_RUNTIME'})['needsModel'])
 
-    def test_legacy_static_stage_without_validation_binding_resumes_model(self):
+    def test_unbound_static_stage_without_validation_binding_resumes_model(self):
         capture_checkpoint(self.task)
         manifest_path = self.task / 'checkpoint.json'
         manifest = json.loads(manifest_path.read_text())

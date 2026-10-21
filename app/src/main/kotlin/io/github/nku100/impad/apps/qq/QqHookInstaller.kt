@@ -1,22 +1,30 @@
 package io.github.nku100.impad.apps.qq
 
+import io.github.nku100.impad.compat.rules.ResolvedPlan
+import io.github.nku100.impad.runtime.HookCallback
 import io.github.nku100.impad.runtime.*
 import java.lang.reflect.Method
 import java.lang.reflect.Modifier
 
-class QqHookInstaller(registrar: HookRegistrar) {
-    private val installer = HookInstaller(registrar)
+class QqHookInstaller {
+    fun preparePlan(classLoader: ClassLoader, plan: ResolvedPlan): List<HookSpec> {
+        require(plan.rule.strategyId == "qq_tablet_001") {
+            "QQ rule plan did not select the registered tablet strategy"
+        }
+        require(plan.targets.keys == setOf("device_type")) { "QQ rule plan had an unexpected target set" }
+        val target = plan.targets.getValue("device_type")
+        val deviceType = TargetMethodResolver.resolve(classLoader, target.descriptor, target.shape)
+        return listOf(prepareDeviceType(deviceType))
+    }
 
-    fun install(deviceType: Method): InstallOutcome {
+    private fun prepareDeviceType(deviceType: Method): HookSpec {
         require(Modifier.isStatic(deviceType.modifiers) && deviceType.returnType.isEnum &&
             deviceType.parameterTypes.contentEquals(arrayOf(android.content.Context::class.java))) {
-            "QQ device type Getter must be static and return an enum"
+            "QQ device type Getter must be static, accept Context, and return an enum"
         }
         val tablet = requireNotNull(deviceType.returnType.enumConstants?.singleOrNull {
             (it as? Enum<*>)?.name == "TABLET"
         }) { "QQ device enum must contain exactly one TABLET value" }
-        return installer.install(listOf(
-            HookSpec(deviceType, "impad_qq_device_type", HookCallback { tablet }),
-        ))
+        return HookSpec(deviceType, "impad_qq_device_type", HookCallback { tablet })
     }
 }

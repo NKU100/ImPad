@@ -5,8 +5,15 @@ import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
 import kotlin.test.assertNull
 import kotlin.test.assertSame
+import kotlin.test.assertTrue
 
 class AppAdapterRegistryTest {
+    @Test
+    fun adapterContractHasNoProfileOrDescriptorRuntimeSurface() {
+        val forbidden = setOf("targetsAssetPath", "resolutionMode", "install")
+        assertTrue(AppAdapter::class.java.methods.none { it.name in forbidden })
+    }
+
     @Test
     fun defaultRegistryRoutesAllSupportedAppsInEveryBuildType() {
         val registry = AppAdapterRegistry()
@@ -41,18 +48,10 @@ class AppAdapterRegistryTest {
         assertSame(adapter, registry.find("com.tencent.mm", "com.tencent.mm"))
         assertNull(registry.find("com.tencent.mm", "com.tencent.mm:push"))
         assertNull(registry.find("com.tencent.mobileqq", "com.tencent.mobileqq:MSF"))
-        assertEquals("assets/compatibility/wechat/targets.json", adapter.targetsAssetPath)
     }
 
     private class FakeAdapter(override val packageName: String) : AppAdapter {
         override val compatibilityPolicy = io.github.nku100.impad.compat.apps.wechat.WeChatCompatibilityPolicy.policy
-        override val targetsAssetPath = "assets/test/targets.json"
         override fun acceptsProcess(processName: String?): Boolean = processName == packageName
-        override fun install(
-            classLoader: ClassLoader,
-            descriptors: Map<String, String>,
-            registrar: HookRegistrar,
-            log: ModuleLog,
-        ) = Unit
     }
 }

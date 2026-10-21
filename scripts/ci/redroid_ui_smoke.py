@@ -3,12 +3,19 @@ import json
 import re
 import time
 from .redroid_app_smoke import smoke as s, runtime_probe, query_target
+from scripts.ci.apps.wechat import runtime_policy as wechat_runtime_policy
+from scripts.ci.apps.wecom import runtime_policy
 
 def scoped_logs():
     logs = s.adb('logcat', '-d', '-v', 'threadtime').stdout.decode(errors='replace')
     processes = s.su('ps -A -o PID,NAME').stdout.decode(errors='replace')
     (s.EVIDENCE / 'processes.txt').write_text(processes)
     (s.EVIDENCE / 'logcat.txt').write_text(logs)
+    if s.APP_ID in {'wechat', 'wecom'}:
+        policy = wechat_runtime_policy if s.APP_ID == 'wechat' else runtime_policy
+        selected = policy.scoped_module_log_lines(logs, processes, s.APP_PACKAGE)
+        (s.EVIDENCE / 'app-hook-logs.txt').write_text(selected)
+        return selected
     pids = {int(fields[0]) for line in processes.splitlines() if len(fields := line.split()) == 2
             and fields[0].isdigit() and (fields[1] == s.APP_PACKAGE or fields[1].startswith(s.APP_PACKAGE + ':'))}
     selected = []
@@ -26,34 +33,61 @@ def probe(app, root, inputs, module_hash):
     s.EVIDENCE.mkdir(parents=True, exist_ok=True)
     report = {'appId': app, 'status': 'ACCEPTANCE_UNAVAILABLE', 'evidenceDirectory': str(s.EVIDENCE),
               'input': inputs[app], 'moduleApkSha256': module_hash, 'noAccountAuthentication': True}
+    manager_states = {}
+    strict_gate = app in {'wechat', 'wecom'}
+    policy_runtime = wechat_runtime_policy if app == 'wechat' else runtime_policy
+
+    def save_manager_state(label):
+        if not strict_gate:
+            return runtime_probe.manager_state(s)
+        raw = runtime_probe.manager_state_evidence(s)
+        derived = policy_runtime.derive_manager_state(raw, s.MODULE, s.APP_PACKAGE)
+        (s.EVIDENCE / f'manager-state-{label}.json').write_text(json.dumps(raw, indent=2) + '\n')
+        manager_states[label] = derived
+        report['managerStates'] = dict(manager_states)
+        return derived
+
     try:
         report['target'] = query_target()
         for package in ('com.tencent.mobileqq', 'com.tencent.mm', 'com.tencent.wework'):
             s.adb('shell', 'am', 'force-stop', package)
-        if runtime_probe.installed_hash(s, s.APP_PACKAGE) != inputs[app]['identity']['apkSha256']:
-            raise RuntimeError('Installed app APK differs from the verified input')
-        if runtime_probe.installed_hash(s, s.MODULE) != module_hash:
-            raise RuntimeError('Installed ImPad differs from the QQ test module')
-        report['initialManagerState'] = runtime_probe.manager_state(s)
+        installed = None
+        if strict_gate:
+            installed = {
+                'schemaVersion': 1,
+                'app': runtime_probe.installed_identity(s, s.APP_PACKAGE),
+                'module': runtime_probe.installed_identity(s, s.MODULE),
+            }
+            if installed['app']['baseApkSha256'] != inputs[app]['identity']['apkSha256']:
+                raise RuntimeError('Installed app APK differs from the verified input')
+            if installed['module']['baseApkSha256'] != module_hash:
+                raise RuntimeError('Installed ImPad differs from the verified module APK')
+            (s.EVIDENCE / 'installed-identities.json').write_text(json.dumps(installed, indent=2) + '\n')
+            report['installedIdentities'] = installed
+        elif (runtime_probe.installed_hash(s, s.APP_PACKAGE) != inputs[app]['identity']['apkSha256']
+              or runtime_probe.installed_hash(s, s.MODULE) != module_hash):
+            raise RuntimeError('Installed app or ImPad differs from the verified input')
+        report['initialManagerState'] = save_manager_state('initial')
         s.configure_manager(False)
         s.adb('shell', 'pm', 'clear', s.APP_PACKAGE)
         s.adb('logcat', '-c')
         off = s.mobile_input('module-off-login')
-        if runtime_probe.manager_state(s)['moduleEnabled'] is not False:
+        disabled_state = save_manager_state('disabled')
+        if disabled_state['moduleEnabled'] is not False:
             raise RuntimeError('Module-off state changed')
-        report['baseline'] = {'moduleEnabled': False, 'loginPageReady': True,
-                              'tabletEntry': any(s.is_tablet_entry(n.get('text', '')) for n in s.nodes(off))}
-        if report['baseline']['tabletEntry']:
-            raise RuntimeError('Baseline already has a tablet entry')
         s.configure_manager(True)
+        if strict_gate:
+            enabled_state = save_manager_state('enabled')
+            if enabled_state['moduleEnabled'] is not True:
+                raise RuntimeError('Module-on state changed')
         s.adb('shell', 'pm', 'clear', s.APP_PACKAGE)
         s.adb('logcat', '-c')
         on = s.mobile_input('module-on-login')
-        report['enabled'] = {'moduleEnabled': True, 'loginPageReady': True,
-                             'tabletEntry': any(s.is_tablet_entry(n.get('text', '')) for n in s.nodes(on))}
+        if strict_gate and ('candidateReport' not in inputs[app] or 'moduleIdentity' not in inputs[app]):
+            raise RuntimeError('Rule candidate plan or prepared module identity is missing')
         logs = scoped_logs()
-        report['runtimeDiagnostics'] = s.hook_diagnostics(logs)
-        choice = s.unique_node(on, lambda n: s.is_tablet_entry(n.get('text', '')))
+        choice = s.unique_node(on, lambda n: n.get('package') == s.APP_PACKAGE
+                               and s.is_tablet_entry(n.get('text', '')))
         if choice is None:
             report['status'] = 'RUNTIME_REJECTED'
             raise RuntimeError('Module-on login page has no tablet entry')
@@ -75,7 +109,41 @@ def probe(app, root, inputs, module_hash):
         if not ready:
             report['status'] = 'RUNTIME_REJECTED'
             raise RuntimeError('Tablet entry did not reach the expected stable QR page')
-        report['runtimeDiagnostics'] = s.hook_diagnostics(scoped_logs())
+        logs = scoped_logs()
+        processes = (s.EVIDENCE / 'processes.txt').read_text()
+        candidate = inputs[app]['candidateReport']
+        module_identity = inputs[app]['moduleIdentity']
+        if strict_gate:
+            candidate = inputs[app]['candidateReport']
+            module_identity = inputs[app]['moduleIdentity']
+            report['runtimeDiagnostics'], report['runtimeLifecycleEvidence'] = policy_runtime.derive_hook_evidence(
+                processes, logs, candidate, module_identity, installed['module'])
+            samples = {
+                'baseline': {'activity': (s.EVIDENCE / 'module-off-login-activity.txt').read_text(),
+                             'hierarchy': (s.EVIDENCE / 'module-off-login.xml').read_text()},
+                'enabled': {'activity': (s.EVIDENCE / 'module-on-login-activity.txt').read_text(),
+                            'hierarchy': (s.EVIDENCE / 'module-on-login.xml').read_text()},
+                'qrCurrent': {'activity': (s.EVIDENCE / 'tablet-qr-current-activity.txt').read_text(),
+                              'hierarchy': (s.EVIDENCE / 'tablet-qr-current.xml').read_text()},
+                'qrConfirmed': {'activity': (s.EVIDENCE / 'tablet-qr-confirmed-activity.txt').read_text(),
+                                'hierarchy': (s.EVIDENCE / 'tablet-qr-confirmed.xml').read_text()},
+            }
+            ui_evidence = policy_runtime.derive_ui_evidence(
+                samples, s.APP_PACKAGE, s.APP_POLICY.runtime_qr_page)
+            if ui_evidence['baseline']['tabletEntry'] or not ui_evidence['enabled']['tabletEntry']:
+                raise RuntimeError('Tablet entry did not change only with the module enabled')
+            report['baseline'] = dict(manager_states['disabled'], **ui_evidence['baseline'])
+            report['enabled'] = dict(manager_states['enabled'], **ui_evidence['enabled'])
+            report['qrPage'] = ui_evidence['qrPage']
+            report['qrStable'] = ui_evidence['qrStable']
+        else:
+            report['runtimeDiagnostics'] = s.hook_diagnostics(logs)
+            report['baseline'] = {'moduleEnabled': False, 'loginPageReady': True,
+                                  'tabletEntry': any(s.is_tablet_entry(n.get('text', '')) for n in s.nodes(off))}
+            report['enabled'] = {'moduleEnabled': True, 'loginPageReady': True,
+                                 'tabletEntry': any(s.is_tablet_entry(n.get('text', '')) for n in s.nodes(on))}
+            if report['baseline']['tabletEntry']:
+                raise RuntimeError('Baseline already has a tablet entry')
         diagnostics = report['runtimeDiagnostics']
         expected = 'INSTALLED_' + str(len(s.APP_POLICY.required_hook_ids))
         if diagnostics['compatibility'] != 'COMPATIBLE' or diagnostics['hookInstallation'] != expected:
@@ -92,7 +160,8 @@ def probe(app, root, inputs, module_hash):
     finally:
         try:
             s.configure_manager(True)
-            report['finalManagerState'] = runtime_probe.manager_state(s)
+            final_state = save_manager_state('final')
+            report['finalManagerState'] = final_state
         except Exception as error:
             report['status'] = 'ACCEPTANCE_UNAVAILABLE'
             report['restoreError'] = str(error)

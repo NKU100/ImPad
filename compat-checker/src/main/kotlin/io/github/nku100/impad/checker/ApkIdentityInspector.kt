@@ -17,20 +17,39 @@ class ApkIdentityInspector(
         val absoluteApk = apk.absoluteFile
         val apkanalyzer = executable(sdkRoot.resolve("cmdline-tools/latest/bin/apkanalyzer"))
         val apksigner = executable(latestBuildToolsDirectory().resolve("apksigner"))
-        val packageName = manifestValue(apkanalyzer, "application-id", absoluteApk)
-        val versionName = manifestValue(apkanalyzer, "version-name", absoluteApk)
-        val versionCode = manifestValue(apkanalyzer, "version-code", absoluteApk).toLongOrNull()
-            ?: throw IllegalArgumentException("APK manifest contains an invalid version code")
+        val signerSha256 = readSingleSignerSha256(apksigner, absoluteApk)
+        val baseIdentity = packageIdentity(apkanalyzer, absoluteApk, signerSha256)
+        abiSplitApks.map(File::getAbsoluteFile).forEach { split ->
+            val splitSigner = readSingleSignerSha256(apksigner, split)
+            val splitIdentity = packageIdentity(apkanalyzer, split, splitSigner)
+            require(splitIdentity.packageName == baseIdentity.packageName) {
+                "Split APK package does not match base APK: ${split.absolutePath}"
+            }
+            require(splitIdentity.versionCode == baseIdentity.versionCode) {
+                "Split APK version code does not match base APK: ${split.absolutePath}"
+            }
+            require(splitIdentity.signerSha256 == baseIdentity.signerSha256) {
+                "Split APK signer does not match base APK: ${split.absolutePath}"
+            }
+        }
 
         return BuildIdentity(
-            packageName = packageName,
-            versionName = versionName,
-            versionCode = versionCode,
+            packageName = baseIdentity.packageName,
+            versionName = baseIdentity.versionName,
+            versionCode = baseIdentity.versionCode,
             abi = readSingleAbi(listOf(absoluteApk) + abiSplitApks.map(File::getAbsoluteFile)),
             apkSha256 = sha256(absoluteApk),
-            signerSha256 = readSingleSignerSha256(apksigner, absoluteApk),
+            signerSha256 = baseIdentity.signerSha256,
         )
     }
+
+    private fun packageIdentity(apkanalyzer: File, apk: File, signerSha256: String) = PackageIdentity(
+        packageName = manifestValue(apkanalyzer, "application-id", apk),
+        versionName = manifestValue(apkanalyzer, "version-name", apk),
+        versionCode = manifestValue(apkanalyzer, "version-code", apk).toLongOrNull()
+            ?: throw IllegalArgumentException("APK manifest contains an invalid version code: ${apk.absolutePath}"),
+        signerSha256 = signerSha256,
+    )
 
     private fun manifestValue(apkanalyzer: File, value: String, apk: File): String {
         val output = commandRunner(listOf(
@@ -117,6 +136,13 @@ class ApkIdentityInspector(
     }
 }
 
+private data class PackageIdentity(
+    val packageName: String,
+    val versionName: String,
+    val versionCode: Long,
+    val signerSha256: String,
+)
+
 private fun defaultAndroidSdkRoot(): File {
     val path = System.getenv("ANDROID_SDK_ROOT") ?: System.getenv("ANDROID_HOME")
         ?: throw IllegalStateException("Set ANDROID_SDK_ROOT or ANDROID_HOME to inspect an APK")
@@ -125,22 +151,26 @@ private fun defaultAndroidSdkRoot(): File {
 
 private fun runCommand(command: List<String>): String {
     val capture = File.createTempFile("impad-apk-inspector-", ".log")
+    val errorCapture = File.createTempFile("impad-apk-inspector-", ".err")
     try {
         val process = ProcessBuilder(command)
-            .redirectErrorStream(true)
             .redirectOutput(capture)
+            .redirectError(errorCapture)
             .start()
-        if (!process.waitFor(30, TimeUnit.SECONDS)) {
+        if (!process.waitFor(COMMAND_TIMEOUT_SECONDS, TimeUnit.SECONDS)) {
             process.destroyForcibly()
             process.waitFor()
             throw IllegalStateException("Timed out running ${File(command.first()).name}")
         }
         val output = capture.readText()
         check(process.exitValue() == 0) {
-            "${File(command.first()).name} failed: ${output.trim()}"
+            "${File(command.first()).name} failed: ${errorCapture.readText().trim()} ${output.trim()}".trim()
         }
         return output
     } finally {
         capture.delete()
+        errorCapture.delete()
     }
 }
+
+private const val COMMAND_TIMEOUT_SECONDS = 120L

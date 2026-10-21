@@ -1,0 +1,8 @@
+{
+  "artifact": "org.luckypray:dexkit:2.3.0@aar",
+  "purpose": "Authentic integration-test payload for an explicit official-download mock; production lock and verifier remain authoritative.",
+  "schemaVersion": 1,
+  "sha256": "8df532c4126b58490667f71127dc57aef62ccf3578d1d17330f2a1cb8836218e",
+  "sizeBytes": 1524906,
+  "sourceUrl": "https://repo1.maven.org/maven2/org/luckypray/dexkit/2.3.0/dexkit-2.3.0.aar"
+}

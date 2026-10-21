@@ -1,70 +1,19 @@
-# 支持的应用构建
+# 已验证版本与验证范围
 
-清单来自仓库中随模块打包的正式 profile。所有条目均为 `arm64-v8a`；debug 和 release 均注册三个应用适配器。profile 验证状态来自历次适配验收，最初使用 debug 模块；下表单独标明使用 ImPad 0.1.0 release APK 完成的运行验收。
+以下三个精确应用构建已通过同一份 ImPad 模块 APK 的 GitHub-hosted ARM64 ReDroid 运行验收。模块 APK SHA-256 为 `d8cdaf1aba2d19503c9a9a2679195456657faae1b5fae8e9d52e2c5ba1b88691`，源码提交为 `8690ed5162ba71c1d756f9e57793c774f2501de7`，127 项模块源码树 SHA-256 为 `654e389fd9b35a1362d6d9c79d2f07f8cd249f141fdfff59c74cff1b70f25aae`。模块由[构建 run 39554279828](https://github.com/NKU100/ImPad/actions/runs/39554279828)生成；该构建 artifact 为 `impad-module-apk`。
 
-模块同时匹配包名、版本名、versionCode、ABI、APK SHA-256 和签名 SHA-256。相同版本名不代表相同 APK。未登记构建不会安装 Hook。
+| 应用构建 | 官方 APK SHA-256 | 独立运行验收 | 已验证行为 |
+| --- | --- | --- | --- |
+| QQ 9.3.1 / 14378 | `ccf9714d268662ee8311add537705e66dee3367d45a20eabbf57b0070949595e` | [39555436990](https://github.com/NKU100/ImPad/actions/runs/39555436990) | `qq_device_type_001` 唯一匹配；手机 AppID `537360567`、平板 AppID `537360606`；MSF owner 已验证，capture 无 kernel drops 或 partial streams；production verifier `VERIFIED`。 |
+| 微信 8.0.69 / 3040 | `e4da5809f2b3305e375db38897a4082085adc6b51182fa807813c4dda1c3a948` | [39556863774](https://github.com/NKU100/ImPad/actions/runs/39556863774) | `wechat_tablet_login_001` 唯一匹配；稳定显示 `LoginAsExDeviceUI`；Tinker READY，native 从本模块 APK 加载，2 个 hook 在兼容性和 native 就绪后安装；production verifier `VERIFIED`。 |
+| 企业微信 5.0.8 / 70675 | `59b3e620a3cf1d1f8740ea320e05fd821bb811040b36f69aa307e7fc8a2ca26d` | [39557803980](https://github.com/NKU100/ImPad/actions/runs/39557803980) | `wecom_local_001` 唯一匹配；manager 关闭/启用状态及 scope 已验证；稳定显示 `LoginQrCodeForAndroidPad`；Tinker READY，native 从本模块 APK 加载，3 个 hook 在兼容性和 native 就绪后安装；production verifier `VERIFIED`。 |
 
-`runtime-verified-local` 表示本地运行验证；`runtime-verified-hosted` 表示托管环境独立运行验收。两者均遵循不输入真实账号、不扫码、不提交登录的验证设计。
+每次运行还通过 `APPLICATION_ACCEPTANCE_VERIFIED`、`RUNTIME_SMOKE_VERIFIED` 和 tooling 4/4。三项静态固定回归均为 `PASSED`，`initialMigration=false`。各候选的官方 APK URL 分别为 [QQ](https://downv6.qq.com/qqweb/QQ_1/android_apk/9.3.1_877e277185fb829c.apk)、[微信](https://dldir1v6.qq.com/weixin/android/weixin8069android3040_0x2800455a_arm64.apk) 和[企业微信](https://dldir1.qq.com/wework/work_weixin/WeCom_android_5.0.8.70675_arm64_100001.apk)。
 
-## 微信
+验收未使用真实账号、未扫描二维码、未提交登录。结果不证明真实账号登录、服务器接受或双设备会话共存，也不覆盖所有设备、Android 版本或所有热补丁行为。Tinker readiness 和 native 加载只证明上述精确构建在被测流程中的观测结果，不等于对后续任意热补丁变更的兼容保证。
 
-包名：`com.tencent.mm`
+QQ collector 继续使用 SYN 阶段建立的 owner/generation 缓存，并在相同 tuple、相同 ISN 的 SYN 上核对当前 socket inode 与 UID。只有能证明仍是同一 socket 时才沿用缓存；身份变化或无法确认时会重新解析，未知 owner 继续 fail-closed。没有增加逐包全 FD 扫描，也没有验证 SYN 之后的任意 FD handoff；FD handoff 是该历史采集合同保留的明确局限，不应视为已排除风险。
 
-| 版本 | versionCode | APK SHA-256 | profile 验证状态 | 0.1.0 release 运行验收 |
-| --- | --- | --- | --- | --- |
-| 8.0.69 | 3040 | `e4da5809f2b3305e375db38897a4082085adc6b51182fa807813c4dda1c3a948` | `runtime-verified-local` | 未重跑 |
-| 8.0.79 | 3200 | `5feb100337981467fd257c3ad66bb171f54a69d2579b2ecc70d5a628db8e7282` | `runtime-verified-hosted` | 通过 |
-| 8.0.79 | 3200 | `f2a725bc04302ad218a563533ae79356e66b64aa711b275bc919a8d432f7e15d` | `runtime-verified-hosted` | 通过 |
+统一模块在 Oracle ARM64 ReDroid 上的四轮尝试未通过，包括复测一份曾在其他运行中成功的精确 binary/APK。Oracle framework 文件与权限一致性未获证，环境或部署差异仍待定位；这些失败不能证明纯宿主原因，也不能据此推断 GitHub-hosted 运行环境有相同问题。上述三个 GitHub-hosted run 是绑定当前模块身份的新运行验收。
 
-签名证书 SHA-256：`0fe4ff85c215918396dadc7cd8ce6963339af33d37751a56e54c7206b63a3c7c`
-
-完整 profile 与官方来源：[compatibility/wechat/targets.json](../compatibility/wechat/targets.json)。
-
-## QQ
-
-包名：`com.tencent.mobileqq`
-
-| 版本 | versionCode | APK SHA-256 | profile 验证状态 | 0.1.0 release 运行验收 |
-| --- | --- | --- | --- | --- |
-| 9.3.1 | 14378 | `ccf9714d268662ee8311add537705e66dee3367d45a20eabbf57b0070949595e` | `runtime-verified-hosted` | 未重跑 |
-| 9.3.70 | 16410 | `e8c28713b740c18246989d47916d9fbbad06d440778a5aab3f4e108a2423e55c` | `runtime-verified-hosted` | 通过 |
-
-签名证书 SHA-256：`ea6e97ad6c34f7039a9c6daba732c97d0e098e83ede2b4d52c76eb0184ac7a38`
-
-完整 profile 与官方来源：[compatibility/qq/targets.json](../compatibility/qq/targets.json)。
-
-## 企业微信
-
-包名：`com.tencent.wework`
-
-| 版本 | versionCode | APK SHA-256 | profile 验证状态 | 0.1.0 release 运行验收 |
-| --- | --- | --- | --- | --- |
-| 5.0.8 | 70675 | `59b3e620a3cf1d1f8740ea320e05fd821bb811040b36f69aa307e7fc8a2ca26d` | `runtime-verified-local` | 未重跑 |
-| 5.0.12 | 83835 | `6b3cead315fa7d8c302b4b538f25abe5afc935b69f9cd49ee212a780f6afdf40` | `runtime-verified-hosted` | 通过 |
-
-签名证书 SHA-256：`66896ae0aae48b9e963a3e034fa2ca813ca2f661f53619a92263a8a5c2e3f388`
-
-完整 profile 与官方来源：[compatibility/wecom/targets.json](../compatibility/wecom/targets.json)。
-
-## ImPad 0.1.0 release 验收证据
-
-2026-10-18 的[构建 CI](https://github.com/NKU100/ImPad/actions/runs/39131683793) 对清单中的全部 7 份 APK 完成静态回归，并生成稳定签名的非 debuggable release APK。源码提交为 `56b1eca95b91aa072da70fa95fa7f228d32e69e2`。
-
-四轮独立运行验收均复用该次构建的同一份模块 APK，未重新构建 debug：
-
-| 应用构建 | APK SHA-256 前缀 | 独立运行验收 |
-| --- | --- | --- |
-| 微信 8.0.79 / 3200 | `5feb1003` | [39132731980](https://github.com/NKU100/ImPad/actions/runs/39132731980) |
-| 微信 8.0.79 / 3200 | `f2a725bc` | [39133311611](https://github.com/NKU100/ImPad/actions/runs/39133311611) |
-| QQ 9.3.70 / 16410 | `e8c28713` | [39133831034](https://github.com/NKU100/ImPad/actions/runs/39133831034) |
-| 企业微信 5.0.12 / 83835 | `6b3cead3` | [39135858231](https://github.com/NKU100/ImPad/actions/runs/39135858231) |
-
-模块 APK SHA-256：`9e20021049e027ae7a76897b3a4afef2fe24ddc5a3d4a3cb14b707ae0522231a`。
-
-模块签名证书 SHA-256：`d1e2f14a6851822874a6753041ea5681f91ad33e7ec0d9fd264d52f174b8b409`。
-
-微信 8.0.69、QQ 9.3.1、企业微信 5.0.8 保留既有运行验证，并通过本次静态回归；本轮未使用 release 模块重跑这三个旧构建的运行验收。
-
-## 验收边界
-
-微信和企微验证登录入口、二维码页及当前进程 Hook；QQ 验证自然请求的设备身份变化和完整请求证据。清单不承诺真实账号登录、服务端接受或双设备会话共存，也不代表全部 Android 版本和实体设备均通过。
+其他应用版本或模块构建不由这些结果推定通过。历史 `targets.json` 文件仅作为追溯资料保留，不是当前模块打包、规则检查、运行准入或流水线输入；历史 profile 标签也不代表本节列出的当前验收范围。

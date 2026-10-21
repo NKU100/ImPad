@@ -10,8 +10,8 @@ from scripts.ci.apps.wecom.runtime_policy import (
 
 
 PACKAGE = "com.tencent.wework"
-LOGIN_ACTIVITY = "Resumed: ActivityRecord{u0 com.tencent.wework/.login.controller.LoginWxAuthActivity}"
-QR_ACTIVITY = "Resumed: ActivityRecord{u0 com.tencent.wework/.login.controller.LoginQrCodeForAndroidPad}"
+LOGIN_ACTIVITY = "ACTIVITY MANAGER ACTIVITIES\n  topResumedActivity=ActivityRecord{abc u0 com.tencent.wework/.login.controller.LoginWxAuthActivity t8}"
+QR_ACTIVITY = "ACTIVITY MANAGER ACTIVITIES\n  topResumedActivity=ActivityRecord{abc u0 com.tencent.wework/.login.controller.LoginQrCodeForAndroidPad t9}"
 
 
 class WeComRuntimePolicyTest(unittest.TestCase):
@@ -35,6 +35,12 @@ class WeComRuntimePolicyTest(unittest.TestCase):
         self.assertFalse(qr_page_ready(LOGIN_ACTIVITY, ui, PACKAGE, "LoginQrCodeForAndroidPad"))
         self.assertFalse(qr_page_ready(QR_ACTIVITY, ui.replace(PACKAGE, "other.app"), PACKAGE,
                                        "LoginQrCodeForAndroidPad"))
+
+    def test_activity_gate_rejects_inner_text_and_hidden_qr_content(self):
+        ui = f'<hierarchy><node package="{PACKAGE}" text="QR code" visible="false" /></hierarchy>'
+        nested = f'log says topResumedActivity=ActivityRecord{{abc u0 {PACKAGE}/.LoginQrCodeForAndroidPad t9}}'
+        self.assertFalse(qr_page_ready(nested, ui, PACKAGE, 'LoginQrCodeForAndroidPad'))
+        self.assertFalse(qr_page_ready(QR_ACTIVITY, ui, PACKAGE, 'LoginQrCodeForAndroidPad'))
 
     def test_hook_diagnostics_require_compatibility_and_installation_records(self):
         good = "I ImPad: status=COMPATIBLE\nI ImPad: installed 3 WeCom hooks"

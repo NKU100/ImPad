@@ -1,0 +1,1 @@
+<hierarchy rotation="0"><node package="com.tencent.wework" class="android.widget.Button" text="Login on pad and mobile phone at the same time" visible="true" enabled="true" bounds="[10,10][500,80]"/></hierarchy>

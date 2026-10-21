@@ -419,7 +419,7 @@ class CodexTaskTest(unittest.TestCase):
     def test_issue_copy_uses_the_selected_application_display_name(self):
         from scripts.ci import codex_task
         from scripts.ci import app_policy
-        policy = replace(codex_task.get_policy(), app_id='qq', display_name='QQ')
+        policy = replace(codex_task.get_policy('wechat'), app_id='qq', display_name='QQ')
         report = {'appId': 'qq', 'identity': {'packageName': policy.package_name, 'abi': policy.supported_abis[0],
                                                 'versionName': '9.1', 'versionCode': 91, 'apkSha256': 'a' * 64},
                   'sourceUrl': 'https://example.invalid/qq.apk'}

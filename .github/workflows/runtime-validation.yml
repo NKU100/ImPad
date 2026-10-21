@@ -1,46 +1,44 @@
 name: Validate ImPad runtime
 
 on:
-  workflow_dispatch:
-    inputs:
-      app_id:
-        description: Registered application policy to replay
-        type: string
-        default: wechat
-      candidate_mode:
-        description: Select the latest official APK or the newest runtime-verified registered APK
-        type: choice
-        options:
-          - latest
-          - registered
-        default: latest
-      apk_sha256:
-        description: Select an exact runtime-verified profile when registered variants share the latest version
-        type: string
-        default: ''
-      module_run_id:
-        description: Reuse the exact module APK from a completed build run instead of rebuilding debug
-        type: string
-        default: ''
-      module_artifact:
-        description: Module artifact in the selected build run
-        type: string
-        default: impad-module-apk
-
   workflow_call:
     inputs:
       app_id:
         type: string
         required: true
-      module_run_id:
+      operation:
+        description: Candidate operation selected by the unified compatibility entry
         type: string
         required: true
+      apk_url:
+        description: Exact official APK URL; an empty value uses the app policy discovery strategy
+        type: string
+        default: ''
+      candidate_mode:
+        description: Use the latest official APK or recheck the exact candidate artifact produced by an earlier stage.
+        type: string
+        required: true
+      module_run_id:
+        type: string
+        default: ''
       module_artifact:
         type: string
         default: ''
       candidate_artifact:
+        description: Exact producer artifact containing candidate-report.json and the APK whose SHA-256 it names.
         type: string
         default: ''
+      source_head:
+        description: Exact source commit used to build the module artifact
+        type: string
+        default: ''
+    outputs:
+      candidate_status:
+        description: Status of the exact candidate selected or received by this validation run
+        value: ${{ jobs.prepare.outputs.candidate_status }}
+      candidate_artifact:
+        description: Artifact containing the exact candidate report and static inputs
+        value: runtime-candidate-report-input-${{ inputs.app_id }}
 
 permissions:
   contents: read
@@ -56,14 +54,111 @@ jobs:
     outputs:
       app_id: ${{ steps.policy.outputs.app_id }}
       artifact_prefix: ${{ steps.policy.outputs.artifact_prefix }}
+      candidate_status: ${{ steps.candidate-state.outputs.status }}
     env:
       APP_ID: ${{ inputs.app_id }}
       CANDIDATE_MODE: ${{ inputs.candidate_mode || 'latest' }}
-      APK_SHA256: ${{ inputs.apk_sha256 || '' }}
     steps:
+      - name: Validate operation and candidate artifact contract
+        env:
+          OPERATION: ${{ inputs.operation }}
+          APK_URL: ${{ inputs.apk_url || '' }}
+          MODULE_RUN_ID: ${{ inputs.module_run_id || '' }}
+          MODULE_ARTIFACT: ${{ inputs.module_artifact || '' }}
+          CANDIDATE_ARTIFACT: ${{ inputs.candidate_artifact || '' }}
+          SOURCE_HEAD: ${{ inputs.source_head || '' }}
+        run: |
+          case "$OPERATION" in
+            verify|adapt) ;;
+            *) echo "Unsupported operation: $OPERATION" >&2; exit 2 ;;
+          esac
+          case "$CANDIDATE_MODE" in
+            latest)
+              if [[ -n "$CANDIDATE_ARTIFACT" ]]; then
+                echo 'candidate_artifact requires candidate_mode=artifact' >&2
+                exit 2
+              fi
+              ;;
+            artifact)
+              [[ "$MODULE_RUN_ID" =~ ^[0-9]+$ && -n "$CANDIDATE_ARTIFACT" ]] || {
+                echo 'artifact mode requires module_run_id and candidate_artifact' >&2
+                exit 2
+              }
+              [[ -z "$APK_URL" ]] || {
+                echo 'artifact mode cannot also request a newly resolved APK URL' >&2
+                exit 2
+              }
+              [[ "$SOURCE_HEAD" =~ ^[a-fA-F0-9]{40,64}$ ]] || {
+                echo 'artifact mode requires the exact producer source_head' >&2
+                exit 2
+              }
+              ;;
+            *) echo "Unsupported candidate_mode: $CANDIDATE_MODE" >&2; exit 2 ;;
+          esac
+          if [[ -n "$MODULE_ARTIFACT" && -z "$MODULE_RUN_ID" ]]; then
+            echo 'module_artifact requires module_run_id' >&2
+            exit 2
+          fi
+          if [[ -n "$MODULE_RUN_ID" && ! "$MODULE_RUN_ID" =~ ^[0-9]+$ ]]; then
+            echo 'module_run_id must contain only decimal digits' >&2
+            exit 2
+          fi
+
+      - name: Check out trusted DexKit preparation source
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ github.event.pull_request.base.sha || github.sha }}
+          path: .trusted-dexkit
+          sparse-checkout: |
+            .github/actions/prepare-dexkit-system-deps
+            scripts/ci
+            gradle
+          persist-credentials: false
+      - name: Prepare locked DexKit system dependencies
+        uses: ./.trusted-dexkit/.github/actions/prepare-dexkit-system-deps
       - uses: actions/checkout@v7
+        with:
+          ref: ${{ inputs.source_head || github.sha }}
       - id: policy
         run: python3 -m scripts.ci.app_policy --app-id "$APP_ID" --github-output "$GITHUB_OUTPUT"
+      - id: module-artifact
+        name: Resolve exact module artifact selection
+        if: inputs.module_run_id != ''
+        env:
+          MODULE_RUN_ID: ${{ inputs.module_run_id }}
+          MODULE_ARTIFACT: ${{ inputs.module_artifact || '' }}
+          ARTIFACT_PREFIX: ${{ steps.policy.outputs.artifact_prefix }}
+        run: |
+          set -euo pipefail
+          if [[ -z "$MODULE_RUN_ID" ]]; then
+            printf 'name=\n' >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          if [[ -n "$MODULE_ARTIFACT" ]]; then
+            artifact_name="$MODULE_ARTIFACT"
+          else
+            artifact_name="${ARTIFACT_PREFIX}-${APP_ID}-adapted-module"
+          fi
+          python3 - "$artifact_name" "$GITHUB_OUTPUT" <<'PY'
+          import sys
+          from pathlib import Path
+          import uuid
+
+          name, output_path = sys.argv[1:]
+          if not name or any(char in name for char in ('\n', '\r')):
+              raise SystemExit('module artifact name must be non-empty and single-line')
+          delimiter = 'impad-' + uuid.uuid4().hex
+          with Path(output_path).open('a') as output:
+              output.write(f'name<<{delimiter}\n{name}\n{delimiter}\n')
+          PY
+      - name: Validate exact candidate artifact inputs
+        if: inputs.candidate_mode == 'artifact'
+        env:
+          MODULE_RUN_ID: ${{ inputs.module_run_id }}
+          CANDIDATE_ARTIFACT: ${{ inputs.candidate_artifact }}
+        run: |
+          test -n "$MODULE_RUN_ID"
+          test -n "$CANDIDATE_ARTIFACT"
       - uses: actions/setup-java@v6
         with:
           distribution: temurin
@@ -73,16 +168,39 @@ jobs:
         with:
           packages: ''
       - run: sdkmanager 'cmdline-tools;latest' 'platforms;android-37.2' 'build-tools;37.0.0' 'ndk;29.0.14206865'
-      - name: Validate reused artifact inputs
-        if: inputs.module_run_id != '' && inputs.candidate_mode == ''
+      - name: Discover official candidate URL
+        id: official
+        if: inputs.apk_url == '' && inputs.candidate_artifact == '' && inputs.candidate_mode != 'artifact'
+        run: python3 -m scripts.ci.discover_latest_wechat --app-id "$APP_ID" --github-output "$GITHUB_OUTPUT" --report "$GITHUB_STEP_SUMMARY"
+      - name: Prepare official candidate with the shared checker
+        if: inputs.apk_url == '' && inputs.candidate_artifact == '' && inputs.candidate_mode != 'artifact'
         env:
-          CANDIDATE_ARTIFACT: ${{ inputs.candidate_artifact }}
-        run: test -n "$CANDIDATE_ARTIFACT"
+          APK_URL: ${{ steps.official.outputs.source_url }}
+        run: |
+          test "$CANDIDATE_MODE" = latest
+          python3 -m scripts.ci.candidate_selection \
+            --app-id "$APP_ID" \
+            --apk-url "$APK_URL" \
+            --directory work/runtime-smoke
+      - name: Prepare requested official APK URL
+        if: inputs.apk_url != '' && inputs.candidate_artifact == '' && inputs.candidate_mode != 'artifact'
+        env:
+          APK_URL: ${{ inputs.apk_url }}
+        run: |
+          python3 -m scripts.ci.candidate_selection \
+            --app-id "$APP_ID" \
+            --apk-url "$APK_URL" \
+            --directory work/runtime-smoke
+      - name: Run fixed-record static regression
+        run: |
+          python3 -m scripts.ci.static_regression \
+            --app-id "$APP_ID" \
+            --reports work/runtime-smoke/regression
       - name: Reuse exact module build
         if: inputs.module_run_id != ''
         uses: actions/download-artifact@v8
         with:
-          name: ${{ inputs.module_artifact || format('{0}-{1}-adapted-module', steps.policy.outputs.artifact_prefix, steps.policy.outputs.app_id) }}
+          name: ${{ steps.module-artifact.outputs.name }}
           path: work/runtime-smoke/module
           run-id: ${{ inputs.module_run_id }}
           github-token: ${{ github.token }}
@@ -94,39 +212,34 @@ jobs:
           path: work/runtime-smoke
           run-id: ${{ inputs.module_run_id }}
           github-token: ${{ github.token }}
-      - name: Prepare registered replay candidate and app-scoped module assets
-        if: inputs.module_run_id == '' || inputs.candidate_artifact == ''
-        env:
-          TARGETS_PATH: ${{ steps.policy.outputs.targets_path }}
+      - name: Recheck exact candidate artifact
+        if: inputs.candidate_mode == 'artifact' && inputs.candidate_artifact != ''
         run: |
-          selector_args=()
-          if [[ -n "$APK_SHA256" ]]; then
-            if [[ ! "$APK_SHA256" =~ ^[[:xdigit:]]{64}$ ]]; then
-              echo 'apk_sha256 must be 64 hexadecimal characters' >&2
-              exit 2
-            fi
-            selector_args=(--apk-sha256 "$APK_SHA256")
-          fi
           python3 -m scripts.ci.candidate_selection \
             --app-id "$APP_ID" \
-            --mode "$CANDIDATE_MODE" \
-            --targets "$TARGETS_PATH" \
-            "${selector_args[@]}" \
+            --adaptation-report work/runtime-smoke/candidate-report.json \
             --directory work/runtime-smoke
-      - name: Check real APK and build replay module
-        if: inputs.module_run_id == ''
-        env:
-          TARGETS_PATH: ${{ steps.policy.outputs.targets_path }}
+      - name: Capture prepared candidate status
+        id: candidate-state
         run: |
-          expected_sha256="$(jq -r .identity.apkSha256 work/runtime-smoke/candidate-report.json)"
-          ./gradlew --no-daemon :compat-checker:run --args="check --app-id $APP_ID --targets $TARGETS_PATH --apk work/runtime-smoke/$APP_ID-$expected_sha256.apk"
+          status=UNAVAILABLE
+          if [[ -f work/runtime-smoke/candidate-report.json ]]; then
+            status="$(jq -r '.status // "UNAVAILABLE"' work/runtime-smoke/candidate-report.json)"
+            if [[ "$status" == STATIC_VERIFIED_PENDING_RUNTIME ]]; then status=PREPARED; fi
+          fi
+          echo "status=$status" >> "$GITHUB_OUTPUT"
+      - name: Build module for the exact checked candidate
+        if: inputs.module_run_id == '' && steps.candidate-state.outputs.status == 'PREPARED'
+        run: |
+          test -f work/runtime-smoke/regression/results.json
           ./gradlew --no-daemon -PruntimeLocalAssets=work/runtime-smoke :app:assembleDebug :app:verifyModuleMetadata
           mkdir -p work/runtime-smoke/module
           cp app/build/outputs/apk/debug/app-debug.apk work/runtime-smoke/module/app-debug.apk
       - name: Stage reused module without rebuilding or changing its bytes
-        if: inputs.module_run_id != ''
+        if: inputs.module_run_id != '' && steps.candidate-state.outputs.status == 'PREPARED'
         run: python3 -m scripts.ci.stage_runtime_module --directory work/runtime-smoke/module
       - name: Verify signer and static rules and compile native collector
+        if: steps.candidate-state.outputs.status == 'PREPARED'
         run: python3 -m scripts.ci.redroid_prepare_apps --root work/runtime-smoke --candidate work/runtime-smoke/candidate-report.json
       - uses: actions/upload-artifact@v7
         with:
@@ -134,8 +247,12 @@ jobs:
           path: |
             work/runtime-smoke/${{ steps.policy.outputs.app_id }}.apk
             work/runtime-smoke/module/
+            work/runtime-smoke/module-identity.json
             work/runtime-smoke/inputs.json
             work/runtime-smoke/candidate-report.json
+            work/runtime-smoke/static-check.json
+            work/runtime-smoke/apk-inputs/
+            work/runtime-smoke/regression/
             work/runtime-smoke/qq-probe/
             work/runtime-smoke/ui-hierarchy.jar
           retention-days: 7
@@ -143,11 +260,17 @@ jobs:
         uses: actions/upload-artifact@v7
         with:
           name: runtime-candidate-report-input-${{ steps.policy.outputs.app_id }}
-          path: work/runtime-smoke/candidate-report.json
+          path: |
+            work/runtime-smoke/candidate-report.json
+            work/runtime-smoke/static-check.json
+            work/runtime-smoke/apk-inputs/
+            work/runtime-smoke/regression/
+            work/runtime-smoke/module/app-debug.apk
           retention-days: 7
 
   smoke:
     needs: prepare
+    if: needs.prepare.outputs.candidate_status == 'PREPARED'
     runs-on: ubuntu-24.04-arm
     timeout-minutes: 25
     env:
@@ -177,9 +300,10 @@ jobs:
           for path in list(source.glob('*.txt')) + [source / name for name in ('report.json', 'app-reports.json', 'memory-samples.json', 'summary.md')]:
               if path.is_file():
                   shutil.copyfile(path, target / path.name)
-          if (source / 'tooling/tooling-report.json').is_file():
-              (target / 'tooling').mkdir(exist_ok=True)
-              shutil.copyfile(source / 'tooling/tooling-report.json', target / 'tooling/tooling-report.json')
+          for name in ('tooling-report.json', 'app-launch-steps.jsonl'):
+              if (source / 'tooling' / name).is_file():
+                  (target / 'tooling').mkdir(exist_ok=True)
+                  shutil.copyfile(source / 'tooling' / name, target / 'tooling' / name)
           PYCODE
       - uses: actions/upload-artifact@v7
         if: always()
@@ -195,13 +319,16 @@ jobs:
 
   result:
     needs: [prepare, smoke]
-    if: always() && (inputs.module_run_id == '' || inputs.candidate_mode != '') && needs.prepare.result == 'success'
+    if: always() && needs.prepare.result == 'success'
     runs-on: ubuntu-latest
     env:
       APP_ID: ${{ needs.prepare.outputs.app_id }}
       ARTIFACT_PREFIX: ${{ needs.prepare.outputs.artifact_prefix }}
+      CANDIDATE_STATUS: ${{ needs.prepare.outputs.candidate_status }}
     steps:
       - uses: actions/checkout@v7
+        with:
+          ref: ${{ inputs.source_head || github.sha }}
       - uses: actions/download-artifact@v8
         with:
           name: runtime-candidate-report-input-${{ needs.prepare.outputs.app_id }}
@@ -216,22 +343,45 @@ jobs:
           SMOKE_CONCLUSION: ${{ needs.smoke.result }}
         run: |
           python3 - <<'PY'
-          import json, os
+          import json, os, subprocess, sys
           from pathlib import Path
-          from scripts.ci.runtime_task import runtime_result
           directory = Path('runtime-result')
-          candidate = json.loads((directory / 'candidate-report.json').read_text())
-          evidence = directory / 'evidence/runtime-smoke/evidence/smoke-report.json'
-          smoke = json.loads(evidence.read_text()) if evidence.is_file() else {}
-          report = runtime_result(candidate, smoke, os.environ['SMOKE_CONCLUSION'], os.environ['APP_ID'])
-          (directory / 'runtime-candidate-report.json').write_text(json.dumps(report, indent=2) + '\n')
+          if os.environ.get('CANDIDATE_STATUS') != 'PREPARED':
+              candidate = {}
+              candidate_path = directory / 'candidate-report.json'
+              if candidate_path.is_file():
+                  candidate = json.loads(candidate_path.read_text())
+              report = {'schemaVersion': 1, 'outcome': 'INCOMPATIBLE',
+                        'failedStage': 'static', 'candidate': candidate,
+                        'diagnostics': ['The shared rule checker did not produce a unique plan.']}
+              (directory / 'runtime-candidate-report.json').write_text(json.dumps(report, indent=2) + '\n')
+              with Path(os.environ['GITHUB_STEP_SUMMARY']).open('a') as summary:
+                  summary.write('## Runtime validation result\n\n`INCOMPATIBLE`\n\n')
+                  summary.write('No model, PR, device run, or acceptance write was started.\n')
+              raise SystemExit(1)
+          evidence_root = directory / 'evidence/runtime-smoke'
+          smoke_report = evidence_root / 'evidence/smoke-report.json'
+          acceptance_path = Path(f"compatibility/{os.environ['APP_ID']}/acceptance.json")
+          if not acceptance_path.is_file():
+              raise FileNotFoundError(f'Acceptance table is missing: {acceptance_path}')
+          if not smoke_report.is_file():
+              smoke_report.parent.mkdir(parents=True, exist_ok=True)
+              smoke_report.write_text(json.dumps({'status': 'ACCEPTANCE_UNAVAILABLE', 'reason': 'Runtime report artifact is missing'}) + '\n')
+          command = [sys.executable, '-m', 'scripts.ci.runtime_task', 'verify',
+                     '--app-id', os.environ['APP_ID'],
+                     '--candidate', str(directory / 'candidate-report.json'),
+                     '--module-apk', str(directory / 'module/app-debug.apk'),
+                     '--regression', str(directory / 'regression/results.json'),
+                     '--smoke', str(smoke_report), '--evidence-root', str(evidence_root),
+                     '--acceptance', f"compatibility/{os.environ['APP_ID']}/acceptance.json",
+                     '--repository', '.', '--conclusion', os.environ['SMOKE_CONCLUSION'],
+                     '--output', str(directory / 'runtime-candidate-report.json')]
+          subprocess.run(command, check=True)
+          report = json.loads((directory / 'runtime-candidate-report.json').read_text())
           with Path(os.environ['GITHUB_STEP_SUMMARY']).open('a') as summary:
-              identity = candidate['identity']
-              summary.write(f'## Replay result\n\n`{report["status"]}`\n\n')
-              summary.write(f'selectedMode: `{candidate.get("selectionMode", "adapted-artifact")}`\n\n')
-              summary.write(f'Candidate: `{identity["versionName"]}` (`{identity["versionCode"]}`), APK SHA-256 `{identity["apkSha256"]}`\n\n')
-              summary.write('No Codex invocation, PR or formal support update.\n')
-          assert report['status'] == 'RUNTIME_VERIFIED', report
+              summary.write(f'## Runtime validation result\n\n`{report.get("outcome", report.get("status"))}`\n\n')
+              summary.write('Validation did not write the formal acceptance table or publish support.\n')
+          assert report.get('outcome', report.get('status')) in {'VERIFIED', 'RUNTIME_VERIFIED'}, report
           PY
       - uses: actions/upload-artifact@v7
         if: always()

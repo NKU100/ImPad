@@ -6,7 +6,8 @@ from scripts.test_qq_requests import packet
 def event(seq, payload=b'', flags=0, **extra):
     return dict(kind='segment', pid=123, uid=10232, started=44, inode=55,
                 source='0a000211', destination='01020304', sourcePort=1234,
-                destinationPort=8080, sequence=seq, flags=flags, generation=100, payload=payload.hex(), **extra)
+                destinationPort=8080, sequence=seq, flags=flags, generation=100,
+                observedMonotonicNs=1000000 + seq, payload=payload.hex(), **extra)
 
 
 class PacketCaptureTest(unittest.TestCase):
@@ -21,6 +22,7 @@ class PacketCaptureTest(unittest.TestCase):
         p=packet()
         r=self.capture([event(100,flags=2),event(111,p[10:]),event(101,p[:10]),event(101,p[:10])])
         self.assertTrue(r['captureHealthy']);self.assertEqual(r['frames'][0]['packetAppId'],10)
+        self.assertEqual(1000101, r['frames'][0]['firstObservedMonotonicNs'])
 
     def test_rejects_contradictory_retransmission(self):
         p=packet()

@@ -1,0 +1,63 @@
+{
+  "apkFiles": [
+    {
+      "path": "apk-inputs/fixture.apk",
+      "role": "base",
+      "sha256": "0000000000000000000000000000000000000000000000000000000000000000"
+    }
+  ],
+  "appId": "wecom",
+  "expectedPlan": {
+    "ruleId": "wecom_local_001",
+    "selection": "UNIQUE",
+    "strategyId": "wecom_local_tablet_001",
+    "targets": {
+      "app_pad": {
+        "descriptor": "Lcom/tencent/wework/foundation/logic/Application;->isAndroidPad()Z",
+        "shape": {
+          "isStatic": true,
+          "parameters": [],
+          "returnType": "boolean"
+        }
+      },
+      "device_type": {
+        "descriptor": "Lcom/tencent/wework/foundation/logic/Application;->getDeviceTypeFromLocal()I",
+        "shape": {
+          "isStatic": false,
+          "parameters": [],
+          "returnType": "int"
+        }
+      },
+      "service_pad": {
+        "descriptor": "Lcom/tencent/wework/foundation/impl/WeworkServiceImpl;->isAndroidPad()Z",
+        "shape": {
+          "isStatic": false,
+          "parameters": [],
+          "returnType": "boolean"
+        }
+      }
+    }
+  },
+  "identity": {
+    "abi": "arm64-v8a",
+    "apkSha256": "0000000000000000000000000000000000000000000000000000000000000000",
+    "packageName": "com.tencent.wework",
+    "signerSha256": "0000000000000000000000000000000000000000000000000000000000000000",
+    "versionCode": 70675,
+    "versionName": "5.0.8"
+  },
+  "route": {
+    "appId": "wecom",
+    "candidates": [
+      "wecom_local_001"
+    ],
+    "samplingMode": "DIRECT"
+  },
+  "routeSha256": "0a93ec4c7b06d6c6d5ea3c17d028a45d30befb5811d17e26bf6b58532feac1d7",
+  "ruleCatalogSha256": "abf1a3e62b8c6b6ec8aa484f0e8b3209cb521efec4f587330cc8a7ac7a4d2774",
+  "schemaVersion": 1,
+  "sourceUrl": "https://dldir1.qq.com/wework/work_weixin/test-fixture.apk",
+  "staticReport": "static-check.json",
+  "staticReportSha256": "d26e892391b7d9f03634d993c85c54e98288d7d8eb0d3b21dbb3f5507ea967f3",
+  "status": "PREPARED"
+}

@@ -36,6 +36,11 @@ class Probe:
         self.report = {'status': 'FAILED', 'stage': 'HOST', 'hostArchitecture': platform.machine(),
                        'baseImage': BASE_IMAGE, 'acceptanceKind': 'FRAMEWORK_ENVIRONMENT_ONLY'}
 
+    @staticmethod
+    def copy_init_rc(template, destination):
+        shutil.copyfile(template, destination)
+        Path(destination).chmod(0o644)
+
     def run(self, args, name, timeout=60, check=True):
         result = subprocess.run(args, capture_output=True, timeout=timeout)
         (self.output / (name + '.txt')).write_bytes(result.stdout + result.stderr)
@@ -123,7 +128,7 @@ class Probe:
         shutil.copyfile(templates / 'bootstrap.sh', target / 'bootstrap.sh')
         init = context / 'system/etc/init'
         init.mkdir()
-        shutil.copyfile(templates / 'impad-magisk.rc', init / 'impad-magisk.rc')
+        self.copy_init_rc(templates / 'impad-magisk.rc', init / 'impad-magisk.rc')
         (context / 'Dockerfile').write_text(f'FROM {BASE_IMAGE}\nCOPY system/ /system/\nCOPY debug_ramdisk/ /debug_ramdisk/\n')
         self.run(['sudo', 'docker', 'build', '-t', 'impad-hosted-magisk31', str(context)], 'framework-build', timeout=300)
         self.start('impad-hosted-magisk31', 'magisk')
@@ -169,7 +174,7 @@ class Probe:
                 AppSmoke(app_inputs, self).execute()
                 from scripts.ci.runtime_tooling_probe import probe
                 inputs = json.loads((app_inputs / 'inputs.json').read_text())
-                probe(self.output / 'tooling', next(app for app in inputs if app != 'qq-old'))
+                probe(self.output / 'tooling', next(iter(inputs)))
                 self.report['status'] = 'APPLICATION_ACCEPTANCE_VERIFIED'
         except Exception as error:
             self.report['reason'] = f'{type(error).__name__}: {error}'

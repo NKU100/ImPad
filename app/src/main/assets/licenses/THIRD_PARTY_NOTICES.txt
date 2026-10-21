@@ -12,7 +12,10 @@ com.google.errorprone:error_prone_annotations:2.11.0 -- Apache-2.0
 com.google.j2objc:j2objc-annotations:1.3 -- Apache-2.0
 org.jetbrains.kotlinx:kotlinx-serialization-core-jvm:1.11.0 -- Apache-2.0
 org.jetbrains.kotlinx:kotlinx-serialization-json-jvm:1.11.0 -- Apache-2.0
+com.google.flatbuffers:flatbuffers-java:23.5.26 -- Apache-2.0
+org.luckypray:dexkit:2.3.0 -- Apache-2.0; Core/ is LGPL-3.0 (see DexKit-LGPL-3.0.txt)
+dev.rikka.ndk.thirdparty:cxx:1.2.0 -- Apache-2.0
 
-Full license files in this directory: Apache-2.0.txt, smali-dexlib2-LICENSE.txt, checker-qual-LICENSE.txt.
+Full license files in this directory: Apache-2.0.txt, DexKit-LGPL-3.0.txt, smali-dexlib2-LICENSE.txt, checker-qual-LICENSE.txt.
 Third-party components retain their original licenses.
 io.github.libxposed:api:102.0.0 is Apache-2.0 and compileOnly, provided by the framework.

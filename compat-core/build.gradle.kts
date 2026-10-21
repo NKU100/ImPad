@@ -8,7 +8,6 @@ kotlin {
 }
 
 dependencies {
-    implementation(libs.smali.dexlib2)
     implementation(libs.kotlinx.serialization.json)
     testImplementation(kotlin("test"))
 }

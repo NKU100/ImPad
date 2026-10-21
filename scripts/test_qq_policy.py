@@ -1,8 +1,7 @@
-import json
 from pathlib import Path
 import unittest
 
-from scripts.ci.app_policy import get_policy, validate_targets
+from scripts.ci.app_policy import get_policy
 from scripts.ci.apps.qq.discovery_policy import discover_from_config
 from scripts.ci.apps.qq.runtime_policy import validate_request_evidence
 from scripts.test_qq_requests import proof, expectation
@@ -32,20 +31,6 @@ class QqPolicyTest(unittest.TestCase):
             discover_from_config({'android': dict(config['android'], version='9.3.75')},
                                  get_policy('qq').official_apk_prefix)
 
-    def test_profile_matches_qq_identity_and_hook_contract(self):
-        targets = json.loads(Path('compatibility/qq/targets.json').read_text())
-        self.assertEqual(validate_targets(targets, 'qq').package_name, 'com.tencent.mobileqq')
-
-    def test_first_baseline_can_replay_static_profile_without_promoting_it(self):
-        from scripts.ci.candidate_selection import replay_report
-        profile = json.loads(Path('compatibility/qq/targets.json').read_text())[0]
-        profile['verificationStatus'] = 'static-verified'
-        report = replay_report([profile], profile['sourceUrl'], profile['identity']['apkSha256'], 'qq', 'baseline')
-        self.assertEqual(report['status'], 'STATIC_VERIFIED_PENDING_RUNTIME')
-        self.assertEqual(report['suggestedProfile']['verificationStatus'], 'static-verified')
-        with self.assertRaises(ValueError):
-            replay_report([profile], profile['sourceUrl'], profile['identity']['apkSha256'], 'qq', 'registered')
-
     def test_manifest_expected_values_are_parsed_from_both_configurations(self):
         from scripts.ci.apps.qq.runtime_probe import manifest_app_ids
         xml = '<manifest xmlns:android="http://schemas.android.com/apk/res/android"><application>'
@@ -60,9 +45,12 @@ class QqPolicyTest(unittest.TestCase):
 
     def test_runtime_promotion_requires_request_evidence(self):
         from scripts.ci.runtime_task import runtime_result
-        profile = json.loads(Path('compatibility/qq/targets.json').read_text())[0]
-        identity = profile['identity']
-        report = dict(appId='qq', status='STATIC_VERIFIED_PENDING_RUNTIME', identity=identity, suggestedProfile=profile, requestIdentityExpectation=expectation(identity['apkSha256']))
+        identity = {'packageName': 'com.tencent.mobileqq', 'versionName': '9.3.1',
+                    'versionCode': 14378, 'abi': 'arm64-v8a',
+                    'apkSha256': 'a' * 64,
+                    'signerSha256': get_policy('qq').signer_sha256}
+        report = dict(appId='qq', status='STATIC_VERIFIED_PENDING_RUNTIME', identity=identity,
+                      requestIdentityExpectation=expectation(identity['apkSha256']))
         smoke = dict(status='RUNTIME_SMOKE_VERIFIED', appId='qq', packageName='com.tencent.mobileqq',
                      abi='arm64-v8a', baseline='PHONE_REQUEST_APP_ID', hookIds=['device_type'],
                      apkSha256=identity['apkSha256'], moduleApkSha256='b'*64)

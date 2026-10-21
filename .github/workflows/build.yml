@@ -18,8 +18,22 @@ permissions:
 
 jobs:
   build:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
+      - name: Check out build revision for DexKit preparation
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ github.sha }}
+          path: .dexkit-preparation
+          sparse-checkout: |
+            .github/actions/prepare-dexkit-system-deps
+            scripts/ci
+            gradle
+          persist-credentials: false
+
+      - name: Prepare locked DexKit system dependencies
+        uses: ./.dexkit-preparation/.github/actions/prepare-dexkit-system-deps
+
       - name: Check out source
         uses: actions/checkout@v7
 
@@ -52,7 +66,7 @@ jobs:
             .cache/wechat-apks
             .cache/qq-apks
             .cache/wecom-apks
-          key: impad-static-apks-v2-${{ hashFiles('compatibility/*/targets.json') }}
+          key: impad-static-apks-v2-${{ hashFiles('compatibility/*/acceptance.json', 'compat-rules/src/main/**') }}
           restore-keys: impad-static-apks-v2-
 
       - name: Run registered-build static regression

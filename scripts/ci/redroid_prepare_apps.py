@@ -1,6 +1,5 @@
 """Prepare exact official application inputs for native hosted ReDroid acceptance."""
 import argparse
-import copy
 import hashlib
 import json
 import os
@@ -9,10 +8,11 @@ import re
 import shutil
 import subprocess
 
-from scripts.ci.app_policy import get_policy, validate_targets, policy_for_report
-from scripts.ci.static_regression import ensure_apk, check_apk
+from scripts.ci.app_policy import get_policy, policy_for_report
+from scripts.ci.static_regression import check_apk
 from scripts.ci.apps.qq.runtime_probe import manifest_expectation
 from scripts.ci.apps.qq.prepare_probe import prepare
+from scripts.ci.candidate_selection import prepare_module
 
 
 def verify_signer(output, expected):
@@ -21,45 +21,17 @@ def verify_signer(output, expected):
         raise ValueError('Official APK signer mismatch or multiple signers')
 
 
-def write_profiles(source, root):
-    inputs, packages = {}, []
-    for app in ('wechat', 'wecom', 'qq'):
-        profiles = json.loads((source / (app + '.json')).read_text())
-        validate_targets(profiles, app)
-        local = copy.deepcopy(profiles)
-        for profile in local:
-            profile.pop('sourceUrl', None)
-            profile['verificationStatus'] = 'static-verified'
-        target = root / 'assets/compatibility-local' / app / 'targets.json'
-        target.parent.mkdir(parents=True, exist_ok=True)
-        target.write_text(json.dumps(local, indent=2) + '\n')
-        packages.append(get_policy(app).package_name)
-        for index, profile in enumerate(profiles):
-            name = 'qq-old' if app == 'qq' and index == 0 else app
-            inputs[name] = copy.deepcopy(profile)
-    scope = root / 'resources/META-INF/xposed/scope.list'
-    scope.parent.mkdir(parents=True, exist_ok=True)
-    scope.write_text('\n'.join(packages) + '\n')
-    return inputs
-
-
 def write_candidate(report, root):
     policy = policy_for_report(report, report.get('appId'))
-    if report.get('status') != 'STATIC_VERIFIED_PENDING_RUNTIME':
-        raise ValueError('Candidate requires static verification')
-    profile = copy.deepcopy(report['suggestedProfile'])
-    if profile['identity'] != report['identity']:
-        raise ValueError('Candidate profile identity mismatch')
-    validate_targets([profile], policy.app_id)
-    profile.pop('sourceUrl', None)
-    profile['verificationStatus'] = 'static-verified'
-    target = root / 'assets/compatibility-local' / policy.app_id / 'targets.json'
-    target.parent.mkdir(parents=True, exist_ok=True)
-    target.write_text(json.dumps([profile], indent=2) + '\n')
+    if report.get('schemaVersion') != 1 or report.get('status') != 'PREPARED':
+        raise ValueError('Runtime candidate requires the shared prepared-candidate schema')
+    if (report.get('expectedPlan', {}).get('selection') != 'UNIQUE'
+            or report['identity'].get('apkSha256') != report.get('apkFiles', [{}])[0].get('sha256')):
+        raise ValueError('Candidate identity or unique rule plan is incomplete')
     scope = root / 'resources/META-INF/xposed/scope.list'
     scope.parent.mkdir(parents=True, exist_ok=True)
     scope.write_text(policy.package_name + '\n')
-    return {policy.app_id: copy.deepcopy(report['suggestedProfile'])}
+    return {policy.app_id: report}
 
 
 def prepare_tools(root):
@@ -80,34 +52,39 @@ def main():
     args = parser.parse_args()
     root = args.root.resolve()
     root.mkdir(parents=True, exist_ok=True)
-    source = Path('environment/redroid-smoke').resolve()
     if args.tools_only:
         prepare_tools(root)
         return
-    report = json.loads(args.candidate.read_text()) if args.candidate else None
-    inputs = write_candidate(report, root) if report else write_profiles(source, root)
+    if args.candidate is None:
+        parser.error('--candidate is required unless --tools-only is used')
+    report = json.loads(args.candidate.read_text())
+    static_path = (args.candidate.parent / report.get('staticReport', '')).resolve()
+    static = json.loads(static_path.read_text())
+    module_path = root / 'module/app-debug.apk'
+    module_identity = prepare_module(module_path, static, Path.cwd())
+    report['module'] = module_identity
+    (root / 'module-identity.json').write_text(json.dumps(module_identity, indent=2) + '\n')
+    args.candidate.write_text(json.dumps(report, indent=2) + '\n')
+    inputs = write_candidate(report, root)
     sdk = Path(os.environ.get('ANDROID_HOME') or os.environ['ANDROID_SDK_ROOT'])
-    for name, profile in inputs.items():
-        app = 'qq' if name == 'qq-old' else name
-        if report:
-            candidates = [p for p in root.glob('*.apk') if hashlib.sha256(p.read_bytes()).hexdigest() == profile['identity']['apkSha256']]
-            if len(candidates) != 1:
-                raise ValueError('Candidate artifact requires exactly one matching APK')
-            apk = candidates[0]
-            target = root / 'candidate-targets.json'
-            target.write_text(json.dumps([profile]))
-        else:
-            apk = ensure_apk(profile, root / 'apk-cache', app)
-            target = source / (app + '.json')
+    for name, candidate in inputs.items():
+        app = name
+        identity = candidate['identity']
+        candidates = [path for path in root.glob('*.apk')
+                      if hashlib.sha256(path.read_bytes()).hexdigest() == identity['apkSha256']]
+        if len(candidates) != 1:
+            raise ValueError('Candidate artifact requires exactly one matching APK')
+        apk = candidates[0]
+        policy = policy_for_report(candidate, candidate.get('appId'))
         signer = subprocess.check_output([str(sdk / 'build-tools/37.0.0/apksigner'), 'verify', '--print-certs', str(apk)], timeout=120).decode()
         (root / (name + '-signer.txt')).write_text(signer)
-        verify_signer(signer, profile['identity']['signerSha256'])
-        check_apk(Path.cwd(), target, apk, profile['identity']['apkSha256'], root / (name + '-static.txt'), app_id=app)
+        verify_signer(signer, identity['signerSha256'])
+        check_apk(Path.cwd(), apk, identity['apkSha256'], root / (name + '-static.txt'), app_id=app)
         if apk.resolve() != (root / (name + '.apk')).resolve():
             shutil.copyfile(apk, root / (name + '.apk'))
-        profile['signerVerified'] = True
+        candidate['signerVerified'] = True
         if app == 'qq':
-            profile['manifestAppIds'] = manifest_expectation(apk, profile['identity']['apkSha256'])
+            candidate['requestIdentityExpectation'] = manifest_expectation(apk, identity['apkSha256'])
     (root / 'inputs.json').write_text(json.dumps(inputs, indent=2) + '\n')
     prepare_tools(root)
 

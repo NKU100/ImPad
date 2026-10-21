@@ -127,6 +127,17 @@ def candidate_cache_settings(report):
             'cache_key':f'{policy.artifact_prefix}-{policy.app_id}-latest-url-{digest}'}
 
 
+def candidate_records(app_id, repository=None):
+    policy = get_policy(app_id)
+    root = Path(repository or Path.cwd()).resolve()
+    from scripts.ci.acceptance import load_rule_catalog, read_acceptance_snapshot
+    path = root / f'compatibility/{policy.app_id}/acceptance.json'
+    snapshot = read_acceptance_snapshot(path, policy.app_id, False,
+                                        catalog=load_rule_catalog(policy.app_id, root),
+                                        repository=root)
+    return snapshot.records
+
+
 def select_candidate_report(current_report_path, checkpoint_directory, expected_key, destination):
     current_report_path = Path(current_report_path)
     checkpoint_report_path = Path(checkpoint_directory) / "candidate-report.json"
@@ -462,7 +473,8 @@ def publish(repo, directory, issue, run_url, app_id=None):
     policy = policy_for_report(report, app_id or state.get("appId"))
     if state.get("appId", "wechat") != policy.app_id:
         raise ValueError("Adaptation state appId does not match the candidate report")
-    if report["status"] != "STATIC_VERIFIED_PENDING_RUNTIME":
+    accepted_statuses = {'STATIC_VERIFIED_PENDING_RUNTIME'}
+    if report["status"] not in accepted_statuses:
         raise ValueError("Draft PR requires successful candidate and regression checks")
     key = candidate_key(report)
     run_id = re.fullmatch(r"https://github\.com/" + re.escape(repo) + r"/actions/runs/(\d+)", run_url)
@@ -485,11 +497,13 @@ def publish(repo, directory, issue, run_url, app_id=None):
     if head != state["base"] or current_main != head:
         raise ValueError("Main changed during adaptation; manual reconciliation is required")
     body = directory / "pr-body.md"
-    versions = ", ".join(report["checkedVersions"])
-    body.write_text(f"Adds the verified {policy.display_name} {report['identity']['versionName']} build as a static-verified profile.\n\n"
-                    f"The shared checker passed for: {versions}. Shared-core and module tests and the debug APK build passed.\n\n"
-                    f"Hosted runtime smoke will verify {policy.display_name} hook installation and the policy-specific login page before this PR is ready.\n\n"
-                    f"[Adaptation run]({run_url})" + (f"; tracks #{issue}.\n" if issue else ".\n"))
+    versions = ", ".join(report.get("checkedVersions", []))
+    description = (f"Adds an immutable {policy.display_name} rule and provisional forward binding for the exact {report['identity']['versionName']} build.\n\n"
+                   f"The shared checker and fixed accepted representatives passed"
+                   + (f" for {versions}" if versions else "")
+                   + ", and the module source fingerprint is bound to this candidate.\n\n"
+                   f"Hosted runtime verification will validate the same candidate and module before trusted registration.\n\n")
+    body.write_text(description + f"[Adaptation run]({run_url})" + (f"; tracks #{issue}.\n" if issue else ".\n"))
     title = f"feat: support {policy.display_name} {report['identity']['versionName']}"
     if not existing_pr:
         existing_pr, previous_pr = recover_publication(repo, checkout, directory, resume, report,
@@ -583,7 +597,8 @@ def record_checkpoint(repo, report_path, directory, issue, run_url, app_id=None,
         context_path.write_text(json.dumps(context, indent=2) + '\n')
     if not issue:
         outcome = diagnostics.get('status', 'interrupted')
-        if live or (outcome == 'verified' and report.get('status') == 'STATIC_VERIFIED_PENDING_RUNTIME'):
+        if live or (outcome == 'verified' and report.get('status') in {
+                'STATIC_VERIFIED_PENDING_RUNTIME'}):
             append_github_output(Path(os.environ['GITHUB_OUTPUT']), {'checkpoint_saved':'true', 'issue':'0', 'consumed_comment_id':str(context.get('consumedCommentId', 0))})
             return
         outcome = 'blocked' if outcome == 'blocked' else 'interrupted'
@@ -623,7 +638,7 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("stage", choices=["pending", "select-report", "claim", "publish", "fail", "checkpoint", "outcome"])
     parser.add_argument("--report", type=Path)
-    parser.add_argument("--targets", type=Path)
+    parser.add_argument("--repository", type=Path, default=Path.cwd())
     parser.add_argument("--directory", type=Path, required=True)
     parser.add_argument("--checkpoint-directory", type=Path)
     parser.add_argument("--candidate-key")
@@ -643,7 +658,8 @@ def main():
                                          args.candidate_key or "", args.output_report)
         append_github_output(Path(os.environ['GITHUB_OUTPUT']), candidate_cache_settings(report))
     elif args.stage == "claim":
-        claim(repo, json.loads(args.report.read_text()), json.loads(args.targets.read_text()), args.directory, run_url, app_id=policy.app_id)
+        claim(repo, json.loads(args.report.read_text()), candidate_records(policy.app_id, args.repository),
+              args.directory, run_url, app_id=policy.app_id)
     elif args.stage == "publish":
         state = json.loads((args.directory / "state.json").read_text())
         policy = get_policy(state.get("appId"))
@@ -666,8 +682,8 @@ def main():
     else:
         report = json.loads(args.report.read_text())
         policy_for_report(report, policy.app_id)
-        report.update(status="NEEDS_HOOK_REVIEW", suggestedProfile=None,
-                      blockers=["This run did not finish the adaptation. The next scheduled run will resume from the newest available checkpoint."])
+        report.update(status='INCOMPATIBLE',
+                      blockers=["This run did not finish the additive rule adaptation. The next scheduled run will resume from the newest available checkpoint."])
         (args.directory / "candidate-report.json").write_text(json.dumps(report, indent=2) + "\n")
         resume = json.loads((args.directory / "resume-context.json").read_text()) if (args.directory / "resume-context.json").is_file() else {}
         checkpoint_run_id = resume.get("checkpointRunId", "")

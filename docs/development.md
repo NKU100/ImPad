@@ -1,44 +1,69 @@
 # 开发与兼容性维护
 
-本地使用 JDK 21、项目所需 Android SDK 和仓库 Gradle Wrapper 构建：
+本地构建使用项目 Gradle Wrapper、JDK 21 和 Android SDK。提交审查前可运行与本轮交付相同的 Kotlin 检查及 Python 流水线测试：
 
 ```sh
-./gradlew --no-daemon :app:assembleDebug :app:verifyModuleMetadata
+./gradlew --no-daemon :compat-core:test :compat-rules:test :compat-checker:test :app:testDebugUnitTest :app:assembleDebug :app:verifyModuleMetadata
 python3 -m unittest discover -s scripts -p 'test_*.py'
+actionlint .github/workflows/*.yml
 ```
 
-本地 release 构建需要在未纳入版本控制的 `keystore.properties` 中配置 `storeFile`、`storePassword`、`keyAlias` 和 `keyPassword`，或提供构建配置支持的签名环境变量。配置完成后执行：
+macOS 不提供仓库锁定的 Linux QQ DexKit native fixture。macOS 上因此无法完成的 QQ native fixture 测试必须记为未验证，不能通过伪造操作系统、改 skip 或把失败算作通过；Linux fixture 结果应由 Linux runner 单独记录。
+
+## 当前三应用验收身份
+
+微信 8.0.69 / 3040、QQ 9.3.1 / 14378、企业微信 5.0.8 / 70675 已使用同一份 GitHub 构建 APK 完成独立 ARM64 ReDroid 验收。完整行为、候选 APK 身份、tooling 与限制见[已验证版本与范围](support.md)和[三应用运行验证记录](validation/runtime-feature-matching-final.md)。
+
+三次运行都引用构建 [39554279828](https://github.com/NKU100/ImPad/actions/runs/39554279828) 的 `impad-module-apk`，模块 APK SHA-256 为 `d8cdaf1aba2d19503c9a9a2679195456657faae1b5fae8e9d52e2c5ba1b88691`。构建提交为 `8690ed5162ba71c1d756f9e57793c774f2501de7`，127 项模块源码树 SHA-256 为 `654e389fd9b35a1362d6d9c79d2f07f8cd249f141fdfff59c74cff1b70f25aae`。三项运行分别是 [QQ 39555436990](https://github.com/NKU100/ImPad/actions/runs/39555436990)、[微信 39556863774](https://github.com/NKU100/ImPad/actions/runs/39556863774) 和[企业微信 39557803980](https://github.com/NKU100/ImPad/actions/runs/39557803980)。这些均是无账号验证；用户不会提供账号、扫码或提交登录。
+
+## QQ collector 所有权合同
+
+QQ 的验收复用历史自然请求采集合同：SYN 阶段用 PID、UID、精确进程名、process starttime 和 socket inode 确认 owner，并按 tuple generation 缓存。相同 tuple 和 ISN 的 SYN 只有在缓存 socket 与当前 inode/UID 可确认一致时才作为同 socket 重传；身份变化或缺失时重新解析，未知 owner 必须 fail-closed。MSF 请求仍须经过进程身份校验，非目标 flow 按已确认的 generation 过滤。
+
+迁移验收不要求新增每包唯一 FD 扫描、FD handoff 跟踪或依赖 FIN 的关闭监听；不得把这些增量门槛重新加入，也不得据此放宽未知 owner、UID、进程名、starttime、包序列、流重组、capture 完整性、scope 或 AppID 检查。沿用该合同意味着 SYN 后的任意 FD handoff 未经过本合同验证；这是明确保留的局限，不能声称风险已消除。具体设计记录见[批准的统一设计](superpowers/specs/2026-10-21-wechat-rules-unification-design.md)。
+
+## 构建与运行结果边界
+
+QQ owner-contract restoration 的普通 Python 套件为386项、385通过、1项跳过。157项 JVM 测试因该轮未改 JVM 源码而复用之前结果，并非在该轮重新执行。随后 GitHub 构建 run 39554279828 独立执行完整 Python 测试（386项通过），Gradle 测试、模块元数据校验、三应用固定静态回归和 APK 构建均通过。每个检查的身份和结果见[三应用运行验证记录](validation/runtime-feature-matching-final.md)。
+
+Oracle ARM64 ReDroid 的四轮运行均未通过；即使复测另一历史运行曾成功的精确 binary/APK 也未通过。Oracle framework 文件与权限一致性未经确认，因此现有证据只说明环境或部署差异仍待定位，不能归因为纯宿主问题。GitHub-hosted ARM64 ReDroid 上上述三次运行均通过；该结果不反向解释 Oracle 失败。
+
+## 指定 APK 的候选检查
+
+完整 `verify` 或 `adapt` 使用 GitHub Actions 中的 **Run app compatibility pipeline**，选择 `app_id`、`operation`，并填写精确官方 APK `apk_url`。指定 URL 必须属于该应用策略允许的官方来源；候选准备按该 URL 固定 APK 字节，不回退到自动发现的最新版本。`verify` 执行共享静态检查、固定代表回归和独立运行 gate，不启动模型、不创建 PR、不写正式验收表。`adapt` 仅在需要新规则时进入隔离适配；新规则使用新的不可变 ID 和临时路由，之后回到同一验证入口及完整 gate。GitHub Actions workflow dispatch 是生产级运行验收入口，本地候选检查不能代替它。
+
+本地可用共享候选准备器检查指定 URL 并生成候选报告：
+
+```sh
+export APK_URL='https://<该应用允许的官方主机>/<精确 APK 路径>'
+python3 -m scripts.ci.candidate_selection \
+  --app-id qq \
+  --apk-url "${APK_URL:?请设置精确官方 APK URL}" \
+  --directory work/candidates/qq
+```
+
+将 `qq` 换成 `wecom` 或 `wechat` 时，使用对应应用的官方 URL。此命令按显式候选调用共享准备/规则检查路径并保存产物；它不执行固定代表回归、Android 模块构建、独立运行验收或登记。不得把候选报告单独当作兼容性通过。
+
+## 有界回归与身份
+
+`python3 -m scripts.ci.static_regression --app-id qq`、`--app-id wecom` 和 `--app-id wechat` 分别使用该应用 acceptance 表中的固定代表，执行同一个规则 checker。历史 `targets.json` 仅作为原始历史资料保留；它们不参与 schema 验证、候选选择或 APK 构建。常规回归集按首次成功验收代表固定并去重，不扫描历史 target/profile 数据。普通 verify/register 不提供首次迁移开关；缺失、空或损坏的 acceptance 表均失败关闭。
+
+三个应用的运行规则、路由和策略随模块源码构建。运行时不加载 acceptance 表，也不使用其作为按 APK SHA 或历史 descriptor 准入的清单。Acceptance 只供固定静态回归和证据索引使用；所有应用的正式运行均使用共享规则解析、身份验证和策略绑定。
+
+## 构建签名
+
+本地 release 构建需在未纳入版本控制的 `keystore.properties` 中配置 `storeFile`、`storePassword`、`keyAlias` 和 `keyPassword`，或提供构建配置支持的签名环境变量。配置完成后执行：
 
 ```sh
 ./gradlew --no-daemon :app:assembleRelease :app:verifyReleaseModuleMetadata
 ```
 
-三应用静态回归命令：
-
-```sh
-python3 -m scripts.ci.static_regression --all-apps
-```
-
-回归分别从微信、QQ、企业微信的正式 profile 中选择已通过运行验证的最近三个不同 versionCode，保留这些 versionCode 下的全部 APK 变体。每个应用使用独立缓存和报告；某个构建下载或检查失败后继续检查其余构建和应用，汇总有失败时命令以失败退出。报告位于 `work/static-regression/`。
-
-`Build module APK` 工作流执行单元测试、模块构建及上述三应用回归。三个应用的兼容性入口分别调用适配流水线；运行验收由独立 ReDroid 环境执行。静态回归不能替代最终模块 APK 的运行验收。流程及证据要求见[兼容性检查 CI](validation/compatibility-check-ci.md)。
-
-使用 `Validate ImPad runtime` 手动验收已有模块产物时，填写 `module_run_id` 和 `module_artifact`，以复用该次构建的原始 APK，避免重新构建 debug。验证登记构建需明确选择 `candidate_mode=registered`；同版本有多个 APK 变体时还需填写 `apk_sha256`。留空 `module_run_id` 会构建 debug 重放模块，默认候选模式为 `latest`。
-
-构建与签名规则：
-
-- main 和 `v*` tag 推送默认构建稳定签名的 release，`debuggable=false`；release 缺少稳定密钥时失败。
-- main／版本 tag 上手动构建默认 release，也可选择使用同一稳定签名的 debug。
-- PR 和临时分支推送构建 debug，不注入稳定签名 Secrets。临时分支手动构建只允许 debug；请求 release 会失败。
-- debug 和 release 均注册微信、QQ、企业微信适配器；实验规则仅在 debug 中加载。
-
-CI 模块产物包含 APK、对应提交的源码归档、`SHA256SUMS`、签名信息和构建记录。版本 tag 必须与 APK 版本一致，格式为 `v<versionName>`。正式发布使用稳定签名的 release APK，并附对应源码及校验和。
-
+不得把密钥或目标应用 APK 放入仓库。`THIRD_PARTY_NOTICES.md` 和模块 `assets/licenses/` 应与实际运行依赖及所分发许可证保持一致；更新依赖时重新核对依赖锁、原始许可证和 APK 内材料。
 
 ## 运行日志
 
-- `UNKNOWN_BUILD`：当前安装包未匹配正式 profile，应核对包名、版本、ABI、APK SHA-256 和签名摘要。
-- `COMPATIBLE`：兼容性解析通过，仍需检查当前进程的 Hook 安装日志。QQ 相关行为位于 `:MSF` 进程。
-- `cacheHit`：复用了兼容性解析缓存，不能单独证明运行行为。
+- `NO_COMPATIBLE_RULE`、目标缺失或多解：检查精确 APK 身份、路由结果、规则目录和完整目标唯一性诊断。
+- `CODE_INPUT_UNAVAILABLE`：必需 APK/split 代码输入不可读时模块失败关闭，不安装业务 Hook。
+- 缓存命中仅复用绑定了 APK/split、规则、路由、策略和解析器版本的解析结果；不能证明热补丁代码已读取或通过。
 
-debug／release 与签名方式独立；debug APK 也可使用稳定签名。覆盖安装取决于包名、签名及 Android 的版本检查。
+无账号运行验收不证明真实账号登录、服务端接受或双设备会话共存。Tinker readiness 观测不等于完整热补丁还原与匹配；QQ socket FD handoff 也未覆盖。

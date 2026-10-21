@@ -1,0 +1,55 @@
+{
+  "apkFiles": [
+    {
+      "path": "apk-inputs/fixture.apk",
+      "role": "base",
+      "sha256": "0000000000000000000000000000000000000000000000000000000000000000"
+    }
+  ],
+  "appId": "qq",
+  "expectedPlan": {
+    "ruleId": "qq_device_type_001",
+    "selection": "UNIQUE",
+    "strategyId": "qq_tablet_001",
+    "targets": {
+      "device_type": {
+        "descriptor": "Lcom/tencent/common/config/pad/PadUtil;->a(Landroid/content/Context;)Lcom/tencent/common/config/pad/DeviceType;",
+        "shape": {
+          "isStatic": true,
+          "parameters": [
+            "android.content.Context"
+          ],
+          "returnType": "com.tencent.common.config.pad.DeviceType"
+        }
+      }
+    }
+  },
+  "identity": {
+    "abi": "arm64-v8a",
+    "apkSha256": "0000000000000000000000000000000000000000000000000000000000000000",
+    "packageName": "com.tencent.mobileqq",
+    "signerSha256": "0000000000000000000000000000000000000000000000000000000000000000",
+    "versionCode": 14378,
+    "versionName": "9.3.1"
+  },
+  "requestIdentityExpectation": {
+    "apkSha256": "0000000000000000000000000000000000000000000000000000000000000000",
+    "contract": "QQ_SSO_REQUEST_IDENTITY_V1",
+    "phoneAppId": 10,
+    "tabletAppId": 20
+  },
+  "route": {
+    "appId": "qq",
+    "candidates": [
+      "qq_device_type_001"
+    ],
+    "samplingMode": "DIRECT"
+  },
+  "routeSha256": "411fb6eb6c1105d01d32fe587c074daa84137883d3504f874397df578d59f36c",
+  "ruleCatalogSha256": "cc3a3cbf6cfdaea6aedf0e27b6154af544a59550d8e86cfa5d663b4ccfaef66a",
+  "schemaVersion": 1,
+  "sourceUrl": "https://downv6.qq.com/qqweb/QQ_1/android_apk/test-fixture.apk",
+  "staticReport": "static-check.json",
+  "staticReportSha256": "5eaf100793d4d25b499926cddd7ca13b470f1411ab953d1fcd7e22314f95fd26",
+  "status": "PREPARED"
+}

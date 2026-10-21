@@ -16,7 +16,7 @@ class HostBuildTest(unittest.TestCase):
             subprocess.run(['git','add','.'],cwd=workspace,check=True)
             subprocess.run(['git','-c','user.name=Test','-c','user.email=test@localhost','commit','-qm','seed'],cwd=workspace,check=True)
             base = subprocess.check_output(['git','rev-parse','HEAD'],cwd=workspace,text=True).strip()
-            (task/'state.json').write_text(json.dumps({'worktree':str(workspace),'base':base,'agent_base':base,'existing_tests':{},'before':[],'report':{},'apks':[]}))
+            (task/'state.json').write_text(json.dumps({'appId':'wechat','worktree':str(workspace),'base':base,'agent_base':base,'existing_tests':{},'before':[],'report':{},'apks':[]}))
             script.write_text('#!/bin/sh\ntouch host-command-ran\n')
             result = subprocess.run(['python3',str(Path('scripts/ci/host_build.py').resolve()),str(task)],capture_output=True,text=True,
                                     env=dict(os.environ,CODEX_HOME=str(root/'empty-auth')))

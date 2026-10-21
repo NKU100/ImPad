@@ -14,6 +14,25 @@ SIGNING_NAMES = ['WECHATPAD_KEYSTORE_BASE64', 'WECHATPAD_KEYSTORE_PASSWORD',
 
 
 class BuildModuleTest(unittest.TestCase):
+    def test_module_build_never_generates_or_packages_historical_targets(self):
+        build = (Path(__file__).parents[1] / 'app/build.gradle.kts').read_text()
+        self.assertNotIn('GenerateCompatibilityTargets', build)
+        self.assertNotIn('resolution-modes.json', build)
+        self.assertIn('assets/compatibility/', build)
+        self.assertNotIn('targets.json', build)
+
+    def test_module_build_generates_only_the_runtime_identity_asset(self):
+        build = (Path(__file__).parents[1] / 'app/build.gradle.kts').read_text()
+        self.assertIn('GenerateRuntimeIdentityAsset', build)
+        self.assertIn('runtime-identity.json', build)
+        self.assertIn('addGeneratedSourceDirectory', build)
+        self.assertNotIn('generated/compatibility-assets', build)
+
+    def test_gradle_fingerprint_excludes_only_the_qq_owner_harness(self):
+        build = (Path(__file__).parents[1] / 'compat-rules/build.gradle.kts').read_text()
+        self.assertIn('exclude("scripts/ci/apps/qq/probe/collector_owner_test.c")', build)
+        self.assertNotIn('exclude("**/*_test.c")', build)
+
     def setUp(self):
         self.temporary = tempfile.TemporaryDirectory()
         self.addCleanup(self.temporary.cleanup)

@@ -21,6 +21,29 @@ class TinkerClassLoaderBridge(
         }, onReady)
     }
 
+    fun installWithContext(
+        classLoader: ClassLoader,
+        hookId: String = BOOTSTRAP_HOOK_ID,
+        onReady: (Context, ClassLoader) -> Unit,
+    ): HookRegistration {
+        val applicationClass = classLoader.loadClass(TINKER_APPLICATION_CLASS)
+        val method = applicationClass.getDeclaredMethod(
+            BASE_CONTEXT_ATTACHED_METHOD,
+            Context::class.java,
+            Long::class.javaPrimitiveType,
+            Long::class.javaPrimitiveType,
+        )
+        return PostAttachClassLoaderBridge(registrar).installWithContext(
+            method,
+            hookId,
+            { call ->
+                val application = checkNotNull(call.thisObject) { "TinkerApplication receiver was null" }
+                postAttachClassLoader(application)
+            },
+            onReady,
+        )
+    }
+
     private companion object {
         const val TINKER_APPLICATION_CLASS = "com.tencent.tinker.loader.app.TinkerApplication"
         const val BASE_CONTEXT_ATTACHED_METHOD = "onBaseContextAttached"

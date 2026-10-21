@@ -1,6 +1,7 @@
 package io.github.nku100.impad.runtime
 
 import android.content.pm.ApplicationInfo
+import android.content.pm.PackageManager
 import io.github.nku100.impad.compat.BuildIdentity
 import java.io.File
 import java.nio.charset.StandardCharsets
@@ -19,7 +20,42 @@ data class InstalledBuild(
     val apkFiles: List<File>,
     val installFingerprint: String,
     val dataDirectory: File,
+    val apkFileSha256: List<String> = emptyList(),
 )
+
+data class PackageApkIdentity(
+    val packageName: String,
+    val versionName: String,
+    val versionCode: Long,
+    val signerSha256: String,
+)
+
+interface InstalledApkMetadataReader {
+    fun installed(packageName: String): PackageApkIdentity
+    fun archive(apk: File): PackageApkIdentity?
+}
+
+class AndroidInstalledApkMetadataReader(private val packageManager: PackageManager) : InstalledApkMetadataReader {
+    override fun installed(packageName: String): PackageApkIdentity {
+        val info = packageManager.getPackageInfo(packageName, PackageManager.GET_SIGNING_CERTIFICATES)
+        return info.toIdentity(packageName)
+    }
+
+    override fun archive(apk: File): PackageApkIdentity? = packageManager
+        .getPackageArchiveInfo(apk.absolutePath, PackageManager.GET_SIGNING_CERTIFICATES)
+        ?.toIdentity(null)
+
+    private fun android.content.pm.PackageInfo.toIdentity(expectedPackageName: String?): PackageApkIdentity {
+        val name = packageName
+        require(expectedPackageName == null || name == expectedPackageName) {
+            "Installed package name did not match application info"
+        }
+        val signers = signingInfo?.apkContentsSigners.orEmpty()
+        require(signers.size == 1) { "Package signing identity was missing or ambiguous" }
+        val signerSha = MessageDigest.getInstance("SHA-256").digest(signers.single().toByteArray()).toHexString()
+        return PackageApkIdentity(name, versionName.orEmpty(), longVersionCode, signerSha)
+    }
+}
 
 class InstalledBuildIdentityReader(
     private val supportedAbisProvider: () -> List<String> = { android.os.Build.SUPPORTED_ABIS.toList() },
@@ -34,6 +70,46 @@ class InstalledBuildIdentityReader(
                 apkFiles = apkFiles.map(::File),
                 dataDirectory = File(checkNotNull(applicationInfo.dataDir) { "WeChat data directory was null" }),
             ),
+        )
+    }
+
+    fun readForRules(
+        applicationInfo: ApplicationInfo,
+        packageMetadata: InstalledApkMetadataReader,
+    ): InstalledBuild {
+        val packageName = checkNotNull(applicationInfo.packageName?.takeIf(String::isNotBlank)) {
+            "Installed package name was missing"
+        }
+        val baseApkPath = checkNotNull(applicationInfo.sourceDir?.takeIf(String::isNotBlank)) {
+            "Installed base APK path was missing"
+        }
+        val apkFiles = (listOf(baseApkPath) + applicationInfo.splitSourceDirs.orEmpty()).map(::File)
+        require(apkFiles.all { it.isFile && it.canRead() }) { "An installed APK or split was not readable" }
+        val installed = packageMetadata.installed(packageName)
+        require(installed.packageName == packageName && installed.versionCode > 0) {
+            "Installed package identity was incomplete"
+        }
+        require(installed.signerSha256.matches(HEX_SHA256)) { "Installed package signer was missing or invalid" }
+        apkFiles.forEach { apk ->
+            val archive = packageMetadata.archive(apk)
+                ?: error("Installed APK metadata could not be read: ${apk.name}")
+            require(archive == installed) { "Installed APK or split identity did not match PackageManager: ${apk.name}" }
+        }
+        val hashes = apkFiles.map(::sha256)
+        val identity = BuildIdentity(
+            packageName = installed.packageName,
+            versionName = installed.versionName,
+            versionCode = installed.versionCode,
+            abi = readAbi(apkFiles),
+            apkSha256 = hashes.first(),
+            signerSha256 = installed.signerSha256.lowercase(),
+        )
+        return InstalledBuild(
+            identity = identity,
+            apkFiles = apkFiles,
+            installFingerprint = installFingerprint(packageName, installed, apkFiles, hashes),
+            dataDirectory = File(checkNotNull(applicationInfo.dataDir) { "Installed data directory was missing" }),
+            apkFileSha256 = hashes,
         )
     }
 
@@ -95,10 +171,7 @@ class InstalledBuildIdentityReader(
             for (apk in metadata.apkFiles) {
                 append('|')
                 append(apk.absolutePath)
-                append(':')
-                append(apk.length())
-                append(':')
-                append(apk.lastModified())
+                append(':').append(sha256(apk))
             }
         }
         return MessageDigest.getInstance("SHA-256")
@@ -106,5 +179,24 @@ class InstalledBuildIdentityReader(
             .toHexString()
     }
 
+    private fun installFingerprint(
+        packageName: String,
+        identity: PackageApkIdentity,
+        apkFiles: List<File>,
+        hashes: List<String>,
+    ): String {
+        val details = buildString {
+            append(packageName).append('|').append(identity.versionCode).append('|').append(identity.signerSha256)
+            apkFiles.zip(hashes).forEach { (apk, hash) -> append('|').append(apk.canonicalPath).append(':').append(hash) }
+        }
+        return MessageDigest.getInstance("SHA-256").digest(details.toByteArray(StandardCharsets.UTF_8)).toHexString()
+    }
+
     private fun ByteArray.toHexString(): String = joinToString("") { "%02x".format(it) }
+
+    private companion object {
+        val HEX_SHA256 = Regex("[a-fA-F0-9]{64}")
+    }
 }
+
+private fun ByteArray.toHexString(): String = joinToString("") { "%02x".format(it) }

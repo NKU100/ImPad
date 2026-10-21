@@ -1,0 +1,994 @@
+{
+  "schemaVersion": 1,
+  "appId": "wechat",
+  "evidenceRoots": {
+    "f81be9fa-e117-4f6c-8e9b-21fc5da8b026": "evidence/wechat-unification-task1/runtime/oracle/output"
+  },
+  "records": [
+    {
+      "recordId": "f81be9fa-e117-4f6c-8e9b-21fc5da8b026",
+      "schemaVersion": 1,
+      "appId": "wechat",
+      "status": "VERIFIED",
+      "identity": {
+        "packageName": "com.tencent.mm",
+        "versionName": "8.0.69",
+        "versionCode": 3040,
+        "abi": "arm64-v8a",
+        "apkSha256": "e4da5809f2b3305e375db38897a4082085adc6b51182fa807813c4dda1c3a948",
+        "signerSha256": "0fe4ff85c215918396dadc7cd8ce6963339af33d37751a56e54c7206b63a3c7c"
+      },
+      "source": {
+        "type": "official",
+        "url": "https://dldir1v6.qq.com/weixin/android/weixin8069android3040_0x2800455a_arm64.apk",
+        "apkFiles": [
+          {
+            "path": "apk-inputs/0-e4da5809f2b3305e375db38897a4082085adc6b51182fa807813c4dda1c3a948.apk",
+            "role": "base",
+            "sha256": "e4da5809f2b3305e375db38897a4082085adc6b51182fa807813c4dda1c3a948"
+          }
+        ]
+      },
+      "expectedPlan": {
+        "selection": "UNIQUE",
+        "ruleId": "wechat_tablet_login_001",
+        "strategyId": "wechat_tablet_login_behavior_001",
+        "targets": {
+          "tablet": {
+            "descriptor": "Lcom/tencent/mm/ui/qj;->B(Lfd5/n0;)Z",
+            "shape": {
+              "parameters": [
+                "fd5.n0"
+              ],
+              "returnType": "boolean",
+              "isStatic": true
+            }
+          },
+          "login": {
+            "descriptor": "Lg21/h0;->a(Landroid/view/View;Landroidx/lifecycle/y;)V",
+            "shape": {
+              "parameters": [
+                "android.view.View",
+                "androidx.lifecycle.y"
+              ],
+              "returnType": "void",
+              "isStatic": true
+            }
+          }
+        }
+      },
+      "route": {
+        "appId": "wechat",
+        "candidates": [
+          "wechat_tablet_login_001"
+        ],
+        "samplingMode": "DIRECT"
+      },
+      "module": {
+        "apkPath": "/Users/adamxzheng/Documents/LSPosedModules/ImPad/evidence/wechat-unification-task1/runtime/module/app-debug.apk",
+        "sha256": "657863ecb227fb6206aed39bc55315711d757f0014e1d5250d890cd73c009d42",
+        "sourceCommit": "92fed4d554976db9f9a9a57cbb58e8b56918f48f",
+        "sourceTreeSha256": "fc843cfa2a882588a0fadbe9704aff1929d54d5c56ba416038b7629b91b6a8c2",
+        "ruleCatalogSha256": "d20ce5e104ddab86b4833f12cfda8d226a696857cde3d08204c1456064a60774",
+        "routeSha256": "704f7c8bcfa51d2dadd0f72e68f0649dd72bcad81f5d245335f441e5b65aeb1c",
+        "routeConfigurationSha256": "2e2276b0729c4b82d7729d55f0740cc1e84d27c99ea4660c866fa417c68a057c",
+        "dependencyLockSha256": "33bc276f0e7db9e9f82af7d9d3f4f1e8bced386b58f847b648526ebdab9e66ee",
+        "fingerprintFileSha256": "899e305f7715998e4fba4491e9de03eb072fbed7a11b20b5befdba346805e7e6",
+        "fingerprint": {
+          "schemaVersion": 1,
+          "ruleSources": [
+            {
+              "path": "compat-rules/src/main/kotlin/io/github/nku100/impad/rules/DexKitRuntimeLoader.kt",
+              "sha256": "29611159aa4afdf8b088e81a539878c4df0244aaeb82291d503f0a3815a8860f"
+            },
+            {
+              "path": "compat-rules/src/main/kotlin/io/github/nku100/impad/rules/RuleCatalog.kt",
+              "sha256": "39b0580823460b834029c6114754ed7584625783f21996f5f97368b865644c3a"
+            },
+            {
+              "path": "compat-rules/src/main/kotlin/io/github/nku100/impad/rules/RuleExecutionFingerprint.kt",
+              "sha256": "60efc3061c933f64a844af26d91ca36129d1cbf85fe586e34b6c7ed9a749a3cc"
+            },
+            {
+              "path": "compat-rules/src/main/kotlin/io/github/nku100/impad/rules/RuleSession.kt",
+              "sha256": "173115c4767afbe2b98178af514a1f37b43c9f229c083d9be48d0c895c370949"
+            },
+            {
+              "path": "compat-rules/src/main/kotlin/io/github/nku100/impad/rules/SharedRuleResolver.kt",
+              "sha256": "b055c8f2587e166236b60a1f19674cbb0bfb1c1d94a555fec66281cd96057746"
+            },
+            {
+              "path": "compat-rules/src/main/kotlin/io/github/nku100/impad/rules/qq/QqDeviceTypeRule.kt",
+              "sha256": "1435f043f775cefb492f101fd343e61980fae577006b086849c20df6b88dcb8e"
+            },
+            {
+              "path": "compat-rules/src/main/kotlin/io/github/nku100/impad/rules/wechat/WeChatTabletLoginRule.kt",
+              "sha256": "91c6f3679ad3f93041677a742a6d467453f0a6186db7a1ebb575bd78c79162d6"
+            },
+            {
+              "path": "compat-rules/src/main/kotlin/io/github/nku100/impad/rules/wecom/WeComLocalRule.kt",
+              "sha256": "fd102a61cf7591ec299810ff88639889eadfe10cfff8d9bdb47f7e39031b477d"
+            }
+          ],
+          "resolverSources": [
+            {
+              "path": "compat-core/src/main/kotlin/io/github/nku100/impad/compat/rules/RuleModels.kt",
+              "sha256": "4d2246c41bb4e16f3ec67105f62e59e27e344ea98950aae86b788eae49019ea9"
+            },
+            {
+              "path": "compat-core/src/main/kotlin/io/github/nku100/impad/compat/rules/RuleSelector.kt",
+              "sha256": "8b258f7caa22e06a9fd9752b10fa1b8a257a3a33c0ab98f5569761907ab2ae00"
+            },
+            {
+              "path": "compat-core/src/main/kotlin/io/github/nku100/impad/compat/rules/VersionRouter.kt",
+              "sha256": "c430fcb23f4498324cc6b34f822f7c4429aa718a017a5512ce33eae72db726d5"
+            },
+            {
+              "path": "app/src/main/kotlin/io/github/nku100/impad/ImPadModule.kt",
+              "sha256": "2d844879d5ba7de3ea7d9338cf3a2dc4d129e0154acd4635404dde697ea44720"
+            },
+            {
+              "path": "app/src/main/kotlin/io/github/nku100/impad/runtime/AndroidDexKitRuntime.kt",
+              "sha256": "b034e88ea243fee02a6726a5fc2a3a5c372866d4cb3017d736c015bf91d21ef8"
+            },
+            {
+              "path": "app/src/main/kotlin/io/github/nku100/impad/runtime/InstalledBuildIdentityReader.kt",
+              "sha256": "c17af3d416947daad252ba4bae664ec15a6e33527858dbeaf69dfb339f1d6f84"
+            },
+            {
+              "path": "app/src/main/kotlin/io/github/nku100/impad/runtime/RuleInstallCoordinator.kt",
+              "sha256": "913534acd3f3a969d82a4ff1e795fcf26d9660d8b6a2de79ac742015b649b166"
+            },
+            {
+              "path": "app/src/main/kotlin/io/github/nku100/impad/runtime/RuleResolutionCache.kt",
+              "sha256": "f5a1bc79f86fa8f0a5b9b95147635f480299961fa8d500b37b012f52997ff208"
+            },
+            {
+              "path": "app/src/main/kotlin/io/github/nku100/impad/runtime/RuleRuntimeResolver.kt",
+              "sha256": "ac914dfcd792aa3af79696c0baae44b5fd116052c049319a165d032ca05aec4f"
+            },
+            {
+              "path": "app/src/main/kotlin/io/github/nku100/impad/runtime/TargetMethodResolver.kt",
+              "sha256": "a15a3ccc10f12c1f37c5b7bd70a52bd8f2b17adc82d43a45fb0451ae3205493e"
+            }
+          ],
+          "strategySources": [
+            {
+              "path": "app/src/main/kotlin/io/github/nku100/impad/apps/qq/QqAppAdapter.kt",
+              "sha256": "0d322c29e2598f7ae741c0d55f6ed63d7cb087acd611d38a9268f9db3a6c5522"
+            },
+            {
+              "path": "app/src/main/kotlin/io/github/nku100/impad/apps/qq/QqHookInstaller.kt",
+              "sha256": "126afc43753da46b026cd6af94f8341441262c96e632d6049519c01a0d840555"
+            },
+            {
+              "path": "app/src/main/kotlin/io/github/nku100/impad/apps/wechat/WeChatAppAdapter.kt",
+              "sha256": "9707954e894c727ef54aa2011f8fb97a10c69a81266a8512c672ed7971030c17"
+            },
+            {
+              "path": "app/src/main/kotlin/io/github/nku100/impad/apps/wechat/WeChatHookCallbacks.kt",
+              "sha256": "5ba227b1016d585df75201dc63ab8a2d326d6615d1b670307942bfeea0d13e58"
+            },
+            {
+              "path": "app/src/main/kotlin/io/github/nku100/impad/apps/wechat/WeChatHookInstaller.kt",
+              "sha256": "991c82cca9b946bd93347e638d391c929ce2ae8d8c08e235603c5a758aededaf"
+            },
+            {
+              "path": "app/src/main/kotlin/io/github/nku100/impad/apps/wecom/WeComAppAdapter.kt",
+              "sha256": "ed1a7562f0239b4d838924dc7c6bf8ef1c59146784fa119e16c4ea128f7614d3"
+            },
+            {
+              "path": "app/src/main/kotlin/io/github/nku100/impad/apps/wecom/WeComHookCallbacks.kt",
+              "sha256": "d990af74f58372cab1ef8c792a4ebc0d2007730d4c9f9401055db01905c9b948"
+            },
+            {
+              "path": "app/src/main/kotlin/io/github/nku100/impad/apps/wecom/WeComHookInstaller.kt",
+              "sha256": "fdae892b6c48deb5e14c8b074f634a99906824d3bce1241d3ea07ddd50a67ff7"
+            },
+            {
+              "path": "app/src/main/kotlin/io/github/nku100/impad/runtime/HookCall.kt",
+              "sha256": "7444a98d571033cb825c8fbb77b2076c2b0b91877d5886cb8cda947b20690be8"
+            },
+            {
+              "path": "app/src/main/kotlin/io/github/nku100/impad/runtime/HookInstaller.kt",
+              "sha256": "12ca1b20590c265d60131321d639cb770b0590b7740a051e3a70d62425309443"
+            }
+          ],
+          "moduleSources": [
+            {
+              "path": ".github/actions/prepare-dexkit-system-deps/action.yml",
+              "sha256": "636230777b44d0bae540582986b2a73027726e618001923fd0abfdd0c115b3e2"
+            },
+            {
+              "path": ".github/workflows/runtime-validation.yml",
+              "sha256": "5e902e3ff8028822e76db2eb64b3c1712b5af03f988b6a6b2bf9585c660fde27"
+            },
+            {
+              "path": "app/build.gradle.kts",
+              "sha256": "b0a2969213ff73270b9cd3110d11e0134710e72e964f90d6ce200ad50db733e0"
+            },
+            {
+              "path": "app/src/main/AndroidManifest.xml",
+              "sha256": "30eb31c5c6d8c287db17c068d5c6a7b891e7cb460b0f5063ddc11aeb6ac5530d"
+            },
+            {
+              "path": "app/src/main/assets/licenses/Apache-2.0.txt",
+              "sha256": "cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30"
+            },
+            {
+              "path": "app/src/main/assets/licenses/DexKit-LGPL-3.0.txt",
+              "sha256": "ccf8a822bf4d4cbec96787bcf810b9d150afe858a2d407111df23d8f0fa2b65c"
+            },
+            {
+              "path": "app/src/main/assets/licenses/GPL-3.0.txt",
+              "sha256": "3972dc9744f6499f0f9b2dbf76696f2ae7ad8af9b23dde66d6af86c9dfb36986"
+            },
+            {
+              "path": "app/src/main/assets/licenses/ImPad-NOTICE.txt",
+              "sha256": "83f7c5f035def01b60233121f21286d45ca424fa66221b44283d85708de3418f"
+            },
+            {
+              "path": "app/src/main/assets/licenses/THIRD_PARTY_NOTICES.txt",
+              "sha256": "7e98e708e2c5a91bcb81020190fbc1462bdaf411ee7f7f6281671672e5b1648d"
+            },
+            {
+              "path": "app/src/main/assets/licenses/checker-qual-LICENSE.txt",
+              "sha256": "e90eaa08dea089df10f2bf7f9dba63a5f6237c01562c4741e2e86773e78582d5"
+            },
+            {
+              "path": "app/src/main/assets/licenses/smali-dexlib2-LICENSE.txt",
+              "sha256": "29da1aadc6709dd25462efa679a659c74ca397ed69acb2d6094078eaa6d33c9e"
+            },
+            {
+              "path": "app/src/main/kotlin/io/github/nku100/impad/ImPadModule.kt",
+              "sha256": "2d844879d5ba7de3ea7d9338cf3a2dc4d129e0154acd4635404dde697ea44720"
+            },
+            {
+              "path": "app/src/main/kotlin/io/github/nku100/impad/apps/qq/QqAppAdapter.kt",
+              "sha256": "0d322c29e2598f7ae741c0d55f6ed63d7cb087acd611d38a9268f9db3a6c5522"
+            },
+            {
+              "path": "app/src/main/kotlin/io/github/nku100/impad/apps/qq/QqHookInstaller.kt",
+              "sha256": "126afc43753da46b026cd6af94f8341441262c96e632d6049519c01a0d840555"
+            },
+            {
+              "path": "app/src/main/kotlin/io/github/nku100/impad/apps/wechat/WeChatAppAdapter.kt",
+              "sha256": "9707954e894c727ef54aa2011f8fb97a10c69a81266a8512c672ed7971030c17"
+            },
+            {
+              "path": "app/src/main/kotlin/io/github/nku100/impad/apps/wechat/WeChatHookCallbacks.kt",
+              "sha256": "5ba227b1016d585df75201dc63ab8a2d326d6615d1b670307942bfeea0d13e58"
+            },
+            {
+              "path": "app/src/main/kotlin/io/github/nku100/impad/apps/wechat/WeChatHookInstaller.kt",
+              "sha256": "991c82cca9b946bd93347e638d391c929ce2ae8d8c08e235603c5a758aededaf"
+            },
+            {
+              "path": "app/src/main/kotlin/io/github/nku100/impad/apps/wecom/WeComAppAdapter.kt",
+              "sha256": "ed1a7562f0239b4d838924dc7c6bf8ef1c59146784fa119e16c4ea128f7614d3"
+            },
+            {
+              "path": "app/src/main/kotlin/io/github/nku100/impad/apps/wecom/WeComHookCallbacks.kt",
+              "sha256": "d990af74f58372cab1ef8c792a4ebc0d2007730d4c9f9401055db01905c9b948"
+            },
+            {
+              "path": "app/src/main/kotlin/io/github/nku100/impad/apps/wecom/WeComHookInstaller.kt",
+              "sha256": "fdae892b6c48deb5e14c8b074f634a99906824d3bce1241d3ea07ddd50a67ff7"
+            },
+            {
+              "path": "app/src/main/kotlin/io/github/nku100/impad/runtime/AndroidDexKitRuntime.kt",
+              "sha256": "b034e88ea243fee02a6726a5fc2a3a5c372866d4cb3017d736c015bf91d21ef8"
+            },
+            {
+              "path": "app/src/main/kotlin/io/github/nku100/impad/runtime/AppAdapter.kt",
+              "sha256": "a2cc1911dd51f3922dc7640171e34eece698d6c48180db6a1921d24b3b67f33d"
+            },
+            {
+              "path": "app/src/main/kotlin/io/github/nku100/impad/runtime/AppAdapterRegistry.kt",
+              "sha256": "4bc4d0473c414cecce9f4d8056bc08563e04af5b5bd9d34056bf7d3434b14ad6"
+            },
+            {
+              "path": "app/src/main/kotlin/io/github/nku100/impad/runtime/DexKitNativeLibraryVerifier.kt",
+              "sha256": "cb6379dc5d6bdc35d57c5b33da12886d7795f20390bd010b3aa17893a291641b"
+            },
+            {
+              "path": "app/src/main/kotlin/io/github/nku100/impad/runtime/HookCall.kt",
+              "sha256": "7444a98d571033cb825c8fbb77b2076c2b0b91877d5886cb8cda947b20690be8"
+            },
+            {
+              "path": "app/src/main/kotlin/io/github/nku100/impad/runtime/HookInstaller.kt",
+              "sha256": "12ca1b20590c265d60131321d639cb770b0590b7740a051e3a70d62425309443"
+            },
+            {
+              "path": "app/src/main/kotlin/io/github/nku100/impad/runtime/InstalledBuildIdentityReader.kt",
+              "sha256": "c17af3d416947daad252ba4bae664ec15a6e33527858dbeaf69dfb339f1d6f84"
+            },
+            {
+              "path": "app/src/main/kotlin/io/github/nku100/impad/runtime/LibXposedHookRegistrar.kt",
+              "sha256": "5247072027379b1a0f6b16792c3d131b0bee61cf53e5f6f3cb256cbca2168c28"
+            },
+            {
+              "path": "app/src/main/kotlin/io/github/nku100/impad/runtime/PostAttachClassLoaderBridge.kt",
+              "sha256": "2ba4ec6bae73c2a00fed49c99c0305e8633d2cada03f6998aa5f11855e0949d8"
+            },
+            {
+              "path": "app/src/main/kotlin/io/github/nku100/impad/runtime/RuleInstallCoordinator.kt",
+              "sha256": "913534acd3f3a969d82a4ff1e795fcf26d9660d8b6a2de79ac742015b649b166"
+            },
+            {
+              "path": "app/src/main/kotlin/io/github/nku100/impad/runtime/RuleResolutionCache.kt",
+              "sha256": "f5a1bc79f86fa8f0a5b9b95147635f480299961fa8d500b37b012f52997ff208"
+            },
+            {
+              "path": "app/src/main/kotlin/io/github/nku100/impad/runtime/RuleRuntimeResolver.kt",
+              "sha256": "ac914dfcd792aa3af79696c0baae44b5fd116052c049319a165d032ca05aec4f"
+            },
+            {
+              "path": "app/src/main/kotlin/io/github/nku100/impad/runtime/RuntimeCompatibilityResolver.kt",
+              "sha256": "4e065d0ac57d2ea91da76f39e240e6b2f33c4d4f763ce63743540d6dbd6e8ead"
+            },
+            {
+              "path": "app/src/main/kotlin/io/github/nku100/impad/runtime/RuntimeResolutionCache.kt",
+              "sha256": "a8f94f094938a3d1d8db80e1a1afc7e4eaf40228cf43b8485a4e215684483d54"
+            },
+            {
+              "path": "app/src/main/kotlin/io/github/nku100/impad/runtime/TargetMethodResolver.kt",
+              "sha256": "a15a3ccc10f12c1f37c5b7bd70a52bd8f2b17adc82d43a45fb0451ae3205493e"
+            },
+            {
+              "path": "app/src/main/kotlin/io/github/nku100/impad/runtime/TinkerClassLoaderBridge.kt",
+              "sha256": "8f963f5c668d686690dc688939703a9c7726a3aa8a0757a612c8b33184440b7f"
+            },
+            {
+              "path": "app/src/main/res/values/strings.xml",
+              "sha256": "dc3363b6a1e1d7f4735c4335ced85158d2d15267c437eb2a2b5ebc3b2278d8fb"
+            },
+            {
+              "path": "app/src/main/resources/META-INF/xposed/java_init.list",
+              "sha256": "72bc500a62426d787dd5bcca3197d0eeab950f25a615d12cb26d0b8af0b70e55"
+            },
+            {
+              "path": "app/src/main/resources/META-INF/xposed/module.prop",
+              "sha256": "5edf6ee0bc30d6a16858937fe797c1f44a9b3cfceb2adb878d11f3675358d7aa"
+            },
+            {
+              "path": "app/src/main/resources/META-INF/xposed/scope.list",
+              "sha256": "27e870456f22a510ffa4394f3f4d7eb0762ee805481d7c6c15ea2a0cb2dd2d90"
+            },
+            {
+              "path": "build.gradle.kts",
+              "sha256": "93253117dfda56ff5eb09e1fcc4b7fba5aa432c9f24290aa2c1453dde33aa675"
+            },
+            {
+              "path": "compat-checker/build.gradle.kts",
+              "sha256": "846d00ed0a99368d41df17550578f1fa25f48719c7d2de133094278a00addb32"
+            },
+            {
+              "path": "compat-checker/src/main/kotlin/io/github/nku100/impad/checker/ApkIdentityInspector.kt",
+              "sha256": "35feb2586bc8141c5b2c17a19e3bcb424a8e24288ffbdc99172b9ea5d2de3628"
+            },
+            {
+              "path": "compat-checker/src/main/kotlin/io/github/nku100/impad/checker/CandidateReportWriter.kt",
+              "sha256": "aa5d19fca21e3d7869efdea858b1044bf30001be5292ce335effe05274e516e2"
+            },
+            {
+              "path": "compat-checker/src/main/kotlin/io/github/nku100/impad/checker/Main.kt",
+              "sha256": "1539f1811ce2f9fe6820f67b175775a689eb3a3690bdae96c947cec342eebfb4"
+            },
+            {
+              "path": "compat-checker/src/main/kotlin/io/github/nku100/impad/checker/RuleCheck.kt",
+              "sha256": "e969d339a8faf5003ef24865d00cbaf89a5403e78cda4108ce82f405fb388b4b"
+            },
+            {
+              "path": "compat-core/build.gradle.kts",
+              "sha256": "4a2d0a7132698344c995d1625c107bd3c60aac8477860ee7c2080ca1e5622f66"
+            },
+            {
+              "path": "compat-core/src/main/kotlin/io/github/nku100/impad/compat/AppCompatibilityPolicy.kt",
+              "sha256": "1515036c69d13bfceb9bb532e0bee3cb68d1938eea0f3515c136a83df103aee0"
+            },
+            {
+              "path": "compat-core/src/main/kotlin/io/github/nku100/impad/compat/BuildIdentity.kt",
+              "sha256": "21c0d8a730a9bbd8a2805200075c81d77f99b7d0553508d47fdb1dcaa1bc74a7"
+            },
+            {
+              "path": "compat-core/src/main/kotlin/io/github/nku100/impad/compat/CandidatePipeline.kt",
+              "sha256": "9785894b5c8f100008c49621bae7729b42a85444b2a089378fe259f00459b3e2"
+            },
+            {
+              "path": "compat-core/src/main/kotlin/io/github/nku100/impad/compat/CompatibilityResolver.kt",
+              "sha256": "da072f8f4ba3c1256e3cde9262c27a01107e088eebe6055ecbfcc148f31d7179"
+            },
+            {
+              "path": "compat-core/src/main/kotlin/io/github/nku100/impad/compat/CompatibilityResult.kt",
+              "sha256": "e1382ed7c328e2d3d04e1b8085142cda707ad1fe27f9b1b55ac5537e6376c51e"
+            },
+            {
+              "path": "compat-core/src/main/kotlin/io/github/nku100/impad/compat/CompatibilityTarget.kt",
+              "sha256": "6aaf386d0ca10dd7958a55ea5762f1cdc22e123df9a201be8aa8a389451e205d"
+            },
+            {
+              "path": "compat-core/src/main/kotlin/io/github/nku100/impad/compat/DexFactReader.kt",
+              "sha256": "4f573defdddd60eafe902a56c463df1b4c8c52ca8007b51a290e26c25b598abd"
+            },
+            {
+              "path": "compat-core/src/main/kotlin/io/github/nku100/impad/compat/DexMethodFact.kt",
+              "sha256": "607384c6f6025b9acc4d00669356f736fb3ee9f2708dc1f8bf3b05aaff484097"
+            },
+            {
+              "path": "compat-core/src/main/kotlin/io/github/nku100/impad/compat/HookMethodMatcher.kt",
+              "sha256": "8a8788f1e68a53c7cd2d4c83d9b16460c76ac4744c997abb14f6ffafef12040c"
+            },
+            {
+              "path": "compat-core/src/main/kotlin/io/github/nku100/impad/compat/ResolutionCache.kt",
+              "sha256": "61eaab163479f3f6f1124a69ce567b06c71f2972c824bfc3e64c216dcc84c6a5"
+            },
+            {
+              "path": "compat-core/src/main/kotlin/io/github/nku100/impad/compat/apps/qq/QqCompatibilityPolicy.kt",
+              "sha256": "d923557147f614f2b5fdd484eb6431b08f24706019104ee8bbceb53729dbef69"
+            },
+            {
+              "path": "compat-core/src/main/kotlin/io/github/nku100/impad/compat/apps/wechat/WeChatCompatibilityPolicy.kt",
+              "sha256": "cdb6e6501e31efda4f67c63d9a9b5f74e2823dd0f49594846ad8ff7cb0ec9d8c"
+            },
+            {
+              "path": "compat-core/src/main/kotlin/io/github/nku100/impad/compat/apps/wecom/WeComCompatibilityPolicy.kt",
+              "sha256": "97806d40507a72a51b074ebae512f59de824affa1f949ed753e3ccc8b6fbf077"
+            },
+            {
+              "path": "compat-core/src/main/kotlin/io/github/nku100/impad/compat/rules/RuleModels.kt",
+              "sha256": "4d2246c41bb4e16f3ec67105f62e59e27e344ea98950aae86b788eae49019ea9"
+            },
+            {
+              "path": "compat-core/src/main/kotlin/io/github/nku100/impad/compat/rules/RuleSelector.kt",
+              "sha256": "8b258f7caa22e06a9fd9752b10fa1b8a257a3a33c0ab98f5569761907ab2ae00"
+            },
+            {
+              "path": "compat-core/src/main/kotlin/io/github/nku100/impad/compat/rules/VersionRouter.kt",
+              "sha256": "c430fcb23f4498324cc6b34f822f7c4429aa718a017a5512ce33eae72db726d5"
+            },
+            {
+              "path": "compat-rules/build.gradle.kts",
+              "sha256": "28219ca90ca0ba878fb3feab115aac8ff89209cc83625c9145bffd70f880b709"
+            },
+            {
+              "path": "compat-rules/src/main/kotlin/io/github/nku100/impad/rules/DexKitRuntimeLoader.kt",
+              "sha256": "29611159aa4afdf8b088e81a539878c4df0244aaeb82291d503f0a3815a8860f"
+            },
+            {
+              "path": "compat-rules/src/main/kotlin/io/github/nku100/impad/rules/RuleCatalog.kt",
+              "sha256": "39b0580823460b834029c6114754ed7584625783f21996f5f97368b865644c3a"
+            },
+            {
+              "path": "compat-rules/src/main/kotlin/io/github/nku100/impad/rules/RuleExecutionFingerprint.kt",
+              "sha256": "60efc3061c933f64a844af26d91ca36129d1cbf85fe586e34b6c7ed9a749a3cc"
+            },
+            {
+              "path": "compat-rules/src/main/kotlin/io/github/nku100/impad/rules/RuleSession.kt",
+              "sha256": "173115c4767afbe2b98178af514a1f37b43c9f229c083d9be48d0c895c370949"
+            },
+            {
+              "path": "compat-rules/src/main/kotlin/io/github/nku100/impad/rules/SharedRuleResolver.kt",
+              "sha256": "b055c8f2587e166236b60a1f19674cbb0bfb1c1d94a555fec66281cd96057746"
+            },
+            {
+              "path": "compat-rules/src/main/kotlin/io/github/nku100/impad/rules/qq/QqDeviceTypeRule.kt",
+              "sha256": "1435f043f775cefb492f101fd343e61980fae577006b086849c20df6b88dcb8e"
+            },
+            {
+              "path": "compat-rules/src/main/kotlin/io/github/nku100/impad/rules/wechat/WeChatTabletLoginRule.kt",
+              "sha256": "91c6f3679ad3f93041677a742a6d467453f0a6186db7a1ebb575bd78c79162d6"
+            },
+            {
+              "path": "compat-rules/src/main/kotlin/io/github/nku100/impad/rules/wecom/WeComLocalRule.kt",
+              "sha256": "fd102a61cf7591ec299810ff88639889eadfe10cfff8d9bdb47f7e39031b477d"
+            },
+            {
+              "path": "compatibility/resolution-modes.json",
+              "sha256": "99f2189ea678ca2402ad0773dcbd386afb7dd22ef7d6e45466c8fbec71e448b7"
+            },
+            {
+              "path": "gradle.properties",
+              "sha256": "4d6836d882d47b13a95255251968e4c977479d218f0dd064b6127b53788750fa"
+            },
+            {
+              "path": "gradle/dexkit-lock.json",
+              "sha256": "64d6d6b3cdc54d27b3e0b67ac97b4b1ec992a1f2480e3096ca481472bdd4dda7"
+            },
+            {
+              "path": "gradle/libs.versions.toml",
+              "sha256": "6cfa283f38ab45d6be8f2561321eb6220ba26819cff67c41d6a436f49cfce5aa"
+            },
+            {
+              "path": "gradle/wrapper/gradle-wrapper.properties",
+              "sha256": "6b01eb188212a3949043b3cf292e0709eb22e9316536873637f5dca2dec689a3"
+            },
+            {
+              "path": "scripts/ci/UiHierarchy.java",
+              "sha256": "61547cce272da801c8603bc5e5b3ab60746d515579c2d1afd5c7ae51ec9720cd"
+            },
+            {
+              "path": "scripts/ci/acceptance.py",
+              "sha256": "5df2efe8bc82e372c59bb8d7fb48577a5f3d2a6c875f993542085d4e48304226"
+            },
+            {
+              "path": "scripts/ci/adaptation_checkpoint.py",
+              "sha256": "9c7eb5d8d62862c6e7da00869be2d19197d8350942af4eb5fc9d826bd1e1e383"
+            },
+            {
+              "path": "scripts/ci/adaptation_summary.py",
+              "sha256": "456870f9dfb8a0151ab07f9d97a1e5dc1a51be7803c689b71cc0e8785a69d8eb"
+            },
+            {
+              "path": "scripts/ci/adb-device.sh",
+              "sha256": "a5f5538bccc8d847301a17bcfe6346491b8d42886247c9353991d3c66e0ea1f8"
+            },
+            {
+              "path": "scripts/ci/adb_relay.py",
+              "sha256": "23669aac659166e7d247ff2b0b273ee846caf725deb76678bd7d7309fa5794c7"
+            },
+            {
+              "path": "scripts/ci/adb_relay_client.py",
+              "sha256": "9ad2a8fa140024df41551199f0145487269ae3781091c4c04369bb63ebf156e5"
+            },
+            {
+              "path": "scripts/ci/app_policy.py",
+              "sha256": "af7a86b0ebd6bf1b9734633e855fcf7c2ea38778870e80e3e725a3c2aa34ca2a"
+            },
+            {
+              "path": "scripts/ci/apps/__init__.py",
+              "sha256": "95c0ae09069a9efbc7053bfd64cb69cb41453f7c5c987fd630adecd498983361"
+            },
+            {
+              "path": "scripts/ci/apps/qq/__init__.py",
+              "sha256": "50365caf91f8d449468c8e5eb611a76adc00a592ef4bfd88834a79677d941b0d"
+            },
+            {
+              "path": "scripts/ci/apps/qq/discovery_policy.py",
+              "sha256": "f8702346bd440224e7dbb2ba8a7b93ee6c1283353d6392299aebb0caf7c4b889"
+            },
+            {
+              "path": "scripts/ci/apps/qq/download_policy.py",
+              "sha256": "d8f9fd3f5ff0274f9b2b1580801ba8bd720c615737c11dac838a58ce67f91c24"
+            },
+            {
+              "path": "scripts/ci/apps/qq/packet_capture.py",
+              "sha256": "53d959f279991a70b8eb547eac574a80663c41478c46177903aae074bcaf819e"
+            },
+            {
+              "path": "scripts/ci/apps/qq/prepare_probe.py",
+              "sha256": "82c5d93594b19f3881755589b5b28ec685336194b4ca2cd45f143c131c850821"
+            },
+            {
+              "path": "scripts/ci/apps/qq/probe/collector.c",
+              "sha256": "233b90dcd56d65adce96881001fab3cbe710ff9bb849ff4293be06c3db9e6022"
+            },
+            {
+              "path": "scripts/ci/apps/qq/request_protocol.py",
+              "sha256": "18be00ccb137af7dc410dbcea41b7baab017dadd6330f16d2e2b62fbd81e228f"
+            },
+            {
+              "path": "scripts/ci/apps/qq/runtime_policy.py",
+              "sha256": "b3aea369d20fbcb595582207422c4f87b74722fa5b25f35c686433ada68ba617"
+            },
+            {
+              "path": "scripts/ci/apps/qq/runtime_probe.py",
+              "sha256": "40b0d337e22aa751ad91ccdf378d48fe363ef266293949cf7b652012d70b040b"
+            },
+            {
+              "path": "scripts/ci/apps/wechat/__init__.py",
+              "sha256": "e5de67658b75c5b92956986ec11177f954593cb2deb2c68be448bd9461f6ea1a"
+            },
+            {
+              "path": "scripts/ci/apps/wechat/discovery_policy.py",
+              "sha256": "1eb8b656532c9c4aa0dad20fa3393c4acb2c35093d797aca236f9d501b727748"
+            },
+            {
+              "path": "scripts/ci/apps/wechat/runtime_policy.py",
+              "sha256": "a953ead9800eed3bebf8a617858b1e087b45abe618b36c9f1173562798db44fd"
+            },
+            {
+              "path": "scripts/ci/apps/wecom/__init__.py",
+              "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+            },
+            {
+              "path": "scripts/ci/apps/wecom/discovery_policy.py",
+              "sha256": "93fa4e285b3a7effd0d6fd9551cff3c35950c69b16e562cf2d8275314625303c"
+            },
+            {
+              "path": "scripts/ci/apps/wecom/runtime_policy.py",
+              "sha256": "ee6ebee0288ea3eb962813e76f32c2574a579b84f7b2011bb2675f4f2165156e"
+            },
+            {
+              "path": "scripts/ci/build_module.sh",
+              "sha256": "956bb4c526e43e777f2bb0381190bf442f916a9e690f090366acc98004f6a4a5"
+            },
+            {
+              "path": "scripts/ci/candidate_selection.py",
+              "sha256": "a466da9c3274c8b75d9c958457363045d73002a8de8cef02960087120e61d32d"
+            },
+            {
+              "path": "scripts/ci/codex_adaptation.py",
+              "sha256": "472343e942bc6cc94c13cee43267598e4f6c665fd6155f791d6f7bec34db1639"
+            },
+            {
+              "path": "scripts/ci/codex_goal.py",
+              "sha256": "5cba49bce72299dd45367f0718b1ff3c669351ea27e957b36dce5ff5e1f34b19"
+            },
+            {
+              "path": "scripts/ci/codex_live.mjs",
+              "sha256": "f05fc9af770df365ea6265360285602e092b5cc5a69657a0fe49c73121ca2c6f"
+            },
+            {
+              "path": "scripts/ci/codex_live_cli.mjs",
+              "sha256": "136264ae1372a9733d503f3b117a914b492a2275f3fddcdffdbbcaff043b985c"
+            },
+            {
+              "path": "scripts/ci/codex_observation.py",
+              "sha256": "bb8afad433d89a6556a08e2669b85563eb825621aa7d699205181aeda2cd642f"
+            },
+            {
+              "path": "scripts/ci/codex_sandbox.py",
+              "sha256": "a9abe493a8436c16248dc20cf8034946582c8675ede4b1f52247fdc4f6bb1234"
+            },
+            {
+              "path": "scripts/ci/codex_session_checkpoint.py",
+              "sha256": "4e2ec1a72bebe724808e640484fc0fb8d393fd131f79c9bd5ff9a09f0b51e765"
+            },
+            {
+              "path": "scripts/ci/codex_task.py",
+              "sha256": "2b2fa1ec345527c70459c34144f28b25b5e4d8c2e5087bcc595e2deb17afe087"
+            },
+            {
+              "path": "scripts/ci/codex_trace.py",
+              "sha256": "6d8b29d371ebcf043f55f362b63433a4f745a4c93bbd58ac35b3105160e4beba"
+            },
+            {
+              "path": "scripts/ci/discover_latest_wechat.py",
+              "sha256": "65e58891dca0e681ea8a26e70377da85d7cfd3a2e7f9d5472801e62bc26c1081"
+            },
+            {
+              "path": "scripts/ci/discovery_gate.py",
+              "sha256": "dd2c19b0d5be6d2d51b79055771b934901a0929f66f86b117a8fcd12467849ed"
+            },
+            {
+              "path": "scripts/ci/fetch_latest_wechat_apk.py",
+              "sha256": "a2cc380ee8c89e87eecdcc06303861054985f7cbbdacc877d94a1d0d58992d9c"
+            },
+            {
+              "path": "scripts/ci/host-build.sh",
+              "sha256": "fb7a50ab8cd4ec13e4db3bb16cd24529878c634b07acb1a2b63bd079c2dc639a"
+            },
+            {
+              "path": "scripts/ci/host-runtime.sh",
+              "sha256": "61e84ad192d55d35a4719f79d932ce3a775ed3ad10268b581daf0629aadbabb9"
+            },
+            {
+              "path": "scripts/ci/host_build.py",
+              "sha256": "622a2fdf6cf0458dcded733ece9e14558d8adf22a0c3183275744d3d48f73d0d"
+            },
+            {
+              "path": "scripts/ci/host_runtime.py",
+              "sha256": "6c8caf5d3d280ba9ec5215865ee9835f4f8f8da0ddcc87dd036dc9696fbbb14c"
+            },
+            {
+              "path": "scripts/ci/install_dexsql.py",
+              "sha256": "970a6331a3392cd3f572920a6ccdff670fc4aac599f73b0968effaeb554aef06"
+            },
+            {
+              "path": "scripts/ci/jadx-serial.sh",
+              "sha256": "60d2100e69a5fc975b2951692740f128c104b67affc6a279e8e229884df8b4b3"
+            },
+            {
+              "path": "scripts/ci/java-analysis.py",
+              "sha256": "e200728f5b69837982a029fffd485950823cea53c77c3171232bd3ae08c36816"
+            },
+            {
+              "path": "scripts/ci/prepare_arm64_sdk_host.sh",
+              "sha256": "9dc9f86ece03d96f75d22a0e57485d6ac34b6ff1c9da8317dd684e0eb1857ac2"
+            },
+            {
+              "path": "scripts/ci/prepare_dexkit.py",
+              "sha256": "3e4e70a45ce2d6477c1f8d643cc7b048489c68b3517b17cabce50d3dac679818"
+            },
+            {
+              "path": "scripts/ci/prepare_dexkit_system_deps.py",
+              "sha256": "5baf497e928d9fc18524f5059bfa7194d6d39773f31decd2ce699536b8c80934"
+            },
+            {
+              "path": "scripts/ci/redroid/bootstrap.sh",
+              "sha256": "84b5d2533b584358f1c6f6b0b1177194f7cb6274b3407c1dc19bc524fc3bca76"
+            },
+            {
+              "path": "scripts/ci/redroid/impad-magisk.rc",
+              "sha256": "73a415d9664057c8d55aad80b3306fa8eaaccec19b31e2f2a6e1b08a973c08b4"
+            },
+            {
+              "path": "scripts/ci/redroid_adaptation.py",
+              "sha256": "71f6411bfa1ea1546bf3a9a2bccfcb414da3fb469abdb856888d8ea842adb6cc"
+            },
+            {
+              "path": "scripts/ci/redroid_app_smoke.py",
+              "sha256": "45196a7d6735a52ba452dec2c4d6445b75e894580fb40b19bd279de63e3e657f"
+            },
+            {
+              "path": "scripts/ci/redroid_environment_probe.py",
+              "sha256": "645af4934fd4be50930e5758982c47b18461cf933f51d293f3d92f0731e43606"
+            },
+            {
+              "path": "scripts/ci/redroid_prepare_apps.py",
+              "sha256": "3c819a7c69e00ec4f76047b398e6d92ca1ffec5bbdf2c70f2623ca8cee139fb9"
+            },
+            {
+              "path": "scripts/ci/redroid_ui_smoke.py",
+              "sha256": "57ffbab48f1c050b07b74c8195ee15b98a183a46497b75e635c9e7e51ddd22e6"
+            },
+            {
+              "path": "scripts/ci/runtime_adaptation.py",
+              "sha256": "c6651da1851338dec0f4e5d2cad30e0f4992b5f9baab9daa8c1e2a84ac0e8f49"
+            },
+            {
+              "path": "scripts/ci/runtime_smoke.py",
+              "sha256": "421be7b31718ca8ad8f396f86450ed81aec28f23208b089b46e72e4b8207181b"
+            },
+            {
+              "path": "scripts/ci/runtime_task.py",
+              "sha256": "52af05cdc9035ad6b47441938acf20eb3be60975e6fbe358e38ef2d2d8af3700"
+            },
+            {
+              "path": "scripts/ci/runtime_tooling_probe.py",
+              "sha256": "9aa5e19c8303520afb3b6b5d49db08b56718a92de736f9d3a5e8fc8c955fd4e5"
+            },
+            {
+              "path": "scripts/ci/select_compatibility_window.py",
+              "sha256": "7b4c8dcad98053b0436a95028d8e2c7f07fca95e67d8b18a47542ac8e4374c27"
+            },
+            {
+              "path": "scripts/ci/stage_runtime_module.py",
+              "sha256": "0e30f7e10e38ee596933c1bd5cd7e71598b41bdf34c5b1cd0ebcc1781da2f9e9"
+            },
+            {
+              "path": "scripts/ci/static_regression.py",
+              "sha256": "a828c2f41f263ca696cc0c94e8e912bb34c2da2cf9d87596b8a9d9d46ee930a9"
+            },
+            {
+              "path": "scripts/ci/write_candidate_failure_report.py",
+              "sha256": "c7be9e3e30fcb9643776be4421bf9d1ed9153bcf9f47cc3bb5ee5bae72a5f050"
+            },
+            {
+              "path": "settings.gradle.kts",
+              "sha256": "a8c79bc3546a3b00ee4eb7eadf9fe7c5bbe03d6d002eea03348f5e5df431d201"
+            }
+          ],
+          "sourceTreeSha256": "fc843cfa2a882588a0fadbe9704aff1929d54d5c56ba416038b7629b91b6a8c2",
+          "routeConfigurationSha256": "2e2276b0729c4b82d7729d55f0740cc1e84d27c99ea4660c866fa417c68a057c",
+          "dependencyLockSha256": "33bc276f0e7db9e9f82af7d9d3f4f1e8bced386b58f847b648526ebdab9e66ee",
+          "dexkitLockSha256": "64d6d6b3cdc54d27b3e0b67ac97b4b1ec992a1f2480e3096ca481472bdd4dda7",
+          "dexkitSourceCommit": "c9cd12a14b75409bebd2f73e4dfc5ff575df3eb8",
+          "dexkitApiSha256": "34a8c16d548aa7d8562128f4d2293cec4e0f9896bb1f46224dcd532e878900f5",
+          "dexkitAndroidApiSha256": "8df532c4126b58490667f71127dc57aef62ccf3578d1d17330f2a1cb8836218e",
+          "dexkitLinuxAarch64NativeSha256": "f23e51a19c10dcf1c395f6bef168af72aab3c9e06edae9446ad8368eb7f5495f",
+          "dexkitLinuxX8664NativeSha256": "9c085b60c6aed18fa65026837f024167b21bfd5b60439c3e6ba4db98901c2ed1",
+          "dexkitAndroidArm64NativeSha256": "0444cf15146c256e8bbd2154ae8b120130dab47e9226c7e853a7d653737a95cd"
+        },
+        "route": {
+          "appId": "wechat",
+          "candidates": [
+            "wechat_tablet_login_001"
+          ]
+        },
+        "dexkit": {
+          "ruleCatalogSha256": "d20ce5e104ddab86b4833f12cfda8d226a696857cde3d08204c1456064a60774",
+          "ruleImplementationSha256": "e1fead2e96619797190c5820655f15e3188b6e681a09aaa56758b8440f30bb01",
+          "sharedResolverImplementationSha256": "b503ac00fd7d31ef7159a9efde558a6c29f233b7514e58dca0fbc4b6e3d92629",
+          "dexkitLockSha256": "64d6d6b3cdc54d27b3e0b67ac97b4b1ec992a1f2480e3096ca481472bdd4dda7",
+          "dexkitSourceCommit": "c9cd12a14b75409bebd2f73e4dfc5ff575df3eb8",
+          "dexkitApiSha256": "34a8c16d548aa7d8562128f4d2293cec4e0f9896bb1f46224dcd532e878900f5",
+          "dexkitNativeSha256": "9c085b60c6aed18fa65026837f024167b21bfd5b60439c3e6ba4db98901c2ed1",
+          "dexkitPlatform": "linux-x86_64",
+          "dexkitAndroidApiSha256": "8df532c4126b58490667f71127dc57aef62ccf3578d1d17330f2a1cb8836218e",
+          "dexkitLinuxAarch64NativeSha256": "f23e51a19c10dcf1c395f6bef168af72aab3c9e06edae9446ad8368eb7f5495f",
+          "dexkitLinuxX8664NativeSha256": "9c085b60c6aed18fa65026837f024167b21bfd5b60439c3e6ba4db98901c2ed1",
+          "dexkitAndroidArm64NativeSha256": "0444cf15146c256e8bbd2154ae8b120130dab47e9226c7e853a7d653737a95cd",
+          "strategyImplementationSha256": "a55d1b8ac1fdc8cdc388b87161d561030de0e491aaf985bcd53d01a38ed82997",
+          "cacheIdentitySha256": "1f06bb97dcbcf4b859af33f824b37df72aa6ef68e364723d9453fdc1da9ba7e9",
+          "sourceTreeSha256": "fc843cfa2a882588a0fadbe9704aff1929d54d5c56ba416038b7629b91b6a8c2",
+          "routeConfigurationSha256": "2e2276b0729c4b82d7729d55f0740cc1e84d27c99ea4660c866fa417c68a057c",
+          "dependencyLockSha256": "33bc276f0e7db9e9f82af7d9d3f4f1e8bced386b58f847b648526ebdab9e66ee",
+          "fingerprintFileSha256": "899e305f7715998e4fba4491e9de03eb072fbed7a11b20b5befdba346805e7e6"
+        }
+      },
+      "ruleCatalogSha256": "d20ce5e104ddab86b4833f12cfda8d226a696857cde3d08204c1456064a60774",
+      "contract": null,
+      "evidence": [
+        {
+          "path": "apps/wechat/app-hook-logs.txt",
+          "sha256": "2fc2f63265b7f92353aae2ab03830763197c8142e3bd672d1f43118a1aab866e"
+        },
+        {
+          "path": "apps/wechat/installed-identities.json",
+          "sha256": "62a713dbea670e664ae65e0dfba0e106005fb421c55ec95179c14be78b29efc8"
+        },
+        {
+          "path": "apps/wechat/logcat.txt",
+          "sha256": "e293cb8b28c7aa1a9bee886f4c223db5576d9d62fb15a19da0f0b2dcf29bd936"
+        },
+        {
+          "path": "apps/wechat/manager-current-activity.txt",
+          "sha256": "ca3630a125632c0c6d5493ea0ac562701b4235eeb7ab0891dd740ecf6e209701"
+        },
+        {
+          "path": "apps/wechat/manager-current-dump.txt",
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+          "path": "apps/wechat/manager-current-ocr.tsv",
+          "sha256": "d6ff73fd7535383312b57911960f48aeebc1c50296ba3dd60555998506f07f64"
+        },
+        {
+          "path": "apps/wechat/manager-current.png",
+          "sha256": "84ddcaf1b2d94e54db439262485bd8b9cd7d6533677c67ba47536b13b0feb0c7"
+        },
+        {
+          "path": "apps/wechat/manager-current.xml",
+          "sha256": "4c557e09d44242e6adf37cbd553eb65af809bbc6e1931108bb497474694ac2b3"
+        },
+        {
+          "path": "apps/wechat/manager-enable-requested-activity.txt",
+          "sha256": "2ea2362eddac98143c071566bfe7912c68d82d17a7b05badad46bd75aa13a141"
+        },
+        {
+          "path": "apps/wechat/manager-enable-requested-dump.txt",
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+          "path": "apps/wechat/manager-enable-requested.png",
+          "sha256": "84c578e5221476558ce0a3e0a9382e1f888b2d9c377f694ca4b2e4f847f97065"
+        },
+        {
+          "path": "apps/wechat/manager-enable-requested.xml",
+          "sha256": "4c557e09d44242e6adf37cbd553eb65af809bbc6e1931108bb497474694ac2b3"
+        },
+        {
+          "path": "apps/wechat/manager-module-state.json",
+          "sha256": "501a11c33ad8759cbd2d539b4078deee8e930fff335dec7af5cd14066acf72a5"
+        },
+        {
+          "path": "apps/wechat/manager-state-disabled.json",
+          "sha256": "52c9aeb4578a08dbc615c40a267d5700eb5dc05fc3e164b2e475ee2f7f672d73"
+        },
+        {
+          "path": "apps/wechat/manager-state-enabled.json",
+          "sha256": "8a92c2eeb68315b2755735641e6ee149d2a0c8f9996184486ed10167472d61f9"
+        },
+        {
+          "path": "apps/wechat/manager-state-final.json",
+          "sha256": "8a92c2eeb68315b2755735641e6ee149d2a0c8f9996184486ed10167472d61f9"
+        },
+        {
+          "path": "apps/wechat/manager-state-initial.json",
+          "sha256": "8a92c2eeb68315b2755735641e6ee149d2a0c8f9996184486ed10167472d61f9"
+        },
+        {
+          "path": "apps/wechat/module-off-login-activity.txt",
+          "sha256": "7174ae562d479e4cd4707894e6aafc413d8976dcb933043477c0e386a1962d72"
+        },
+        {
+          "path": "apps/wechat/module-off-login-current-activity.txt",
+          "sha256": "7987189304a5ba7a2293a930bcf577562636df8521f64217aa4955d351d28b83"
+        },
+        {
+          "path": "apps/wechat/module-off-login-current-dump.txt",
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+          "path": "apps/wechat/module-off-login-current.png",
+          "sha256": "7c7fa575ce8d0316a9856b3d21c9fd4b6e1d71362661acdbbc3faa53f85751de"
+        },
+        {
+          "path": "apps/wechat/module-off-login-current.xml",
+          "sha256": "f162c88ccb7ac0334cc0b5d86fc60f578af83d77be0ab1bbab184c0537988f70"
+        },
+        {
+          "path": "apps/wechat/module-off-login-dump.txt",
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+          "path": "apps/wechat/module-off-login.png",
+          "sha256": "7c7fa575ce8d0316a9856b3d21c9fd4b6e1d71362661acdbbc3faa53f85751de"
+        },
+        {
+          "path": "apps/wechat/module-off-login.xml",
+          "sha256": "f162c88ccb7ac0334cc0b5d86fc60f578af83d77be0ab1bbab184c0537988f70"
+        },
+        {
+          "path": "apps/wechat/module-on-login-activity.txt",
+          "sha256": "2d0fa40edd31303b28d03c68c156c862d5c00844c34fbdd9e6652c3149688885"
+        },
+        {
+          "path": "apps/wechat/module-on-login-current-activity.txt",
+          "sha256": "5922ff1d71ee3d588fcbee52248482de5afa82187d4185acd94c5fb8526fde07"
+        },
+        {
+          "path": "apps/wechat/module-on-login-current-dump.txt",
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+          "path": "apps/wechat/module-on-login-current.png",
+          "sha256": "c82d38b42949a39e255025043d7c7554c8a9bab2dd83ce9dae908126a15e3f12"
+        },
+        {
+          "path": "apps/wechat/module-on-login-current.xml",
+          "sha256": "f9c55b920d732a9eb8e8de3cd7a112bb2061a44ef54efce8691bf5e1384699d8"
+        },
+        {
+          "path": "apps/wechat/module-on-login-dump.txt",
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+          "path": "apps/wechat/module-on-login.png",
+          "sha256": "6c6d605def2f08f2f3f1210c073e2c5f041622ff206d208eabeeefd3ff85cbe8"
+        },
+        {
+          "path": "apps/wechat/module-on-login.xml",
+          "sha256": "f9c55b920d732a9eb8e8de3cd7a112bb2061a44ef54efce8691bf5e1384699d8"
+        },
+        {
+          "path": "apps/wechat/processes.txt",
+          "sha256": "cf77d9712ae2334f734869c884c4ed6215d341abd50d3d90699dd23a386398c1"
+        },
+        {
+          "path": "apps/wechat/tablet-qr-confirmed-activity.txt",
+          "sha256": "e714cc83bb2c0319ab0fa7cd3d276513cf1b59832e9157f9c622505a66604750"
+        },
+        {
+          "path": "apps/wechat/tablet-qr-confirmed-dump.txt",
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+          "path": "apps/wechat/tablet-qr-confirmed.png",
+          "sha256": "849bc524ebaa3297eab290603dd24c5c25937439a6bd83d28899ab60d700f6f0"
+        },
+        {
+          "path": "apps/wechat/tablet-qr-confirmed.xml",
+          "sha256": "51553c24574e38b77e9b85ea3385a5e7061bc2b8fbd1ceb5bdef5301cb844247"
+        },
+        {
+          "path": "apps/wechat/tablet-qr-current-activity.txt",
+          "sha256": "0bac5f1608662c8c34275f2fa0a1c048d79ddb2b474d0a99783c87a0a3b2ec16"
+        },
+        {
+          "path": "apps/wechat/tablet-qr-current-dump.txt",
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+          "path": "apps/wechat/tablet-qr-current.png",
+          "sha256": "849bc524ebaa3297eab290603dd24c5c25937439a6bd83d28899ab60d700f6f0"
+        },
+        {
+          "path": "apps/wechat/tablet-qr-current.xml",
+          "sha256": "51553c24574e38b77e9b85ea3385a5e7061bc2b8fbd1ceb5bdef5301cb844247"
+        }
+      ],
+      "stageEvidence": {
+        "static": {
+          "path": "static-check.json",
+          "sha256": "d692c830acab2c3d0991d4e6d1924c4eddb7307432333d7e7ad195a0cb3ff843"
+        },
+        "regression": {
+          "path": "regression.json",
+          "sha256": "8c2c7ea494c20e38e157944da24359f3cd1d2959700cfaa93c10263376df1ba9"
+        },
+        "runtime": {
+          "path": "/Users/adamxzheng/Documents/LSPosedModules/ImPad/evidence/wechat-unification-task1/runtime/oracle/output/evidence/smoke-report.json",
+          "sha256": "fcf102b3e6ee32e937989ea2ea5f67baae4698727f2d01bd778ee885560bdbab"
+        }
+      },
+      "acceptedAt": "2026-10-20T19:31:28.941040+00:00",
+      "firstForRule": true,
+      "firstRecordId": "f81be9fa-e117-4f6c-8e9b-21fc5da8b026",
+      "ruleOrder": 1,
+      "supersedes": null
+    }
+  ]
+}

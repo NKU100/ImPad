@@ -5,7 +5,7 @@ import struct
 import unittest
 from scripts.ci.apps.qq.request_protocol import (
     CONTRACT, SECURITY_COMMANDS, MAX_FRAME, RequestStreams, decode_request, tea_decrypt_zero_key)
-from scripts.ci.apps.qq.runtime_policy import validate_request_evidence
+from scripts.ci.apps.qq.runtime_policy import build_request_identity_proof, validate_request_evidence
 
 
 def encrypt(payload):
@@ -48,9 +48,13 @@ def proof(apk='a'*64, module='b'*64):
                 ndkVersion='29.0.14206865', ownershipVerified=True, kernelDrops=0, partialStreams=0, appUid=10232, collectorBinarySha256='c'*64,
                 owners=[dict(pid=123,uid=10232,started=44,inode=55)])
     cmd = sorted(SECURITY_COMMANDS)[0]
-    return dict(contract=CONTRACT, phoneAppId=10, tabletAppId=20,
-                disabled=dict(base, moduleEnabled=False, frames=[dict(command=cmd, packetAppId=10, sequence=1)]),
-                enabled=dict(base, moduleEnabled=True, frames=[dict(command=cmd, packetAppId=20, sequence=2)]))
+    return build_request_identity_proof(
+        expectation(apk),
+        dict(base, moduleEnabled=False,
+             frames=[dict(command=cmd, packetAppId=10, sequence=1, firstObservedMonotonicNs=100)]),
+        dict(base, moduleEnabled=True,
+             frames=[dict(command=cmd, packetAppId=20, sequence=2, firstObservedMonotonicNs=200)]),
+    )
 
 
 def expectation(apk='a'*64):
@@ -58,6 +62,25 @@ def expectation(apk='a'*64):
 
 
 class QqRequestTest(unittest.TestCase):
+    def test_shared_proof_builder_binds_exact_expectation_and_capture_schema(self):
+        request = expectation()
+        evidence = proof()
+        self.assertEqual({'contract', 'apkSha256', 'phoneAppId', 'tabletAppId', 'disabled', 'enabled'},
+                         set(evidence))
+        for invalid_expectation in (dict(request, unexpected=True),
+                                    {key: value for key, value in request.items() if key != 'apkSha256'}):
+            with self.assertRaises(ValueError):
+                build_request_identity_proof(
+                    invalid_expectation, evidence['disabled'], evidence['enabled'])
+        changed_capture = copy.deepcopy(evidence['enabled'])
+        changed_capture['unexpected'] = True
+        with self.assertRaises(ValueError):
+            build_request_identity_proof(request, evidence['disabled'], changed_capture)
+        changed_capture = copy.deepcopy(evidence['enabled'])
+        changed_capture['apkSha256'] = 'c' * 64
+        with self.assertRaises(ValueError):
+            build_request_identity_proof(request, evidence['disabled'], changed_capture)
+
     def test_tea_roundtrip_and_padding(self):
         for size in range(1, 50):
             value = bytes(range(size))
@@ -106,6 +129,11 @@ class QqRequestTest(unittest.TestCase):
         self.assertFalse(validate_request_evidence(good, 'a'*64, 'b'*64, dict(expectation(), tabletAppId=30)))
         self.assertFalse(validate_request_evidence(good, 'a'*64, 'b'*64, dict(expectation(), apkSha256='c'*64)))
         self.assertFalse(validate_request_evidence(good, 'a'*64, 'b'*64, dict(expectation(), phoneAppId=10.0)))
+        for key, value in [('apkSha256', 'c' * 64), ('unexpected', True)]:
+            bad = copy.deepcopy(good); bad[key] = value
+            self.assertFalse(validate_request_evidence(bad, 'a' * 64, 'b' * 64, expectation()))
+        bad = copy.deepcopy(good); del bad['apkSha256']
+        self.assertFalse(validate_request_evidence(bad, 'a' * 64, 'b' * 64, expectation()))
         cases = [('packetAppId', 10), ('packetAppId', True), ('command', 'CliLogSvc.UploadReq'), ('sequence', -1)]
         for key, value in cases:
             bad = copy.deepcopy(good);bad['enabled']['frames'][0][key] = value
@@ -127,6 +155,13 @@ class QqRequestTest(unittest.TestCase):
             self.assertFalse(validate_request_evidence(p,'a'*64,'b'*64,expectation()))
         p=proof();p['enabled']['owners'][0]['uid']=123
         self.assertFalse(validate_request_evidence(p,'a'*64,'b'*64,expectation()))
+        for key, value in [('unknownEvidence', True)]:
+            p = proof(); p['enabled'][key] = value
+            self.assertFalse(validate_request_evidence(p, 'a' * 64, 'b' * 64, expectation()))
+        p = proof(); p['enabled']['frames'][0]['unexpected'] = True
+        self.assertFalse(validate_request_evidence(p, 'a' * 64, 'b' * 64, expectation()))
+        p = proof(); p['enabled']['owners'][0]['unexpected'] = True
+        self.assertFalse(validate_request_evidence(p, 'a' * 64, 'b' * 64, expectation()))
 
 if __name__ == '__main__':
     unittest.main()
