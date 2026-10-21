@@ -24,7 +24,7 @@ def write_candidate_failure_report(
     reason: str,
     source_url: str,
     checked_versions: list[str],
-    app_id: str = "wechat",
+    app_id: str,
 ) -> None:
     if status not in FAILURE_STATUSES:
         raise ValueError(f"{status} is not a failure status")
@@ -42,7 +42,6 @@ def write_candidate_failure_report(
         "status": status,
         "hooks": [],
         "blockers": [reason],
-        "suggestedProfile": None,
     }
     report_path.parent.mkdir(parents=True, exist_ok=True)
     temporary_path = None
@@ -71,7 +70,7 @@ def write_candidate_failure_report(
 
 def main() -> int:
     parser = argparse.ArgumentParser()
-    parser.add_argument("--app-id", default="wechat")
+    parser.add_argument("--app-id", required=True)
     parser.add_argument("--report", type=Path, required=True)
     parser.add_argument("--github-output", type=Path, required=True)
     parser.add_argument("--status", choices=sorted(FAILURE_STATUSES), required=True)

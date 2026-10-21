@@ -51,7 +51,7 @@ def manifest_expectation(apk, expected_sha256):
             'phoneAppId': phone, 'tabletAppId': tablet}
 
 
-def manager_state(smoke):
+def manager_state_evidence(smoke):
     with tempfile.TemporaryDirectory() as directory:
         database = Path(directory) / 'modules_config.db'
         for suffix in ('', '-wal'):
@@ -62,13 +62,37 @@ def manager_state(smoke):
                 raise RuntimeError('Cannot independently read LSPosed module state')
         connection = sqlite3.connect(database)
         try:
-            enabled = connection.execute('SELECT enabled FROM modules_state WHERE module_pkg_name=? AND user_id=0', (smoke.MODULE,)).fetchall()
-            scope = connection.execute('SELECT 1 FROM scope WHERE module_pkg_name=? AND app_pkg_name=? AND user_id=0', (smoke.MODULE, smoke.APP_PACKAGE)).fetchall()
+            enabled = connection.execute(
+                'SELECT module_pkg_name, user_id, enabled FROM modules_state WHERE module_pkg_name=? AND user_id=0',
+                (smoke.MODULE,),
+            ).fetchall()
+            scope = connection.execute(
+                'SELECT module_pkg_name, app_pkg_name, user_id FROM scope WHERE module_pkg_name=? AND app_pkg_name=? AND user_id=0',
+                (smoke.MODULE, smoke.APP_PACKAGE),
+            ).fetchall()
         finally:
             connection.close()
-    if len(enabled) != 1 or enabled[0][0] not in (0, 1) or not scope:
+    if len(enabled) != 1 or enabled[0][2] not in (0, 1) or not scope:
         raise RuntimeError('QQ module state or LSPosed scope is missing')
-    return {'moduleEnabled': bool(enabled[0][0]), 'scopeVerified': True}
+    return {
+        'schemaVersion': 1,
+        'module': smoke.MODULE,
+        'packageName': smoke.APP_PACKAGE,
+        'moduleStateRows': [
+            {'modulePackage': row[0], 'userId': row[1], 'enabled': row[2]}
+            for row in enabled
+        ],
+        'scopeRows': [
+            {'modulePackage': row[0], 'appPackage': row[1], 'userId': row[2]}
+            for row in scope
+        ],
+    }
+
+
+def manager_state(smoke):
+    raw = manager_state_evidence(smoke)
+    row = raw['moduleStateRows'][0]
+    return {'moduleEnabled': bool(row['enabled']), 'scopeVerified': bool(raw['scopeRows'])}
 
 
 def installed_hash(smoke, package):
@@ -77,6 +101,17 @@ def installed_hash(smoke, package):
     if len(base) != 1:
         raise ValueError('Installed base APK is ambiguous')
     return smoke.adb('shell', 'sha256sum', base[0]).stdout.decode().split()[0]
+
+
+def installed_identity(smoke, package):
+    rows = smoke.adb('shell', 'pm', 'path', package).stdout.decode().splitlines()
+    base = [row.removeprefix('package:') for row in rows if row.endswith('/base.apk')]
+    if len(base) != 1:
+        raise ValueError('Installed base APK is ambiguous')
+    fields = smoke.adb('shell', 'sha256sum', base[0]).stdout.decode().split()
+    if len(fields) < 2 or fields[1] != base[0] or not re.fullmatch(r'[a-fA-F0-9]{64}', fields[0]):
+        raise ValueError('Installed base APK digest output is malformed')
+    return {'packageName': package, 'baseApkPath': base[0], 'baseApkSha256': fields[0].lower()}
 
 
 def navigate(smoke):

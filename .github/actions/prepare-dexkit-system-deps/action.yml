@@ -1,0 +1,13 @@
+name: Prepare locked DexKit system dependencies
+description: Install or verify the architecture-specific compiler packages from the trusted DexKit lock
+runs:
+  using: composite
+  steps:
+    - name: Install packages from the trusted DexKit lock
+      shell: bash
+      run: |
+        set -euo pipefail
+        cd "$GITHUB_ACTION_PATH/../../.."
+        sudo python3 -m scripts.ci.prepare_dexkit_system_deps \
+          --lock gradle/dexkit-lock.json \
+          --install

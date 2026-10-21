@@ -5,12 +5,17 @@ import os
 from pathlib import Path
 import shutil
 import subprocess
+import uuid
 
 from scripts.ci import runtime_smoke as smoke
 from scripts.ci.app_policy import get_policy
 from scripts.ci.codex_adaptation import sha256
 from scripts.ci.redroid_environment_probe import Probe, SERIAL
 from scripts.ci.redroid_app_smoke import AppSmoke, query_target
+from scripts.ci.candidate_selection import prepare_module, verify_module_identity
+from scripts.ci.runtime_task import evaluate_validation
+from scripts.ci.static_regression import run_regression
+from scripts.ci.adb_relay import normalize_adb_server_socket
 
 
 def configure(directory):
@@ -20,8 +25,7 @@ def configure(directory):
     smoke.configure_app_id(policy.app_id)
     root = Path(state['runtime']['root'])
     smoke.ROOT = root
-    socket = Path(state['runtime']['socket'])
-    os.environ['ADB_SERVER_SOCKET'] = 'localfilesystem:' + str(socket)
+    os.environ['ADB_SERVER_SOCKET'] = normalize_adb_server_socket(state['runtime']['socket'])
     os.environ['ANDROID_SERIAL'] = state['runtime']['serial']
     return state, root
 
@@ -45,7 +49,7 @@ def initialize(directory, root, serial=SERIAL):
     inputs = {policy.app_id: {'identity': candidate['identity'], 'signerVerified': True}}
     if policy.app_id == 'qq':
         from scripts.ci.apps.qq.runtime_probe import manifest_expectation
-        inputs[policy.app_id]['manifestAppIds'] = manifest_expectation(candidate_apk, candidate['identity']['apkSha256'])
+        inputs[policy.app_id]['requestIdentityExpectation'] = manifest_expectation(candidate_apk, candidate['identity']['apkSha256'])
     (root / 'inputs.json').write_text(json.dumps(inputs, indent=2))
     (root / 'candidate-report.json').write_text(json.dumps(candidate, indent=2))
     framework = Probe(root / 'framework')
@@ -61,27 +65,51 @@ def initialize(directory, root, serial=SERIAL):
         raise RuntimeError('ReDroid baseline already has a tablet entry')
     (root / 'prepared.json').write_text(json.dumps({'appId': policy.app_id, 'baseline': policy.runtime_baseline}))
     smoke.configure_manager(True)
-    socket = workspace / 'work/analysis/adb.sock'
-    socket.parent.mkdir(parents=True, exist_ok=True)
-    # The controller has already verified root, baseline UI and official LSPosed.
-    # Move the dedicated ADB server to a filesystem socket visible inside the model sandbox.
-    subprocess.run([os.environ.get('IMPAD_ADB_BINARY', 'adb'), 'kill-server'], check=True)
-    address = 'localfilesystem:' + str(socket)
-    subprocess.run([os.environ.get('IMPAD_ADB_BINARY', 'adb'), '-L', address, 'start-server'], check=True)
+    endpoint_directory = workspace / 'work/analysis/adb-endpoints'
+    endpoint_directory.mkdir(parents=True, exist_ok=True)
+    socket = endpoint_directory / f'{uuid.uuid4().hex}.sock'
+    address = normalize_adb_server_socket(str(socket))
     env = dict(os.environ, ADB_SERVER_SOCKET=address, ANDROID_SERIAL=serial)
-    subprocess.run([os.environ.get('IMPAD_ADB_BINARY', 'adb'), 'connect', serial], env=env, check=True, timeout=30)
-    subprocess.run([os.environ.get('IMPAD_ADB_BINARY', 'adb'), '-s', serial, 'wait-for-device'], env=env, check=True, timeout=120)
-    devices = subprocess.check_output([os.environ.get('IMPAD_ADB_BINARY', 'adb'), 'devices'], env=env, text=True).splitlines()[1:]
-    connected = [line.split()[0] for line in devices if line.strip()]
-    if connected != [serial]:
-        raise RuntimeError('The model ADB server must expose exactly the dedicated ReDroid')
-    state['runtime'] = {'root': str(root), 'serial': serial, 'socket': str(socket), 'environment': 'redroid'}
+    state['runtime'] = {'root': str(root), 'serial': serial, 'socket': address,
+                        'serverOwned': True, 'environment': 'redroid'}
     state_path.write_text(json.dumps(state, indent=2))
+    adb = os.environ.get('IMPAD_ADB_BINARY', 'adb')
+    try:
+        # Use a task-private server for the sandbox while leaving any inherited server untouched.
+        subprocess.run([adb, '-L', address, 'start-server'], env=env, check=True, timeout=30)
+        subprocess.run([adb, 'connect', serial], env=env, check=True, timeout=30)
+        subprocess.run([adb, '-s', serial, 'wait-for-device'], env=env, check=True, timeout=120)
+        devices = subprocess.check_output([adb, 'devices'], env=env, text=True).splitlines()[1:]
+        connected = [line.split()[0] for line in devices if line.strip()]
+        if connected != [serial]:
+            raise RuntimeError('The model ADB server must expose exactly the dedicated ReDroid')
+    except Exception:
+        stopped = subprocess.run([adb, '-L', address, 'kill-server'], env=env,
+                                 check=False, timeout=30)
+        state['runtime']['serverOwned'] = stopped.returncode != 0
+        state_path.write_text(json.dumps(state, indent=2))
+        raise
     runtime_instructions = workspace / 'work/analysis/runtime-device.json'
     runtime_instructions.parent.mkdir(parents=True, exist_ok=True)
     runtime_instructions.write_text(json.dumps({
         'appId': policy.app_id, 'serial': serial, 'baseline': policy.runtime_baseline,
-        'instructions': f'Run adb app-launch to restore the managed runtime configuration and start {policy.package_name}. After adding the profile, run impad-build for guarded host checks/tests/build; do not retry Gradle inside the network-disabled sandbox. Build logs are under work/analysis/host-build. Use adb device commands to inspect the disposable ReDroid. Interrupted requests are cancelled by the relay. Independent runtime verification runs after every completed turn.'}, indent=2))
+        'instructions': f'Run adb app-launch to restore the managed runtime configuration and start {policy.package_name}. After adding or refining the shared rule, run impad-build for guarded host checks/tests/build; do not retry Gradle inside the network-disabled sandbox. Build logs are under work/analysis/host-build. Use adb device commands to inspect the disposable ReDroid. Interrupted requests are cancelled by the relay. Independent runtime verification runs after every completed turn.'}, indent=2))
+
+
+def stop_owned_adb_server(directory):
+    state_path = Path(directory) / 'state.json'
+    if not state_path.is_file():
+        return False
+    runtime = json.loads(state_path.read_text()).get('runtime', {})
+    if runtime.get('serverOwned') is not True:
+        return False
+    endpoint = normalize_adb_server_socket(runtime.get('socket'))
+    env = dict(os.environ, ADB_SERVER_SOCKET=endpoint)
+    result = subprocess.run([os.environ.get('IMPAD_ADB_BINARY', 'adb'), '-L', endpoint, 'kill-server'],
+                            env=env, check=False, timeout=30)
+    if result.returncode:
+        raise RuntimeError(f'Owned ADB server failed to stop at {endpoint}')
+    return True
 
 
 def probe_candidate(root, evidence, candidate):
@@ -118,6 +146,24 @@ def verify_runtime(directory):
         finally:
             temporary.unlink(missing_ok=True)
         module_sha = sha256(module_apk)
+        candidate = state['report']
+        if not candidate.get('staticReport') or not candidate.get('staticReportSha256'):
+            raise ValueError('Candidate lacks the shared static checker report identity')
+        static_path = Path(candidate['staticReport']).resolve()
+        if sha256(static_path) != candidate.get('staticReportSha256'):
+            raise ValueError('Shared checker report changed after candidate preparation')
+        static_report = json.loads(static_path.read_text())
+        module_identity = prepare_module(apk, static_report, workspace)
+        if module_identity['sha256'] != module_sha:
+            raise ValueError('Module identity was prepared for different APK bytes')
+        (root / 'module-identity.json').write_text(json.dumps(module_identity, indent=2) + '\n')
+        regression_rows = run_regression(policy.app_id, root / 'regression')
+        if any(row.get('status') != 'PASSED' for row in regression_rows):
+            raise ValueError('Fixed acceptance regression failed; runtime acceptance is blocked')
+        regression = {'status': 'PASSED', 'records': regression_rows}
+        static = {'status': 'PASSED', 'identity': candidate['identity'],
+                  'expectedPlan': candidate['expectedPlan'], 'inputHashes': static_report['inputHashes'],
+                  'module': module_identity}
         smoke.adb('install', '-r', '-g', str(root / f'{policy.app_id}.apk'), timeout=240)
         result = smoke.adb('install', '-r', str(module_apk), timeout=120)
         (smoke.EVIDENCE / 'module-install.txt').write_bytes(result.stdout + result.stderr)
@@ -140,6 +186,19 @@ def verify_runtime(directory):
     if (report['moduleApkSha256'] != module_sha or sha256(module_apk) != module_sha
             or sha256(apk) != module_sha):
         raise ValueError('Runtime evidence does not match the verified module APK')
+    candidate = state['report']
+    for item in candidate['apkFiles']:
+        if sha256(Path(item['path'])) != item['sha256']:
+            raise ValueError('Candidate base or split APK changed after static verification')
+    if sha256(Path(candidate['staticReport'])) != candidate['staticReportSha256']:
+        raise ValueError('Shared checker report changed during runtime acceptance')
+    verify_module_identity(module_identity, module_apk, workspace)
+    validation = evaluate_validation(candidate, module_identity, static, regression, report,
+                                     'success' if report.get('status') == 'RUNTIME_SMOKE_VERIFIED' else 'failure')
+    (directory / 'validation-report.json').write_text(json.dumps(validation, indent=2) + '\n')
+    if validation['outcome'] != 'VERIFIED':
+        raise ValueError('Shared validation outcome ' + validation['outcome'] + ': '
+                         + json.dumps(validation['diagnostics']))
     if result:
         diagnostic = report.get('runtimeDiagnostics', {})
         summary = {key: diagnostic.get(key, 'NOT_OBSERVED')

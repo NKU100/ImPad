@@ -1,260 +1,181 @@
-import copy
-from http.client import RemoteDisconnected
-import unittest
-import io
-from contextlib import redirect_stderr
 import hashlib
+import io
 import json
-import tempfile
+from contextlib import redirect_stderr
 from pathlib import Path
-from unittest.mock import Mock, patch
+import tempfile
+import unittest
+from unittest.mock import patch
 
-from scripts.ci.candidate_selection import replay_report, write_local_runtime_assets, main
+from scripts.ci.app_policy import get_policy
+from scripts.ci.candidate_selection import (
+    main, module_source_hashes, prepare_candidate, prepare_candidate_from_adaptation_report,
+    prepare_module, source_tree_sha256, write_local_runtime_assets,
+)
 
 
 class CandidateSelectionTest(unittest.TestCase):
-    def setUp(self):
-        self.profile = {'identity': {'packageName': 'com.tencent.mm', 'versionName': '8.0.78', 'versionCode': 3180,
-                                     'abi': 'arm64-v8a', 'apkSha256': 'a' * 64,
-                                     'signerSha256': '0fe4ff85c215918396dadc7cd8ce6963339af33d37751a56e54c7206b63a3c7c'},
-                        'sourceUrl': 'https://dldir1v6.qq.com/weixin/android/weixin8078android3180_arm64.apk',
-                        'hooks': [{'id': 'tablet'}, {'id': 'login'}],
-                        'verificationStatus': 'runtime-verified-local'}
+    @staticmethod
+    def _wecom_identity(digest):
+        return {'packageName': 'com.tencent.wework', 'versionName': '5.0.8',
+                'versionCode': 70675, 'abi': 'arm64-v8a', 'apkSha256': digest,
+                'signerSha256': get_policy('wecom').signer_sha256}
 
-    def test_cli_rejects_explicit_version_selection(self):
+    @staticmethod
+    def _wecom_static_report(identity, apk):
+        targets = {
+            'device_type': {'descriptor': 'Lcom/tencent/wework/foundation/logic/Application;->getDeviceTypeFromLocal()I',
+                            'shape': {'parameters': [], 'returnType': 'int', 'isStatic': False}},
+            'app_pad': {'descriptor': 'Lcom/tencent/wework/foundation/logic/Application;->isAndroidPad()Z',
+                        'shape': {'parameters': [], 'returnType': 'boolean', 'isStatic': True}},
+            'service_pad': {'descriptor': 'Lcom/tencent/wework/foundation/impl/WeworkServiceImpl;->isAndroidPad()Z',
+                            'shape': {'parameters': [], 'returnType': 'boolean', 'isStatic': False}},
+        }
+        catalog_sha = 'd' * 64
+        return {'appId': 'wecom', 'analysisScope': 'STATIC_ONLY', 'identity': identity,
+                'inputHashes': [{'path': str(apk.resolve()), 'sha256': identity['apkSha256']}],
+                'ruleCatalogSha256': catalog_sha,
+                'ruleCatalog': {'schemaVersion': 1, 'appId': 'wecom',
+                                'ruleCatalogSha256': catalog_sha,
+                                'definitions': [{'ruleId': 'wecom_local_001',
+                                                 'strategyId': 'wecom_local_tablet_001',
+                                                 'requiredTargetIds': ['device_type', 'app_pad', 'service_pad']}],
+                                'bindings': [{'ruleId': 'wecom_local_001', 'min': 70675, 'max': None}],
+                                'strategyIds': ['wecom_local_tablet_001']},
+                'routeCandidates': ['wecom_local_001'],
+                'selection': {'status': 'SELECTED', 'selectedRuleId': 'wecom_local_001',
+                              'strategyId': 'wecom_local_tablet_001', 'targets': targets}}
+
+    def _assert_wecom_candidate(self, directory, candidate, identity):
+        self.assertEqual(1, candidate['schemaVersion'])
+        self.assertEqual('wecom', candidate['appId'])
+        self.assertEqual('PREPARED', candidate['status'])
+        self.assertEqual(identity, candidate['identity'])
+        self.assertEqual('UNIQUE', candidate['expectedPlan']['selection'])
+        self.assertEqual({'device_type', 'app_pad', 'service_pad'},
+                         set(candidate['expectedPlan']['targets']))
+        self.assertEqual(['wecom_local_001'], candidate['route']['candidates'])
+        static_path = directory / candidate['staticReport']
+        static = json.loads(static_path.read_text())
+        self.assertEqual(candidate['staticReportSha256'],
+                         hashlib.sha256(static_path.read_bytes()).hexdigest())
+        self.assertEqual(static['inputHashes'][0]['path'], candidate['apkFiles'][0]['path'])
+        for row in candidate['apkFiles']:
+            staged = directory / row['path']
+            self.assertEqual(row['sha256'], hashlib.sha256(staged.read_bytes()).hexdigest())
+        from scripts.ci.acceptance import validate_expected_plan
+        validate_expected_plan(candidate['expectedPlan'], static['ruleCatalog'], identity['versionCode'])
+
+    def test_candidate_cli_requires_explicit_app_and_rejects_targets_input(self):
         error = io.StringIO()
-        with redirect_stderr(error), patch('sys.argv', ['candidate_selection', '--version', '8.0.78', '--directory', '/tmp/unused']):
+        with redirect_stderr(error), patch('sys.argv', ['candidate_selection', '--directory', '/tmp/unused']):
             with self.assertRaises(SystemExit) as failure:
                 main()
-        self.assertEqual(failure.exception.code, 2)
-        self.assertIn("unrecognized arguments: --version", error.getvalue())
+        self.assertEqual(2, failure.exception.code)
+        self.assertIn('--app-id', error.getvalue())
 
-    def test_replay_requires_an_exact_registered_artifact(self):
-        report = replay_report([self.profile], self.profile['sourceUrl'], 'a' * 64)
-        self.assertEqual(report['checkedVersions'], ['8.0.78'])
-        self.assertEqual(report['status'], 'STATIC_VERIFIED_PENDING_RUNTIME')
-        self.assertEqual(self.profile['verificationStatus'], 'runtime-verified-local')
-        with self.assertRaisesRegex(ValueError, 'not registered'):
-            replay_report([self.profile], self.profile['sourceUrl'], 'b' * 64)
+        error = io.StringIO()
+        with redirect_stderr(error), patch('sys.argv', [
+            'candidate_selection', '--app-id', 'wechat', '--targets', 'compatibility/wechat/targets.json',
+            '--directory', '/tmp/unused',
+        ]):
+            with self.assertRaises(SystemExit) as failure:
+                main()
+        self.assertEqual(2, failure.exception.code)
+        self.assertIn('unrecognized arguments: --targets', error.getvalue())
 
-    def test_local_runtime_assets_follow_the_selected_application_profile(self):
-        target = json.loads(Path('compatibility/wecom/targets.json').read_text())[0]
-        original = copy.deepcopy(target)
-        with tempfile.TemporaryDirectory() as temporary:
-            root = Path(temporary)
-            write_local_runtime_assets(target, 'wecom', root)
-            local_profile = json.loads((root / 'assets/compatibility-local/wecom/targets.json').read_text())[0]
-            scope = (root / 'resources/META-INF/xposed/scope.list').read_text().splitlines()
-        self.assertIsNone(local_profile['sourceUrl'])
-        self.assertEqual(local_profile['identity'], target['identity'])
-        self.assertEqual(scope, ['com.tencent.wework'])
-        self.assertEqual(target, original)
-
-    def test_registered_wecom_replay_selects_its_single_target_without_a_sha_override(self):
-        target = json.loads(Path('compatibility/wecom/targets.json').read_text())[0]
-        body = b'cached registered WeCom baseline'
+    def test_official_candidate_uses_shared_checker_and_exact_apk_bytes(self):
+        body = b'official WeCom 5.0.8 APK'
         digest = hashlib.sha256(body).hexdigest()
-        target['identity']['apkSha256'] = digest
-        target['sourceUrl'] = 'https://dldir1.qq.com/wework/work_weixin/wecom-test.apk'
-        remote = {'content_length': len(body), 'last_modified': 'Wed, 07 Oct 2026 00:00:00 GMT', 'etag': 'wecom-test'}
+        source_url = 'https://dldir1.qq.com/wework/work_weixin/WeCom_android_5.0.8.70675_arm64_100001.apk'
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
-            manifest = root / 'targets.json'
-            manifest.write_text(json.dumps([target]))
-            cache = root / 'inputs/cache'
-            cache.mkdir(parents=True)
-            (cache / f'{digest}.apk').write_bytes(body)
-            (cache / 'candidate.json').write_text(json.dumps(dict(remote, url=target['sourceUrl'], sha256=digest)))
-            with patch('sys.argv', ['candidate_selection', '--app-id', 'wecom', '--mode', 'registered',
-                                    '--targets', str(manifest), '--directory', str(root / 'inputs')]), \
-                    patch('scripts.ci.candidate_selection.remote_metadata', return_value=remote):
+            apk = root / 'downloaded.apk'
+            apk.write_bytes(body)
+            identity = self._wecom_identity(digest)
+            static = self._wecom_static_report(identity, apk)
+            with patch('sys.argv', ['candidate_selection', '--app-id', 'wecom',
+                                    '--apk-url', source_url, '--directory', str(root / 'prepared')]), \
+                    patch('scripts.ci.candidate_selection.remote_metadata', return_value={}), \
+                    patch('scripts.ci.candidate_selection.download_candidate',
+                          return_value=(apk, digest, {}, {})), \
+                    patch('scripts.ci.candidate_selection._run_rules_checker', return_value=static), \
+                    patch('scripts.ci.apps.qq.runtime_probe.manifest_expectation',
+                          side_effect=AssertionError('QQ-only evidence must not be applied to WeCom')):
                 main()
-            report = json.loads((root / 'inputs/candidate-report.json').read_text())
-            local_profile = json.loads((root / 'inputs/assets/compatibility-local/wecom/targets.json').read_text())[0]
-            scope = (root / 'inputs/resources/META-INF/xposed/scope.list').read_text()
-        self.assertEqual(report['identity']['packageName'], 'com.tencent.wework')
-        self.assertEqual(report['selectionMode'], 'registered')
-        self.assertEqual(local_profile['identity']['apkSha256'], digest)
-        self.assertIsNone(local_profile['sourceUrl'])
-        self.assertEqual(scope, 'com.tencent.wework\n')
+            candidate = json.loads((root / 'prepared/candidate-report.json').read_text())
+            self._assert_wecom_candidate(root / 'prepared', candidate, identity)
+            self.assertTrue((root / 'prepared' / f'wecom-{digest}.apk').is_file())
 
-    def test_registered_replay_continues_when_cdn_head_metadata_disconnects(self):
-        target = {
-            'identity': {'packageName': 'com.tencent.wework', 'versionName': '5.0.8',
-                         'versionCode': 70675, 'abi': 'arm64-v8a', 'apkSha256': 'a' * 64,
-                         'signerSha256': '66896ae0aae48b9e963a3e034fa2ca813ca2f661f53619a92263a8a5c2e3f388'},
-            'sourceUrl': 'https://dldir1.qq.com/wework/work_weixin/wecom-test.apk',
-            'verificationStatus': 'runtime-verified-local',
-            'hooks': [{'id': hook} for hook in ('device_type', 'app_pad', 'service_pad')],
-        }
-        expected_sha256 = target['identity']['apkSha256']
-        remote = {'content_length': None, 'last_modified': '', 'etag': ''}
-        with tempfile.TemporaryDirectory() as temporary:
-            root = Path(temporary)
-            manifest = root / 'targets.json'
-            manifest.write_text(json.dumps([target]))
-            apk = root / 'cached.apk'
-            apk.write_bytes(b'registered candidate bytes')
-            with patch('sys.argv', ['candidate_selection', '--app-id', 'wecom', '--mode', 'registered',
-                                    '--targets', str(manifest),
-                                    '--directory', str(root / 'inputs')]), \
-                    patch('scripts.ci.candidate_selection.remote_metadata', side_effect=RemoteDisconnected()), \
-                    patch('scripts.ci.candidate_selection.download_candidate', return_value=(apk, expected_sha256, {}, {})) as download:
-                main()
-            report = json.loads((root / 'inputs/candidate-report.json').read_text())
-        self.assertEqual(report['selectionMode'], 'registered')
-        self.assertEqual(download.call_args.args[2:], (expected_sha256, remote, unittest.mock.ANY))
-
-    def test_static_only_profile_cannot_be_replayed_as_supported(self):
-        profile = copy.deepcopy(self.profile)
-        profile['verificationStatus'] = 'static-verified'
-        with self.assertRaisesRegex(ValueError, 'runtime-verified'):
-            replay_report([profile], profile['sourceUrl'], 'a' * 64)
-
-    def test_latest_unknown_build_does_not_fall_back_to_registered_version(self):
-        latest = 'https://dldir1v6.qq.com/weixin/android/weixin8079android3200_arm64.apk'
-        with tempfile.TemporaryDirectory() as temporary:
-            root = Path(temporary)
-            manifest = root / 'targets.json'
-            manifest.write_text(json.dumps([self.profile]))
-            unknown_apk = root / 'unknown.apk'
-            unknown_apk.write_bytes(b'new official repack')
-            digest = hashlib.sha256(unknown_apk.read_bytes()).hexdigest()
-            with patch('sys.argv', ['candidate_selection', '--targets', str(manifest), '--directory', str(root / 'inputs')]), patch('scripts.ci.apps.wechat.discovery_policy.fetch_official_page', return_value=latest), patch('scripts.ci.candidate_selection.remote_metadata', return_value={}), patch('scripts.ci.candidate_selection.download_candidate', return_value=(unknown_apk, digest, {}, {})):
-                with self.assertRaisesRegex(ValueError, 'Latest official APK is not runtime-verified'):
-                    main()
-            self.assertFalse(list((root / 'inputs').glob('wechat-*.apk')))
-
-    def test_registered_mode_selects_highest_runtime_verified_profile_without_discovery(self):
-        newer = copy.deepcopy(self.profile)
-        newer['identity'].update(versionName='8.0.79', versionCode=3190)
-        newer['sourceUrl'] = 'https://dldir1v6.qq.com/weixin/android/weixin8079android3190_arm64.apk'
-        static_newest = copy.deepcopy(newer)
-        static_newest['identity'].update(versionName='8.0.80', versionCode=3200)
-        static_newest['sourceUrl'] = 'https://dldir1v6.qq.com/weixin/android/weixin8080android3200_arm64.apk'
-        static_newest['verificationStatus'] = 'static-verified'
-        body = b'cached official registered artifact'
+    def test_uploaded_adaptation_artifact_is_rechecked_in_place(self):
+        body = b'uploaded official WeCom candidate'
         digest = hashlib.sha256(body).hexdigest()
-        newer['identity']['apkSha256'] = digest
-        static_newest['identity']['apkSha256'] = digest
-        remote = {'content_length': len(body), 'last_modified': 'Wed, 07 Oct 2026 00:00:00 GMT', 'etag': ''}
+        source_url = 'https://dldir1.qq.com/wework/work_weixin/WeCom_android_5.0.8.70675_arm64_100001.apk'
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
-            manifest = root / 'targets.json'
-            original_targets = [self.profile, newer, static_newest]
-            manifest.write_text(json.dumps(original_targets))
-            cache = root / 'inputs/cache'
-            cache.mkdir(parents=True)
-            (cache / f'{digest}.apk').write_bytes(body)
-            (cache / 'candidate.json').write_text(json.dumps(dict(remote, url=newer['sourceUrl'], sha256=digest)))
-            with patch('sys.argv', ['candidate_selection', '--mode', 'registered', '--targets', str(manifest), '--directory', str(root / 'inputs')]), patch('scripts.ci.apps.wechat.discovery_policy.discover', side_effect=AssertionError('discovery must not run')), patch('scripts.ci.candidate_selection.remote_metadata', return_value=remote):
-                main()
-            report = json.loads((root / 'inputs/candidate-report.json').read_text())
-            self.assertEqual(report['selectionMode'], 'registered')
-            self.assertEqual(report['identity']['versionCode'], 3190)
-            self.assertEqual(report['identity']['apkSha256'], digest)
-            self.assertEqual((root / f'inputs/wechat-{digest}.apk').read_bytes(), body)
-            self.assertEqual(json.loads(manifest.read_text()), original_targets)
-            local_profile = json.loads((root / 'inputs/assets/compatibility-local/wechat/targets.json').read_text())[0]
-            self.assertIsNone(local_profile['sourceUrl'])
-            self.assertEqual((root / 'inputs/resources/META-INF/xposed/scope.list').read_text(), 'com.tencent.mm\n')
+            apk = root / f'wecom-{digest}.apk'
+            apk.write_bytes(body)
+            identity = self._wecom_identity(digest)
+            report = root / 'candidate-report.json'
+            report.write_text(json.dumps({'appId': 'wecom', 'status': 'STATIC_VERIFIED_PENDING_RUNTIME',
+                                          'identity': identity, 'sourceUrl': source_url}))
+            static = self._wecom_static_report(identity, apk)
+            with patch('scripts.ci.candidate_selection._run_rules_checker', return_value=static) as checker:
+                candidate = prepare_candidate_from_adaptation_report('wecom', report, root)
+            self._assert_wecom_candidate(root, candidate, identity)
+            checker.assert_called_once()
+            self.assertEqual(apk.resolve(), checker.call_args.args[1].resolve())
 
-    def test_registered_mode_rejects_static_only_policy(self):
-        profile = copy.deepcopy(self.profile)
-        profile['verificationStatus'] = 'static-verified'
+    def test_runtime_assets_contain_only_xposed_scope(self):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
-            manifest = root / 'targets.json'
-            manifest.write_text(json.dumps([profile]))
-            with patch('sys.argv', ['candidate_selection', '--mode', 'registered', '--targets', str(manifest), '--directory', str(root / 'inputs')]), patch('scripts.ci.apps.wechat.discovery_policy.discover', side_effect=AssertionError('discovery must not run')):
-                with self.assertRaisesRegex(ValueError, 'No runtime-verified registered APK'):
-                    main()
+            candidate = {'identity': {'packageName': get_policy('wechat').package_name}}
+            write_local_runtime_assets(candidate, 'wechat', root)
+            self.assertEqual('com.tencent.mm\n',
+                             (root / 'resources/META-INF/xposed/scope.list').read_text())
+            self.assertFalse((root / 'assets/compatibility-local').exists())
 
-    def test_registered_mode_requires_digest_for_multiple_latest_version_variants(self):
-        repack = copy.deepcopy(self.profile)
-        repack['identity']['apkSha256'] = 'b' * 64
-        repack['sourceUrl'] = 'https://dldir1v6.qq.com/weixin/android/repack.apk'
+    def test_module_identity_rejects_apk_without_build_fingerprint(self):
         with tempfile.TemporaryDirectory() as temporary:
-            root = Path(temporary)
-            manifest = root / 'targets.json'
-            manifest.write_text(json.dumps([self.profile, repack]))
-            with patch('sys.argv', ['candidate_selection', '--mode', 'registered', '--targets', str(manifest), '--directory', str(root / 'inputs')]), patch('scripts.ci.apps.wechat.discovery_policy.discover', side_effect=AssertionError('discovery must not run')):
-                with self.assertRaisesRegex(ValueError, 'specify --apk-sha256'):
-                    main()
+            module = Path(temporary) / 'old-module.apk'
+            module.write_bytes(b'APK without build source fingerprint')
+            with self.assertRaisesRegex(ValueError, 'build-time fingerprint'):
+                prepare_module(module, {'appId': 'qq', 'routeCandidates': [],
+                                        'executionIdentity': {}}, Path.cwd())
 
-    def test_registered_mode_uses_explicit_digest_for_latest_version_variant(self):
-        body = b'cached repack bytes'
-        digest = hashlib.sha256(body).hexdigest()
-        repack = copy.deepcopy(self.profile)
-        repack['identity']['apkSha256'] = digest
-        repack['sourceUrl'] = 'https://dldir1v6.qq.com/weixin/android/repack.apk'
-        original = copy.deepcopy(self.profile)
-        original['identity']['apkSha256'] = 'c' * 64
-        remote = {'content_length': len(body), 'last_modified': 'Wed, 07 Oct 2026 00:00:00 GMT', 'etag': ''}
+    def test_module_source_digest_includes_gradle_properties(self):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
-            manifest = root / 'targets.json'
-            manifest.write_text(json.dumps([original, repack]))
-            cache = root / 'inputs/cache'
-            cache.mkdir(parents=True)
-            (cache / f'{digest}.apk').write_bytes(body)
-            (cache / 'candidate.json').write_text(json.dumps(dict(remote, url=repack['sourceUrl'], sha256=digest)))
-            with patch('sys.argv', ['candidate_selection', '--mode', 'registered', '--apk-sha256', digest, '--targets', str(manifest), '--directory', str(root / 'inputs')]), patch('scripts.ci.apps.wechat.discovery_policy.discover', side_effect=AssertionError('discovery must not run')), patch('scripts.ci.candidate_selection.remote_metadata', return_value=remote):
-                main()
-            report = json.loads((root / 'inputs/candidate-report.json').read_text())
-            self.assertEqual(digest, report['identity']['apkSha256'])
-            self.assertEqual(body, (root / f'inputs/wechat-{digest}.apk').read_bytes())
+            (root / 'gradle.properties').write_bytes(b'android.foo=true\n')
+            lock = root / 'gradle/dexkit-lock.json'
+            lock.parent.mkdir()
+            lock.write_bytes(b'{}\n')
+            before = module_source_hashes(root)
+            before_digest = source_tree_sha256(root)
+            (root / 'gradle.properties').write_bytes(b'android.foo=false\n')
+            after = module_source_hashes(root)
+        self.assertEqual(sorted(row['path'] for row in after), [row['path'] for row in after])
+        self.assertNotEqual(before_digest, source_tree_sha256(root))
+        self.assertNotEqual(before, after)
 
-    def test_registered_mode_rejects_download_with_wrong_digest(self):
-        profile = copy.deepcopy(self.profile)
-        body = b'APK bytes that do not match the registered digest'
-        headers = {'Content-Length': str(len(body)), 'Last-Modified': 'Wed, 07 Oct 2026 00:00:00 GMT', 'ETag': ''}
-        response = Mock(status=200, headers=Mock(get=Mock(side_effect=lambda key, default=None: headers.get(key, default))), geturl=lambda: profile['sourceUrl'])
-        response.read.side_effect = [body, b'']
-        context = Mock()
-        context.__enter__ = Mock(return_value=response)
-        context.__exit__ = Mock(return_value=False)
-        remote = {'content_length': len(body), 'last_modified': headers['Last-Modified'], 'etag': ''}
+    def test_module_source_fingerprint_includes_collector_but_excludes_its_test_harness(self):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
-            manifest = root / 'targets.json'
-            manifest.write_text(json.dumps([profile]))
-            with patch('sys.argv', ['candidate_selection', '--mode', 'registered', '--targets', str(manifest), '--directory', str(root / 'inputs')]), patch('scripts.ci.apps.wechat.discovery_policy.discover', side_effect=AssertionError('discovery must not run')), patch('scripts.ci.candidate_selection.remote_metadata', return_value=remote), patch('scripts.ci.fetch_latest_wechat_apk.urlopen', return_value=context):
-                with self.assertRaisesRegex(ValueError, 'APK SHA-256 mismatch'):
-                    main()
-            self.assertFalse(list((root / 'inputs').glob('wechat-*.apk')))
+            probe = root / 'scripts/ci/apps/qq/probe'
+            probe.mkdir(parents=True)
+            (probe / 'collector.c').write_text('int production_collector(void) { return 1; }\n')
+            (probe / 'collector_owner_test.c').write_text('int test_harness(void) { return 1; }\n')
+            other_probe = root / 'scripts/ci/apps/wechat/probe'
+            other_probe.mkdir(parents=True)
+            (other_probe / 'parser_test.c').write_text('int production_parser(void) { return 2; }\n')
 
-    def test_qq_replay_records_manifest_expectation_from_exact_downloaded_apk(self):
-        profile = json.loads(Path('environment/redroid-smoke/qq.json').read_text())[-1]
-        body = b'exact QQ candidate'
-        digest = hashlib.sha256(body).hexdigest()
-        profile['identity']['apkSha256'] = digest
-        expectation = {'contract': 'fixture', 'apkSha256': digest, 'phoneAppId': 1, 'tabletAppId': 2}
-        with tempfile.TemporaryDirectory() as temporary:
-            root = Path(temporary)
-            apk = root / 'download.apk'; apk.write_bytes(body)
-            targets = root / 'targets.json'; targets.write_text(json.dumps([profile]))
-            with patch('sys.argv', ['candidate_selection', '--app-id', 'qq', '--mode', 'baseline', '--targets', str(targets), '--directory', str(root / 'inputs')]), patch('scripts.ci.candidate_selection.remote_metadata', return_value={}), patch('scripts.ci.candidate_selection.download_candidate', return_value=(apk, digest, False, {})), patch('scripts.ci.apps.qq.runtime_probe.manifest_expectation', return_value=expectation) as manifest:
-                main()
-            report = json.loads((root / 'inputs/candidate-report.json').read_text())
-            self.assertEqual(report['requestIdentityExpectation'], expectation)
-            manifest.assert_called_once_with(apk, digest)
+            sources = module_source_hashes(root)
 
-    def test_replay_cli_reuses_verified_cache_and_writes_inputs(self):
-        body = b'cached official artifact'
-        digest = hashlib.sha256(body).hexdigest()
-        profile = copy.deepcopy(self.profile)
-        profile['identity']['apkSha256'] = digest
-        remote = {'content_length': len(body), 'last_modified': 'Wed, 07 Oct 2026 00:00:00 GMT', 'etag': ''}
-        with tempfile.TemporaryDirectory() as temporary:
-            root = Path(temporary)
-            manifest = root / 'targets.json'
-            manifest.write_text(json.dumps([profile]))
-            cache = root / 'cache'
-            cache.mkdir()
-            (cache / (digest + '.apk')).write_bytes(body)
-            (cache / 'candidate.json').write_text(json.dumps(dict(remote, url=profile['sourceUrl'], sha256=digest)))
-            with patch('sys.argv', ['candidate_selection', '--targets', str(manifest), '--directory', str(root)]), patch('scripts.ci.apps.wechat.discovery_policy.fetch_official_page', return_value=profile['sourceUrl']), patch('scripts.ci.candidate_selection.remote_metadata', return_value=remote):
-                main()
-            self.assertEqual((root / f'wechat-{digest}.apk').read_bytes(), body)
-            self.assertEqual(json.loads((root / 'candidate-report.json').read_text())['identity']['versionName'], '8.0.78')
+        paths = {row['path'] for row in sources}
+        self.assertIn('scripts/ci/apps/qq/probe/collector.c', paths)
+        self.assertIn('scripts/ci/apps/wechat/probe/parser_test.c', paths)
+        self.assertNotIn('scripts/ci/apps/qq/probe/collector_owner_test.c', paths)
+
+
+if __name__ == '__main__':
+    unittest.main()

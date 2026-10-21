@@ -77,11 +77,14 @@ class TcpCapture:
         self.total += len(data)
         if self.total > MAX_BYTES:
             raise ValueError()
+        observed=event.get('observedMonotonicNs')
+        if observed is not None and (type(observed) is not int or observed <= 0):
+            raise ValueError()
         key=tuple(event[f] for f in ('pid','uid','started','inode','source','destination','sourcePort','destinationPort','generation'))
         if key not in self.flows:
             if len(self.flows)>=64:
                 raise ValueError()
-            self.flows[key]={'syn':None,'segments':[]}
+            self.flows[key]={'syn':None,'segments':[],'firstObserved':None}
         flow=self.flows[key]
         seq=event['sequence']
         if event['flags']&2:
@@ -91,7 +94,9 @@ class TcpCapture:
             flow['syn']=syn
             seq=syn
         if data:
-            flow['segments'].append((seq,data))
+            flow['segments'].append((seq,data,observed))
+            if observed is not None:
+                flow['firstObserved']=observed if flow['firstObserved'] is None else min(flow['firstObserved'],observed)
 
     def result(self):
         errors=list(self.errors)
@@ -104,9 +109,9 @@ class TcpCapture:
             if flow['syn'] is None:
                 errors.append('Outgoing TCP stream has no captured SYN')
                 continue
-            segments=sorted((((seq-flow['syn'])&0xffffffff,data) for seq,data in flow['segments']),key=lambda value:value[0])
+            segments=sorted((((seq-flow['syn'])&0xffffffff,data,observed) for seq,data,observed in flow['segments']),key=lambda value:value[0])
             buffer=bytearray()
-            for offset,data in segments:
+            for offset,data,_ in segments:
                 if offset>len(buffer):
                     errors.append('Outgoing TCP stream has a gap')
                     break
@@ -128,6 +133,9 @@ class TcpCapture:
                 if result['partialStreams']:
                     errors.append('Incomplete outgoing request frame')
                 if result['frames']:
+                    if flow['firstObserved'] is not None:
+                        for frame in result['frames']:
+                            frame['firstObservedMonotonicNs']=flow['firstObserved']
                     frames.extend(result['frames']);owners.add(owner[:4])
         return dict(contract=CONTRACT,captureKind=CAPTURE_KIND,frames=frames,
                     captureHealthy=not errors,errors=list(dict.fromkeys(errors)),

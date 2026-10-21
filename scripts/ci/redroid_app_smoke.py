@@ -15,6 +15,79 @@ from scripts.ci.apps.qq import packet_capture, prepare_probe, request_protocol, 
 from scripts.ci.redroid_environment_probe import Probe, SERIAL, CONTAINER, MAGISK, checked_digest
 
 FINGERPRINT = 'redroid/redroid_arm64_only/redroid_arm64_only:14/UD2A.240505.001.W1/eng.frank.20240527.152423:userdebug/test-keys'
+_THREADTIME_HEADER = re.compile(
+    r'^(\d{2}-\d{2})\s+(\d{2}:\d{2}:\d{2}\.\d{3})\s+'
+    r'(\d+)\s+(\d+)\s+([VDIWEF])\s+([^\s:]+):(?:\s+(.*))?$'
+)
+_RUNTIME_EVENT = re.compile(r'rule-runtime event=([a-z_]+)(?:\s+(.*))?$')
+_LSPOSED_RUNTIME_EVENT = re.compile(
+    r'\(com\.tencent\.mobileqq:MSF\)'
+    r'\[io\.github\.nku100\.impad,ImPad,[A-Za-z0-9_.-]+,\d+,\d+\]'
+    r'\s+(rule-runtime event=[a-z_]+(?:\s+.*)?)$'
+)
+
+
+def extract_qq_lifecycle_evidence(logs, owner_pids, request_times):
+    events = {}
+    for line in logs.splitlines():
+        header = _THREADTIME_HEADER.fullmatch(line)
+        if not header or int(header.group(3)) not in owner_pids:
+            continue
+        tag, message = header.group(6), header.group(7) or ''
+        if tag == 'ImPad':
+            event_message = message
+        elif tag == 'LSPosedFramework':
+            envelope = _LSPOSED_RUNTIME_EVENT.fullmatch(message)
+            if not envelope:
+                continue
+            event_message = envelope.group(1)
+        else:
+            continue
+        match = _RUNTIME_EVENT.fullmatch(event_message)
+        if not match:
+            continue
+        fields = dict(part.split('=', 1) for part in (match.group(2) or '').split() if '=' in part)
+        events.setdefault(match.group(1), []).append(fields)
+    qfix = events.get('qfix_ready', [])
+    native = events.get('native_loaded', [])
+    hook = events.get('hook_installed', [])
+    qfix_ok = len(qfix) == 1 and qfix[0].get('contextPackage') == 'com.tencent.mobileqq' \
+        and qfix[0].get('loaderClass') and qfix[0].get('elapsedRealtimeNs', '').isdigit()
+    native_ok = len(native) == 1 and all(re.fullmatch(r'[a-f0-9]{64}', native[0].get(key, ''))
+                                         for key in ('apiSha256', 'nativeSha256')) \
+        and native[0].get('elapsedRealtimeNs', '').isdigit()
+    hook_ok = len(hook) == 1 and hook[0].get('ruleId') == 'qq_device_type_001' \
+        and hook[0].get('strategyId') == 'qq_tablet_001' and hook[0].get('hookCount') == '1' \
+        and hook[0].get('processName') == 'com.tencent.mobileqq:MSF' \
+        and hook[0].get('elapsedRealtimeNs', '').isdigit()
+    qfix_before_native = qfix_ok and native_ok and int(qfix[0]['elapsedRealtimeNs']) < int(native[0]['elapsedRealtimeNs'])
+    request_ns = [value for value in request_times if type(value) is int and value > 0]
+    hook_before_request = hook_ok and bool(request_ns) \
+        and int(hook[0]['elapsedRealtimeNs']) < min(request_ns)
+    return {
+        'nativeEvidence': ({'status': 'LOADED', 'apiSha256': native[0]['apiSha256'],
+                            'nativeSha256': native[0]['nativeSha256']} if native_ok else {'status': 'NOT_OBSERVED'}),
+        'qfixEvidence': ({'status': 'READY', 'contextPackage': qfix[0]['contextPackage'],
+                          'classLoader': qfix[0]['loaderClass']} if qfix_ok else {'status': 'NOT_OBSERVED'}),
+        'timingEvidence': {'qfixReadyBeforeNative': bool(qfix_before_native),
+                           'hookInstalledBeforeRequest': bool(hook_before_request)},
+    }
+
+
+def qq_compatible_hook_installed(logs: str, owner_pids):
+    owner_pids = {str(pid) for pid in owner_pids}
+    compatible, installed = set(), set()
+    for line in logs.splitlines():
+        fields = line.split()
+        if len(fields) <= 5 or fields[2] not in owner_pids:
+            continue
+        if fields[5].rstrip(':') not in ('ImPad', 'LSPosedFramework'):
+            continue
+        if 'status=COMPATIBLE' in line:
+            compatible.add(fields[2])
+        if 'installed 1 QQ hooks' in line:
+            installed.add(fields[2])
+    return bool(compatible & installed)
 
 
 def query_target():
@@ -58,7 +131,7 @@ def memory_mib(value):
     return float(match[1]) * {'B': 1 / 1048576, 'KiB': 1 / 1024, 'MiB': 1, 'GiB': 1024}[match[2]]
 
 
-def pipeline_report(report, candidate):
+def pipeline_report(report, candidate, module_identity=None, evidence_root=None):
     from scripts.ci.app_policy import policy_for_report
     policy = policy_for_report(candidate, candidate['appId'])
     result = dict(report)
@@ -68,6 +141,48 @@ def pipeline_report(report, candidate):
                   abi=candidate['identity']['abi'], apkSha256=candidate['identity']['apkSha256'],
                   baseline=policy.runtime_baseline, hookIds=list(policy.required_hook_ids),
                   hooks=len(policy.required_hook_ids))
+    module_fields = {
+        'moduleApkSha256': 'sha256',
+        'moduleSourceTreeSha256': 'sourceTreeSha256',
+        'ruleCatalogSha256': 'ruleCatalogSha256',
+        'routeSha256': 'routeSha256',
+        'dependencyLockSha256': 'dependencyLockSha256',
+    }
+    module_identity = module_identity if isinstance(module_identity, dict) else {}
+    for report_field, module_field in module_fields.items():
+        expected = module_identity.get(module_field)
+        existing = result.get(report_field)
+        if existing is not None and expected is not None and existing != expected:
+            result.update(status='RUNTIME_REJECTED',
+                          reason=f'Runtime report {report_field} differs from the tested module identity')
+        elif expected is not None:
+            result[report_field] = expected
+
+    if result.get('status') == 'RUNTIME_SMOKE_VERIFIED':
+        if any(not isinstance(result.get(field), str)
+               or not re.fullmatch(r'[a-f0-9]{64}', result[field])
+               for field in module_fields):
+            result.update(status='RUNTIME_REJECTED',
+                          reason='Verified runtime report lacks complete module source identity')
+        elif not isinstance(result.get('evidence'), list):
+            try:
+                if evidence_root is None:
+                    raise ValueError('Runtime evidence root was not provided')
+                evidence_root = Path(evidence_root).resolve()
+                evidence_directory = Path(result['evidenceDirectory']).resolve()
+                evidence_directory.relative_to(evidence_root)
+                raw_files = [path for path in sorted(evidence_directory.rglob('*'))
+                             if path.is_file() and path.name != 'report.json']
+                if not raw_files:
+                    raise ValueError('No raw application evidence files were produced')
+                result['evidence'] = [
+                    {'path': path.relative_to(evidence_root).as_posix(),
+                     'sha256': hashlib.sha256(path.read_bytes()).hexdigest()}
+                    for path in raw_files
+                ]
+            except (KeyError, OSError, ValueError) as error:
+                result.update(status='RUNTIME_REJECTED',
+                              reason=f'Runtime report raw evidence is incomplete: {error}')
     if policy.app_id == 'qq':
         result['acceptanceKind'] = 'REQUEST_APP_ID_CONTRAST'
     return result
@@ -79,6 +194,8 @@ class AppSmoke:
         self.probe = probe
         self.inputs = json.loads((root / 'inputs.json').read_text())
         self.module_hash = hashlib.sha256((root / 'module/app-debug.apk').read_bytes()).hexdigest()
+        identity_file = root / 'module-identity.json'
+        self.module_identity = json.loads(identity_file.read_text()) if identity_file.is_file() else {}
         os.environ['ANDROID_SERIAL'] = SERIAL
         smoke.ROOT = self.root
         smoke.EVIDENCE = probe.output / 'apps'
@@ -111,8 +228,6 @@ class AppSmoke:
         for name in ('manager.apk', 'module/app-debug.apk'):
             smoke.adb('install', '-r', str(self.root / name), timeout=120)
         for app in self.inputs:
-            if app == 'qq-old':
-                continue
             smoke.adb('install', '-r', str(self.root / (app + '.apk')), timeout=180)
         smoke.adb('push', str(self.root / 'ui-hierarchy.jar'), '/data/local/tmp/ui-hierarchy.jar')
         smoke.configure_app_id('qq')
@@ -131,8 +246,6 @@ class AppSmoke:
                 if smoke.manager_module_enabled() is not True:
                     smoke.tap(enable)
                 for app in self.inputs:
-                    if app == 'qq-old':
-                        continue
                     smoke.configure_app_id(app)
                     if runtime_probe.manager_state(smoke)['scopeVerified'] is not True:
                         raise RuntimeError('Missing static app scope')
@@ -235,14 +348,14 @@ class AppSmoke:
                     ndkVersion=metadata['ndkVersion'], apkSha256=profile['identity']['apkSha256'],
                     appUid=uid, moduleApkSha256=self.module_hash, processName='com.tencent.mobileqq:MSF')
 
-    def qq(self, profile, name):
+    def qq(self, profile):
         smoke.configure_app_id('qq')
-        smoke.EVIDENCE = self.probe.output / 'apps' / name
+        smoke.EVIDENCE = self.probe.output / 'apps' / 'qq'
         smoke.EVIDENCE.mkdir(parents=True, exist_ok=True)
         report = {'appId': 'qq', 'versionName': profile['identity']['versionName'], 'status': 'ACCEPTANCE_UNAVAILABLE',
                   'moduleApkSha256': self.module_hash, 'noAccountAuthentication': True}
         try:
-            path = self.root / (name + '.apk')
+            path = self.root / 'qq.apk'
             checked_digest(path, profile['identity']['apkSha256'])
             smoke.adb('shell', 'am', 'force-stop', smoke.APP_PACKAGE)
             smoke.adb('install', '-r', '-d', str(path), timeout=180)
@@ -251,32 +364,45 @@ class AppSmoke:
                 raise RuntimeError('QQ scope lost during version replacement')
             # Establish first-use login navigation before the isolated fresh launch.
             smoke.mobile_input('login-ready')
-            expectation = self.inputs[name]['manifestAppIds']
+            expectation = self.inputs['qq'].get('requestIdentityExpectation', self.inputs['qq'].get('manifestAppIds'))
+            report['requestIdentityExpectation'] = expectation
             off = self.capture(False, profile)
             report['disabled'] = off
             on = self.capture(True, profile)
             report['enabled'] = on
-            proof = {'contract': request_protocol.CONTRACT, **expectation, 'disabled': off, 'enabled': on}
+            proof = runtime_policy.build_request_identity_proof(expectation, off, on)
             report['requestIdentityEvidence'] = proof
             owners = {str(owner['pid']) for owner in on['owners']}
-            logs = (smoke.EVIDENCE / 'logcat-enabled.txt').read_text().splitlines()
-            compatible, installed = set(), set()
-            for line in logs:
-                fields = line.split()
-                if len(fields) > 5 and fields[2] in owners and fields[5].rstrip(':') in ('ImPad', 'LSPosedFramework'):
-                    if 'status=COMPATIBLE' in line:
-                        compatible.add(fields[2])
-                    if 'installed 1 QQ hooks' in line:
-                        installed.add(fields[2])
-            report['runtimeDiagnostics'] = smoke.hook_diagnostics('\n'.join(
-                line for line in logs if len(fields := line.split()) > 5 and fields[2] in owners
-                and fields[5].rstrip(':') in ('ImPad', 'LSPosedFramework')))
-            if not compatible & installed:
+            logs = (smoke.EVIDENCE / 'logcat-enabled.txt').read_text()
+            if not qq_compatible_hook_installed(logs, {int(pid) for pid in owners}):
                 raise RuntimeError('No fresh compatible and installed hook in captured MSF owner')
+            report['runtimeDiagnostics'] = smoke.hook_diagnostics('\n'.join(
+                line for line in logs.splitlines() if len(fields := line.split()) > 5 and fields[2] in owners
+                and fields[5].rstrip(':') in ('ImPad', 'LSPosedFramework')))
+            lifecycle = extract_qq_lifecycle_evidence(
+                logs, {int(owner) for owner in owners},
+                [frame.get('firstObservedMonotonicNs') for frame in on['frames']],
+            )
+            report.update(lifecycle)
+            if (lifecycle['nativeEvidence']['status'] != 'LOADED'
+                    or lifecycle['qfixEvidence']['status'] != 'READY'
+                    or lifecycle['timingEvidence'] != {'qfixReadyBeforeNative': True,
+                                                       'hookInstalledBeforeRequest': True}):
+                raise RuntimeError('Native, QFix, or hook-before-request evidence is missing')
+            dexkit = self.module_identity.get('dexkit', {})
+            if (self.module_identity.get('sha256') != self.module_hash
+                    or lifecycle['nativeEvidence'].get('apiSha256') != dexkit.get('dexkitAndroidApiSha256')
+                    or lifecycle['nativeEvidence'].get('nativeSha256') != dexkit.get('dexkitAndroidArm64NativeSha256')):
+                raise RuntimeError('Runtime module or DexKit identity differs from the prepared module')
             if not runtime_policy.validate_request_evidence(proof, profile['identity']['apkSha256'], self.module_hash, expectation):
                 report['status'] = 'RUNTIME_REJECTED'
                 raise RuntimeError('Trusted request AppID policy rejected pair')
             report['status'] = 'RUNTIME_SMOKE_VERIFIED'
+            report.update(moduleApkSha256=self.module_hash,
+                          moduleSourceTreeSha256=self.module_identity['sourceTreeSha256'],
+                          ruleCatalogSha256=self.module_identity['ruleCatalogSha256'],
+                          routeSha256=self.module_identity['routeSha256'],
+                          dependencyLockSha256=self.module_identity['dependencyLockSha256'])
         except Exception as error:
             report['reason'] = f'{type(error).__name__}: {error}'
             try:
@@ -286,6 +412,13 @@ class AppSmoke:
             except Exception as diagnostic:
                 report['diagnosticError'] = str(diagnostic)
         finally:
+            if report.get('status') == 'RUNTIME_SMOKE_VERIFIED':
+                report['evidence'] = [
+                    {'path': path.relative_to(self.probe.output).as_posix(),
+                     'sha256': hashlib.sha256(path.read_bytes()).hexdigest()}
+                    for path in sorted(smoke.EVIDENCE.iterdir())
+                    if path.is_file() and path.name != 'report.json'
+                ]
             (smoke.EVIDENCE / 'report.json').write_text(json.dumps(report, indent=2) + '\n')
         return report
 
@@ -293,11 +426,14 @@ class AppSmoke:
         from scripts.ci.redroid_ui_smoke import probe as ui_probe
         app = candidate['appId']
         if app == 'qq':
-            report = self.qq(self.inputs[app], app)
+            report = self.qq(self.inputs[app])
         else:
             self.restart()
-            report = ui_probe(app, self.probe.output / 'apps', self.inputs, self.module_hash)
-        result = pipeline_report(report, candidate)
+            runtime_inputs = {app: dict(self.inputs[app])}
+            runtime_inputs[app]['candidateReport'] = candidate
+            runtime_inputs[app]['moduleIdentity'] = self.module_identity
+            report = ui_probe(app, self.probe.output / 'apps', runtime_inputs, self.module_hash)
+        result = pipeline_report(report, candidate, self.module_identity, self.probe.output)
         evidence = self.probe.output / 'evidence'
         evidence.mkdir(exist_ok=True)
         (evidence / 'smoke-report.json').write_text(json.dumps(result, indent=2) + '\n')
@@ -315,11 +451,16 @@ class AppSmoke:
             for app in ('wechat', 'wecom'):
                 if app not in self.inputs:
                     continue
-                reports.append(ui_probe(app, self.probe.output / 'apps', self.inputs, self.module_hash))
-            for name in ('qq-old', 'qq'):
-                if name not in self.inputs:
-                    continue
-                reports.append(self.qq(self.inputs[name], name))
+                runtime_inputs = {app: dict(self.inputs[app])}
+                runtime_inputs[app]['moduleIdentity'] = self.module_identity
+                candidate_path = self.root / 'candidate-report.json'
+                if candidate_path.is_file():
+                    candidate = json.loads(candidate_path.read_text())
+                    if candidate.get('appId') == app:
+                        runtime_inputs[app]['candidateReport'] = candidate
+                reports.append(ui_probe(app, self.probe.output / 'apps', runtime_inputs, self.module_hash))
+            if 'qq' in self.inputs:
+                reports.append(self.qq(self.inputs['qq']))
         except Exception as error:
             failure = f'{type(error).__name__}: {error}'
             raise
@@ -332,7 +473,8 @@ class AppSmoke:
                 result = pipeline_report(reports[0] if len(reports) == 1 and failure is None else {
                     'status': 'ACCEPTANCE_UNAVAILABLE',
                     'reason': failure or 'Candidate runtime did not return one report',
-                    'moduleApkSha256': self.module_hash}, candidate)
+                    'moduleApkSha256': self.module_hash}, candidate,
+                    self.module_identity, self.probe.output)
                 evidence = self.probe.output / 'evidence'
                 evidence.mkdir(exist_ok=True)
                 (evidence / 'smoke-report.json').write_text(json.dumps(result, indent=2) + '\n')

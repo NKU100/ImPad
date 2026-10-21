@@ -18,7 +18,7 @@ class AdbDeviceTest(unittest.TestCase):
             adb = tools / 'adb'
             adb.write_text('#!/usr/bin/env python3\nimport os,sys,json\nprint(json.dumps({"socket":os.environ["ADB_SERVER_SOCKET"],"args":sys.argv[1:]}))\n')
             adb.chmod(0o755)
-            (root / 'state.json').write_text(json.dumps({'worktree': str(root), 'runtime': {'socket': str(root / 'adb.sock'), 'serial': 'emulator-5554'}}))
+            (root / 'state.json').write_text(json.dumps({'appId': 'wechat', 'worktree': str(root), 'runtime': {'socket': str(root / 'adb.sock'), 'serial': 'emulator-5554'}}))
             env = dict(os.environ, ANDROID_HOME=str(root), IMPAD_ADB_BINARY=str(adb))
             relay = DeviceRelay(root, env)
             env['IMPAD_ADB_RELAY'] = str(relay.root)
@@ -60,7 +60,7 @@ class AdbDeviceTest(unittest.TestCase):
             adb = tools / 'adb'
             adb.write_text('#!/usr/bin/env python3\nimport sys\nsys.stdout.buffer.write(bytes([0,255,10]))\nsys.stderr.write("device error")\nsys.exit(7)\n')
             adb.chmod(0o755)
-            (root / 'state.json').write_text(json.dumps({'worktree': str(root), 'runtime': {'socket': str(root / 'adb.sock'), 'serial': 'emulator-5554'}}))
+            (root / 'state.json').write_text(json.dumps({'appId': 'wechat', 'worktree': str(root), 'runtime': {'socket': str(root / 'adb.sock'), 'serial': 'emulator-5554'}}))
             env = dict(os.environ, ANDROID_HOME=str(root), IMPAD_ADB_BINARY=str(adb))
             relay = DeviceRelay(root, env)
             try:
@@ -79,7 +79,7 @@ class AdbDeviceTest(unittest.TestCase):
             adb = tools / 'adb'
             adb.write_text('#!/usr/bin/env python3\nimport sys,time,pathlib\nif "hang" in sys.argv:\n pathlib.Path("started").touch()\n time.sleep(30)\nelse: print("device")\n')
             adb.chmod(0o755)
-            (root / 'state.json').write_text(json.dumps({'worktree': str(root), 'runtime': {'socket': str(root / 'adb.sock'), 'serial': 'emulator-5554'}}))
+            (root / 'state.json').write_text(json.dumps({'appId': 'wechat', 'worktree': str(root), 'runtime': {'socket': str(root / 'adb.sock'), 'serial': 'emulator-5554'}}))
             env = dict(os.environ, ANDROID_HOME=str(root), IMPAD_ADB_BINARY=str(adb))
             relay = DeviceRelay(root, env)
             env['IMPAD_ADB_RELAY'] = str(relay.root)
@@ -100,16 +100,20 @@ class AdbDeviceTest(unittest.TestCase):
                 relay.close()
 
     def test_managed_launch_restores_compatibility_before_starting_wechat(self):
-        relay = DeviceRelay.__new__(DeviceRelay)
-        relay.adb = '/sdk/adb'; relay.serial = 'emulator-5554'
-        with patch.object(relay, 'execute', return_value=(0,b'',b'')) as execute:
-            relay.dispatch(['wechat-launch'], Path('/workspace'), 'request')
-        calls = [c.args[0] for c in execute.call_args_list]
-        self.assertEqual('wait-for-device', calls[0][-1])
-        self.assertIn('bionic.linker.16kb.app_compat.enabled true', calls[1][-1])
-        self.assertIn('/debug_ramdisk/magisk', calls[1][-1])
-        self.assertEqual(['shell','am','force-stop','com.tencent.mm'], calls[2][3:])
-        self.assertEqual(['shell', 'am', 'start', '-W', '-n', 'com.tencent.mm/.ui.LauncherUI'], calls[3][3:])
+        with tempfile.TemporaryDirectory() as temporary:
+            relay = DeviceRelay.__new__(DeviceRelay)
+            relay.directory = Path(temporary)
+            relay.adb = '/sdk/adb'; relay.serial = 'emulator-5554'
+            with patch.object(relay, 'execute', return_value=(0,b'',b'')) as execute:
+                relay.dispatch(['wechat-launch'], Path('/workspace'), 'request')
+            calls = [c.args[0] for c in execute.call_args_list]
+            self.assertEqual('wait-for-device', calls[0][-1])
+            self.assertIn('bionic.linker.16kb.app_compat.enabled true', calls[1][-1])
+            self.assertIn('/debug_ramdisk/magisk', calls[1][-1])
+            self.assertEqual(['shell','am','force-stop','com.tencent.mm'], calls[2][3:])
+            self.assertEqual(['shell', 'am', 'start', '-W', '-n', 'com.tencent.mm/.ui.LauncherUI'], calls[3][3:])
+            launch_steps = relay.directory / 'wechat-launch-steps.jsonl'
+            self.assertEqual(4, len(launch_steps.read_text().splitlines()))
 
     def test_managed_build_and_launch_do_not_accept_arbitrary_arguments(self):
         with tempfile.TemporaryDirectory() as temporary:

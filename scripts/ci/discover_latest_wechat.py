@@ -104,12 +104,20 @@ def fetch_official_page() -> str:
     return page.decode("utf-8", errors="replace")
 
 
-def expected_sha256_for_url(targets_path: Path, source_url: str) -> str:
-    targets = json.loads(targets_path.read_text(encoding="utf-8"))
-    matches = [target for target in targets if target.get("sourceUrl") == source_url]
+def expected_sha256_for_url(app_id: str, source_url: str,
+                            repository: Path | None = None) -> str:
+    from scripts.ci.acceptance import read_acceptance_snapshot
+
+    repository = Path(repository or Path.cwd()).resolve()
+    snapshot = read_acceptance_snapshot(
+        repository / f"compatibility/{app_id}/acceptance.json", app_id, False,
+        repository=repository,
+    )
+    matches = [record for record in snapshot.records
+               if record.get("source", {}).get("url") == source_url]
     if not matches:
         return ""
-    digests = {target["identity"].get("apkSha256", "").lower() for target in matches}
+    digests = {record["identity"].get("apkSha256", "").lower() for record in matches}
     if len(digests) > 1:
         return ""
     expected = next(iter(digests))
@@ -128,18 +136,16 @@ def append_github_output(path: Path, values: dict[str, str]) -> None:
 
 def main() -> int:
     parser = argparse.ArgumentParser()
-    parser.add_argument("--app-id", default="wechat")
-    parser.add_argument("--targets", type=Path)
+    parser.add_argument("--app-id", required=True)
     parser.add_argument("--github-output", type=Path, required=True)
     parser.add_argument("--report", type=Path, required=True)
     arguments = parser.parse_args()
     policy = get_policy(arguments.app_id)
-    targets_path = arguments.targets or Path(policy.targets_path)
 
     try:
         strategy = importlib.import_module(policy.discovery_strategy)
         candidate = strategy.discover(policy)
-        expected_sha256 = expected_sha256_for_url(targets_path, candidate.url)
+        expected_sha256 = expected_sha256_for_url(policy.app_id, candidate.url)
         url_sha256 = hashlib.sha256(candidate.url.encode("utf-8")).hexdigest()
         cache_dir = f".cache/{policy.artifact_prefix}-{policy.app_id}-latest/{url_sha256}"
         outputs = {
@@ -160,7 +166,7 @@ def main() -> int:
             if expected_sha256:
                 report.write(f"Registered APK SHA-256: {expected_sha256}\n\n")
             else:
-                report.write("This build is not yet registered in the compatibility manifest.\n\n")
+                report.write("This build has no matching fixed acceptance record.\n\n")
         print(f"Selected official ARM64 APK: {candidate.filename}")
         return 0
     except Exception as error:

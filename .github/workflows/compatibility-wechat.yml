@@ -5,6 +5,18 @@ on:
     - cron: '23 */6 * * *'
   workflow_dispatch:
     inputs:
+      operation:
+        description: Validate the requested candidate or adapt it when incompatible
+        type: choice
+        required: true
+        default: verify
+        options:
+          - verify
+          - adapt
+      apk_url:
+        description: Exact official WeChat APK URL; empty uses official discovery
+        type: string
+        default: ''
       force_recheck:
         description: Run static regression even when the exact APK is already supported
         type: boolean
@@ -13,11 +25,6 @@ on:
         description: Adapt verified unknown builds with gpt-6-luna/xhigh
         type: boolean
         default: true
-      baseline_apk_sha256:
-        description: Select a runtime-verified baseline variant when the preferred version is ambiguous
-        type: string
-        default: ''
-
 permissions:
   contents: read
 
@@ -31,7 +38,8 @@ jobs:
       pull-requests: write
     with:
       app_id: wechat
+      operation: ${{ github.event_name == 'schedule' && 'adapt' || inputs.operation || 'verify' }}
+      apk_url: ${{ inputs.apk_url || '' }}
       force_recheck: ${{ inputs.force_recheck || false }}
       run_codex: ${{ github.event_name == 'schedule' || inputs.run_codex }}
-      baseline_apk_sha256: ${{ inputs.baseline_apk_sha256 || '' }}
     secrets: inherit

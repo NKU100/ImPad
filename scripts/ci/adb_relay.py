@@ -11,10 +11,30 @@ import shutil
 import sys
 import threading
 import time
+from datetime import datetime, timezone
 from scripts.ci.app_policy import get_policy
 
 COMMANDS = {'app-launch', 'wechat-launch', 'verify-build', 'verify-runtime', 'shell', 'exec-out', 'push', 'pull', 'install', 'uninstall', 'logcat',
             'reboot', 'root', 'unroot', 'wait-for-device', 'get-state', 'version', 'help'}
+
+
+def normalize_adb_server_socket(value):
+    if not isinstance(value, str) or not value or any(char.isspace() for char in value):
+        raise ValueError('ADB server endpoint is missing or malformed')
+    if value.startswith('tcp:'):
+        address = value.removeprefix('tcp:')
+        match = re.fullmatch(r'(?:\[[0-9a-fA-F:.%]+\]|[^:\[\]]+):(\d+)', address)
+        if not match or not 1 <= int(match[1]) <= 65535:
+            raise ValueError('ADB TCP endpoint is malformed')
+        return value
+    if value.startswith('localfilesystem:'):
+        if not value.removeprefix('localfilesystem:'):
+            raise ValueError('ADB filesystem endpoint has an empty path')
+        return value
+    if ':' in value:
+        raise ValueError('ADB server endpoint uses an unsupported scheme')
+    path = Path(value).expanduser()
+    return 'localfilesystem:' + (str(path) if path.is_absolute() else str(path.resolve()))
 
 
 def validate_request(request, workspace):
@@ -63,7 +83,7 @@ class DeviceRelay:
         if not self.adb:
             raise RuntimeError('Native host adb is unavailable')
         self.serial = runtime['serial']
-        self.env = dict(env, ADB_SERVER_SOCKET='localfilesystem:' + runtime['socket'])
+        self.env = dict(env, ADB_SERVER_SOCKET=normalize_adb_server_socket(runtime['socket']))
         self.stop = threading.Event()
         self.process_lock = threading.Lock()
         self.process = None
@@ -126,12 +146,38 @@ class DeviceRelay:
             from scripts.ci.runtime_smoke import MAGISK, PAGE_SIZE_BACKCOMPAT_COMMAND
             strategy = importlib.import_module(policy.runtime_ui_strategy)
             component = getattr(strategy, 'launcher_component', policy.package_name + '/.ui.LauncherUI')
-            commands = [prefix + ['wait-for-device'],
-                        prefix + ['shell', shlex.join([MAGISK, 'su', '-c', PAGE_SIZE_BACKCOMPAT_COMMAND])],
-                        prefix + ['shell', 'am', 'force-stop', policy.package_name],
-                        prefix + ['shell', 'am', 'start', '-W', '-n', component]]
-            for command in commands:
+            commands = [
+                ('wait-for-device', prefix + ['wait-for-device']),
+                ('page-size-compatibility', prefix + ['shell', shlex.join(
+                    [MAGISK, 'su', '-c', PAGE_SIZE_BACKCOMPAT_COMMAND])]),
+                ('force-stop', prefix + ['shell', 'am', 'force-stop', policy.package_name]),
+                ('launch-activity', prefix + ['shell', 'am', 'start', '-W', '-n', component]),
+            ]
+            log_path = self.directory / f'{args[0]}-steps.jsonl'
+            fd = os.open(log_path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC | os.O_NOFOLLOW, 0o600)
+            os.close(fd)
+            for label, command in commands:
+                started_at = datetime.now(timezone.utc).isoformat()
+                started = time.monotonic()
                 result = self.execute(command, cwd, request, 60)
+                finished = time.monotonic()
+                finished_at = datetime.now(timezone.utc).isoformat()
+                code, stdout, stderr = result
+                status = ('PASSED' if code == 0 else 'TIMED_OUT' if code == 124
+                          else 'CANCELLED' if code == 130 else 'FAILED')
+                row = {
+                    'label': label,
+                    'startedAt': started_at,
+                    'finishedAt': finished_at,
+                    'durationMs': max(0, round((finished - started) * 1000)),
+                    'status': status,
+                    'exitCode': code,
+                    'stdout': stdout.decode(errors='replace'),
+                    'stderr': stderr.decode(errors='replace'),
+                }
+                log_fd = os.open(log_path, os.O_WRONLY | os.O_APPEND | os.O_NOFOLLOW)
+                with os.fdopen(log_fd, 'ab') as stream:
+                    stream.write((json.dumps(row, sort_keys=True) + '\n').encode())
                 if result[0]:
                     return result
             return result

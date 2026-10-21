@@ -33,7 +33,7 @@ class Response:
 class AppScopedDownloadTest(unittest.TestCase):
     def setUp(self):
         self.prefix = 'https://apk.synthetic.invalid/official/'
-        self.policy = replace(get_policy(), official_apk_prefix=self.prefix)
+        self.policy = replace(get_policy('wechat'), official_apk_prefix=self.prefix)
         self.url = self.prefix + 'candidate.apk'
 
     def test_policy_official_prefix_accepts_synthetic_download_source(self):
