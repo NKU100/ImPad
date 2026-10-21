@@ -8,6 +8,6 @@ runs:
       run: |
         set -euo pipefail
         cd "$GITHUB_ACTION_PATH/../../.."
-        sudo python3 -m scripts.ci.prepare_dexkit_system_deps \
+        sudo python3 -B -m scripts.ci.prepare_dexkit_system_deps \
           --lock gradle/dexkit-lock.json \
           --install

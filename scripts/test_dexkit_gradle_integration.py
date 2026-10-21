@@ -276,6 +276,7 @@ class DexKitGradleIntegrationTest(unittest.TestCase):
         self.assertIn("scripts.ci.prepare_dexkit_system_deps", action_runs)
         self.assertIn("gradle/dexkit-lock.json", action_runs)
         self.assertIn("--install", action_runs)
+        self.assertRegex(action_runs, r"sudo\s+python3\s+-B\s+-m\s+scripts\.ci\.prepare_dexkit_system_deps")
         consumers = workflow_checker_consumers(workflows)
         locations = {(workflow, job) for workflow, job, _, _ in consumers}
         self.assertEqual(locations, {
