@@ -12,6 +12,14 @@ on:
         description: Exact official APK URL; empty uses app-specific discovery
         type: string
         default: ''
+      module_run_id:
+        description: Optional build run containing the exact module artifact to verify
+        type: string
+        default: ''
+      module_artifact:
+        description: Optional artifact name in module_run_id; empty keeps the runtime default
+        type: string
+        default: ''
       operation:
         description: Validate or adapt an incompatible candidate
         type: choice
@@ -40,6 +48,14 @@ on:
         description: Exact official APK URL; empty uses app-specific discovery
         type: string
         default: ''
+      module_run_id:
+        description: Optional build run containing the exact module artifact to verify
+        type: string
+        default: ''
+      module_artifact:
+        description: Optional artifact name in module_run_id; empty keeps the runtime default
+        type: string
+        default: ''
 
 permissions:
   contents: read
@@ -60,6 +76,8 @@ jobs:
       app_id: ${{ inputs.app_id }}
       operation: verify
       apk_url: ${{ inputs.apk_url || '' }}
+      module_run_id: ${{ inputs.module_run_id || '' }}
+      module_artifact: ${{ inputs.module_artifact || '' }}
       candidate_mode: latest
 
   prepare:

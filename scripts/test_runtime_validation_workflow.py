@@ -102,6 +102,28 @@ def _workflow_if(expression, context):
 
 
 class RuntimeValidationWorkflowTest(unittest.TestCase):
+    def test_manual_and_reusable_verify_entry_accept_and_forward_optional_module_artifact(self):
+        workflows = parsed_workflows()
+        shared = workflows['compatibility-app.yml']
+        dispatch_inputs = shared['true']['workflow_dispatch']['inputs']
+        reusable_inputs = shared['true']['workflow_call']['inputs']
+        verify = shared['jobs']['verify']
+
+        for inputs in (dispatch_inputs, reusable_inputs):
+            with self.subTest(inputs=inputs):
+                for name in ('module_run_id', 'module_artifact'):
+                    self.assertEqual('string', inputs[name]['type'])
+                    self.assertEqual('', inputs[name].get('default', ''))
+                    self.assertFalse(inputs[name].get('required', False))
+        self.assertEqual('verify', verify['with']['operation'])
+        self.assertEqual("${{ inputs.module_run_id || '' }}", verify['with']['module_run_id'])
+        self.assertEqual("${{ inputs.module_artifact || '' }}", verify['with']['module_artifact'])
+        self.assertEqual('latest', verify['with']['candidate_mode'])
+        self.assertEqual("inputs.operation == 'verify'", verify['if'])
+        self.assertEqual("inputs.operation == 'adapt'", shared['jobs']['prepare']['if'])
+        self.assertNotIn('module_run_id', shared['jobs']['rules-analysis']['with'])
+        self.assertNotIn('module_artifact', shared['jobs']['rules-analysis']['with'])
+
     def test_manual_entry_requires_app_and_carries_exact_url_and_operation(self):
         workflows = parsed_workflows()
         shared = workflows['compatibility-app.yml']
