@@ -10,6 +10,24 @@ actionlint .github/workflows/*.yml
 
 macOS 不提供仓库锁定的 Linux QQ DexKit native fixture。macOS 上因此无法完成的 QQ native fixture 测试必须记为未验证，不能通过伪造操作系统、改 skip 或把失败算作通过；Linux fixture 结果应由 Linux runner 单独记录。
 
+## 当前三应用验收身份
+
+微信 8.0.69 / 3040、QQ 9.3.1 / 14378、企业微信 5.0.8 / 70675 已使用同一份 GitHub 构建 APK 完成独立 ARM64 ReDroid 验收。完整行为、候选 APK 身份、tooling 与限制见[已验证版本与范围](support.md)和[三应用运行验证记录](validation/runtime-feature-matching-final.md)。
+
+三次运行都引用构建 [39554279828](https://github.com/NKU100/ImPad/actions/runs/39554279828) 的 `impad-module-apk`，模块 APK SHA-256 为 `d8cdaf1aba2d19503c9a9a2679195456657faae1b5fae8e9d52e2c5ba1b88691`。构建提交为 `8690ed5162ba71c1d756f9e57793c774f2501de7`，127 项模块源码树 SHA-256 为 `654e389fd9b35a1362d6d9c79d2f07f8cd249f141fdfff59c74cff1b70f25aae`。三项运行分别是 [QQ 39555436990](https://github.com/NKU100/ImPad/actions/runs/39555436990)、[微信 39556863774](https://github.com/NKU100/ImPad/actions/runs/39556863774) 和[企业微信 39557803980](https://github.com/NKU100/ImPad/actions/runs/39557803980)。这些均是无账号验证；用户不会提供账号、扫码或提交登录。
+
+## QQ collector 所有权合同
+
+QQ 的验收复用历史自然请求采集合同：SYN 阶段用 PID、UID、精确进程名、process starttime 和 socket inode 确认 owner，并按 tuple generation 缓存。相同 tuple 和 ISN 的 SYN 只有在缓存 socket 与当前 inode/UID 可确认一致时才作为同 socket 重传；身份变化或缺失时重新解析，未知 owner 必须 fail-closed。MSF 请求仍须经过进程身份校验，非目标 flow 按已确认的 generation 过滤。
+
+迁移验收不要求新增每包唯一 FD 扫描、FD handoff 跟踪或依赖 FIN 的关闭监听；不得把这些增量门槛重新加入，也不得据此放宽未知 owner、UID、进程名、starttime、包序列、流重组、capture 完整性、scope 或 AppID 检查。沿用该合同意味着 SYN 后的任意 FD handoff 未经过本合同验证；这是明确保留的局限，不能声称风险已消除。具体设计记录见[批准的统一设计](superpowers/specs/2026-10-21-wechat-rules-unification-design.md)。
+
+## 构建与运行结果边界
+
+QQ owner-contract restoration 的普通 Python 套件为386项、385通过、1项跳过。157项 JVM 测试因该轮未改 JVM 源码而复用之前结果，并非在该轮重新执行。随后 GitHub 构建 run 39554279828 独立执行完整 Python 测试（386项通过），Gradle 测试、模块元数据校验、三应用固定静态回归和 APK 构建均通过。每个检查的身份和结果见[三应用运行验证记录](validation/runtime-feature-matching-final.md)。
+
+Oracle ARM64 ReDroid 的四轮运行均未通过；即使复测另一历史运行曾成功的精确 binary/APK 也未通过。Oracle framework 文件与权限一致性未经确认，因此现有证据只说明环境或部署差异仍待定位，不能归因为纯宿主问题。GitHub-hosted ARM64 ReDroid 上上述三次运行均通过；该结果不反向解释 Oracle 失败。
+
 ## 指定 APK 的候选检查
 
 完整 `verify` 或 `adapt` 使用 GitHub Actions 中的 **Run app compatibility pipeline**，选择 `app_id`、`operation`，并填写精确官方 APK `apk_url`。指定 URL 必须属于该应用策略允许的官方来源；候选准备按该 URL 固定 APK 字节，不回退到自动发现的最新版本。`verify` 执行共享静态检查、固定代表回归和独立运行 gate，不启动模型、不创建 PR、不写正式验收表。`adapt` 仅在需要新规则时进入隔离适配；新规则使用新的不可变 ID 和临时路由，之后回到同一验证入口及完整 gate。GitHub Actions workflow dispatch 是生产级运行验收入口，本地候选检查不能代替它。
@@ -46,7 +64,6 @@ python3 -m scripts.ci.candidate_selection \
 
 - `NO_COMPATIBLE_RULE`、目标缺失或多解：检查精确 APK 身份、路由结果、规则目录和完整目标唯一性诊断。
 - `CODE_INPUT_UNAVAILABLE`：必需 APK/split 代码输入不可读时模块失败关闭，不安装业务 Hook。
-- `NO_COMPATIBLE_RULE`、目标缺失或多解：检查精确 APK 身份、路由结果、规则目录和完整目标唯一性诊断。
 - 缓存命中仅复用绑定了 APK/split、规则、路由、策略和解析器版本的解析结果；不能证明热补丁代码已读取或通过。
 
-无账号运行验收不证明真实账号登录、服务端接受或双设备会话共存。当前验收也未覆盖完整热补丁还原与匹配。
+无账号运行验收不证明真实账号登录、服务端接受或双设备会话共存。Tinker readiness 观测不等于完整热补丁还原与匹配；QQ socket FD handoff 也未覆盖。
