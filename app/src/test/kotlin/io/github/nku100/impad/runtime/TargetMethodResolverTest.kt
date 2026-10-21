@@ -1,5 +1,7 @@
 package io.github.nku100.impad.runtime
 
+import io.github.nku100.impad.compat.rules.MethodShape
+import java.net.URLClassLoader
 import org.junit.jupiter.api.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
@@ -36,6 +38,61 @@ class TargetMethodResolverTest {
 
         assertFailsWith<IllegalArgumentException> {
             TargetMethodResolver.resolve(javaClass.classLoader!!, descriptor)
+        }
+    }
+
+    @Test
+    fun validatesTheCompleteShapeAndStaticness() {
+        val descriptor = "L${DescriptorFixture::class.java.name.replace('.', '/')};->count(J)D"
+
+        assertFailsWith<IllegalArgumentException> {
+            TargetMethodResolver.resolve(
+                javaClass.classLoader!!,
+                descriptor,
+                MethodShape(listOf("long"), "double", true),
+            )
+        }
+        assertFailsWith<IllegalArgumentException> {
+            TargetMethodResolver.resolve(
+                javaClass.classLoader!!,
+                descriptor,
+                MethodShape(listOf("int"), "double", true),
+            )
+        }
+    }
+
+    @Test
+    fun acceptsTargetClassesFromTheRequestedLoaderOrItsParents() {
+        val childLoader = object : ClassLoader(javaClass.classLoader) {}
+        val descriptor = "L${DescriptorFixture::class.java.name.replace('.', '/')};->count(J)D"
+
+        val method = TargetMethodResolver.resolve(
+            childLoader,
+            descriptor,
+            MethodShape(listOf("long"), "double", false),
+        )
+
+        assertEquals(DescriptorFixture::class.java.classLoader, method.declaringClass.classLoader)
+    }
+
+    @Test
+    fun rejectsATargetReturnedFromAnUnrelatedLoader() {
+        val binaryName = DescriptorFixture::class.java.name
+        val descriptor = "L${binaryName.replace('.', '/')};->count(J)D"
+        val fixtureLocation = checkNotNull(DescriptorFixture::class.java.protectionDomain?.codeSource?.location)
+        URLClassLoader(arrayOf(fixtureLocation), null).use { foreign ->
+            val readyLoader = object : ClassLoader(null) {
+                override fun loadClass(name: String): Class<*> =
+                    if (name == binaryName) foreign.loadClass(name) else super.loadClass(name)
+            }
+
+            assertFailsWith<IllegalArgumentException> {
+                TargetMethodResolver.resolve(
+                    readyLoader,
+                    descriptor,
+                    MethodShape(listOf("long"), "double", false),
+                )
+            }
         }
     }
 

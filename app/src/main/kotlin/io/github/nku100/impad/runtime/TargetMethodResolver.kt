@@ -1,18 +1,55 @@
 package io.github.nku100.impad.runtime
 
+import io.github.nku100.impad.compat.rules.MethodShape
 import java.lang.reflect.Method
 
 object TargetMethodResolver {
-    fun resolve(classLoader: ClassLoader, descriptor: String): Method {
+    fun resolve(classLoader: ClassLoader, descriptor: String): Method = resolveInternal(
+        classLoader, descriptor, null, validateLoaderLineage = false,
+    )
+
+    fun resolve(classLoader: ClassLoader, descriptor: String, expectedShape: MethodShape): Method = resolveInternal(
+        classLoader, descriptor, expectedShape, validateLoaderLineage = true,
+    )
+
+    private fun resolveInternal(
+        classLoader: ClassLoader,
+        descriptor: String,
+        expectedShape: MethodShape?,
+        validateLoaderLineage: Boolean,
+    ): Method {
         val parsed = parse(descriptor)
         val declaringClass = classLoader.loadClass(parsed.className)
+        if (validateLoaderLineage) {
+            require(isInLoaderLineage(classLoader, declaringClass.classLoader)) {
+                "Target class was not defined by the ready loader or one of its parents: ${parsed.className}"
+            }
+        }
         val parameterTypes = parsed.parameterDescriptors.map { resolveType(classLoader, it) }.toTypedArray()
         val returnType = resolveType(classLoader, parsed.returnDescriptor)
-        return declaringClass.declaredMethods.singleOrNull { method ->
-            method.name == parsed.methodName &&
-                method.returnType == returnType &&
-                method.parameterTypes.contentEquals(parameterTypes)
+        val method = declaringClass.declaredMethods.singleOrNull { candidate ->
+            candidate.name == parsed.methodName &&
+                candidate.returnType == returnType &&
+                candidate.parameterTypes.contentEquals(parameterTypes)
         } ?: throw IllegalArgumentException("Method descriptor did not resolve uniquely: $descriptor")
+        expectedShape?.let { shape ->
+            val actual = MethodShape(
+                parameters = method.parameterTypes.map { it.name },
+                returnType = method.returnType.name,
+                isStatic = java.lang.reflect.Modifier.isStatic(method.modifiers),
+            )
+            require(actual == shape) { "Resolved Method shape did not match the rule plan: $descriptor" }
+        }
+        return method
+    }
+
+    private fun isInLoaderLineage(readyLoader: ClassLoader, definingLoader: ClassLoader?): Boolean {
+        var current: ClassLoader? = readyLoader
+        while (current != null) {
+            if (current === definingLoader) return true
+            current = current.parent
+        }
+        return false
     }
 
     private fun parse(descriptor: String): ParsedMethod {

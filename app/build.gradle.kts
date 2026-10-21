@@ -4,16 +4,14 @@ import java.util.zip.ZipFile
 import org.gradle.api.DefaultTask
 import org.gradle.api.file.DirectoryProperty
 import org.gradle.api.file.RegularFileProperty
-import org.gradle.api.tasks.InputDirectory
 import org.gradle.api.tasks.InputFile
 import org.gradle.api.tasks.OutputDirectory
-import org.gradle.api.tasks.PathSensitive
-import org.gradle.api.tasks.PathSensitivity
 import org.gradle.api.tasks.TaskAction
 import org.gradle.api.tasks.testing.Test
 
 plugins {
     alias(libs.plugins.android.app)
+    alias(libs.plugins.kotlin.serialization)
 }
 
 val signing = Properties().apply {
@@ -42,29 +40,20 @@ if (!hasStableSigningKey && disposableDebugKey == null) {
     logger.warn("ImPad signing key is not configured; using the default debug key")
 }
 
-abstract class GenerateCompatibilityTargets : DefaultTask() {
-    @get:InputDirectory
-    @get:PathSensitive(PathSensitivity.RELATIVE)
-    abstract val sourceDirectory: DirectoryProperty
+abstract class GenerateRuntimeIdentityAsset : DefaultTask() {
+    @get:InputFile
+    abstract val fingerprintFile: RegularFileProperty
 
     @get:OutputDirectory
     abstract val outputDirectory: DirectoryProperty
 
     @TaskAction
     fun generate() {
-        outputDirectory.get().asFile.deleteRecursively()
-        val compatibilityRoot = sourceDirectory.get().asFile
-        compatibilityRoot.listFiles()?.filter { it.isDirectory }?.sortedBy { it.name }?.forEach { appDirectory ->
-            require(Regex("[a-z][a-z0-9_-]*").matches(appDirectory.name)) {
-                "Invalid application policy directory: ${appDirectory.name}"
-            }
-            val source = appDirectory.resolve("targets.json")
-            if (source.isFile) {
-                val destination = outputDirectory.file("compatibility/${appDirectory.name}/targets.json").get().asFile
-                destination.parentFile.mkdirs()
-                source.copyTo(destination, overwrite = true)
-            }
-        }
+        val outputRoot = outputDirectory.get().asFile
+        outputRoot.deleteRecursively()
+        val output = File(outputRoot, "runtime-identity.json")
+        output.parentFile.mkdirs()
+        fingerprintFile.get().asFile.copyTo(output, overwrite = true)
     }
 }
 
@@ -132,6 +121,9 @@ android {
 val runtimeLocalAssetsRoot = providers.gradleProperty("runtimeLocalAssets").orNull?.let { path ->
     File(rootProject.projectDir, path)
 }
+val moduleFingerprintFile = rootProject.layout.projectDirectory.file(
+    "compat-rules/build/generated/ruleExecutionFingerprint/rule-execution-fingerprint.json",
+)
 runtimeLocalAssetsRoot?.let { localAssetsRoot ->
     require(localAssetsRoot.resolve("assets").isDirectory && localAssetsRoot.resolve("resources").isDirectory) {
         "Runtime-local asset directory must contain assets/ and resources/"
@@ -142,15 +134,16 @@ runtimeLocalAssetsRoot?.let { localAssetsRoot ->
 
 androidComponents {
     onVariants(selector().all()) { variant ->
-        val task = tasks.register<GenerateCompatibilityTargets>(
-            "generate${variant.name.replaceFirstChar(Char::uppercase)}CompatibilityTargets",
+        val task = tasks.register<GenerateRuntimeIdentityAsset>(
+            "generate${variant.name.replaceFirstChar(Char::uppercase)}RuntimeIdentityAsset",
         ) {
-            sourceDirectory.set(rootProject.layout.projectDirectory.dir("compatibility"))
-            outputDirectory.set(layout.buildDirectory.dir("generated/compatibility-assets/${variant.name}"))
+            dependsOn(":compat-rules:generateRuleExecutionFingerprint")
+            fingerprintFile.set(moduleFingerprintFile)
+            outputDirectory.set(layout.buildDirectory.dir("generated/runtime-identity-assets/${variant.name}"))
         }
         checkNotNull(variant.sources.assets).addGeneratedSourceDirectory(
             task,
-            GenerateCompatibilityTargets::outputDirectory,
+            GenerateRuntimeIdentityAsset::outputDirectory,
         )
     }
 }
@@ -158,9 +151,16 @@ androidComponents {
 dependencies {
     compileOnly(libs.libxposed.api)
     implementation(project(":compat-core"))
+    implementation(project(":compat-rules"))
+    implementation(
+        files(rootProject.file("${rootProject.extra["dexkitOutputRoot"]}/android-arm64-v8a/dexkit.aar"))
+            .builtBy(rootProject.tasks.named("prepareDexKitAndroid")),
+    )
+    implementation(libs.flatbuffers.java)
+    implementation(libs.android.cxx)
     implementation(libs.kotlinx.serialization.json)
     testImplementation(libs.junit.jupiter)
-    testImplementation(kotlin("test"))
+    testImplementation(kotlin("test-junit5"))
     testRuntimeOnly(libs.junit.platform.launcher)
 }
 
@@ -230,6 +230,18 @@ fun registerModuleMetadataVerification(taskName: String, variant: String) = task
         }
 
         ZipFile(apk).use { archive ->
+            val fingerprintEntry = checkNotNull(archive.getEntry("assets/runtime-identity.json")) {
+                "Build-time module fingerprint is missing from the APK"
+            }
+            val fingerprintBytes = archive.getInputStream(fingerprintEntry).use { it.readBytes() }
+            check(fingerprintBytes.contentEquals(moduleFingerprintFile.asFile.readBytes())) {
+                "APK module fingerprint differs from the Gradle-generated source identity"
+            }
+            val fingerprint = groovy.json.JsonSlurper().parseText(fingerprintBytes.decodeToString()) as Map<*, *>
+            check(listOf("sourceTreeSha256", "routeConfigurationSha256", "dependencyLockSha256").all {
+                (fingerprint[it] as? String)?.matches(Regex("[a-f0-9]{64}")) == true
+            }) { "APK module fingerprint is incomplete" }
+
             val propertiesEntry = checkNotNull(archive.getEntry("META-INF/xposed/module.prop")) {
                 "Module metadata is missing from the APK"
             }
@@ -267,26 +279,11 @@ fun registerModuleMetadataVerification(taskName: String, variant: String) = task
                 "Unexpected module entry point: $entryClasses"
             }
 
-            val sourceTargets = rootProject.file("compatibility").walkTopDown()
-                .filter { it.isFile && it.name == "targets.json" && it.parentFile.parentFile == rootProject.file("compatibility") }
+            val compatibilityAssets = archive.entries().asSequence().map { it.name }
+                .filter { it.startsWith("assets/compatibility/") || it.startsWith("assets/compatibility-local/") }
                 .toList()
-            val packagedTargets = archive.entries().asSequence()
-                .filter { it.name.matches(Regex("assets/compatibility/[a-z][a-z0-9_-]*/targets\\.json")) }
-                .associateBy { it.name.removePrefix("assets/") }
-            check(packagedTargets.keys == sourceTargets.map { "compatibility/${it.parentFile.name}/targets.json" }.toSet()) {
-                "Packaged compatibility policy directories differ from compatibility/"
-            }
-            for (source in sourceTargets) {
-                val assetPath = "compatibility/${source.parentFile.name}/targets.json"
-                val packagedBytes = archive.getInputStream(packagedTargets.getValue(assetPath)).use { it.readBytes() }
-                check(packagedBytes.contentEquals(source.readBytes())) {
-                    "Packaged profiles differ from $assetPath"
-                }
-            }
-            if (variant == "release") {
-                check(archive.entries().asSequence().none { it.name.startsWith("assets/compatibility-local/") }) {
-                    "Release APK contains experimental compatibility targets"
-                }
+            check(compatibilityAssets.isEmpty()) {
+                "$variant APK must not package historical targets or local compatibility assets: $compatibilityAssets"
             }
         }
     }

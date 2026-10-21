@@ -1,47 +1,75 @@
 package io.github.nku100.impad.apps.wechat
 
+import android.content.Context
 import android.util.Log
 import io.github.nku100.impad.compat.apps.wechat.WeChatCompatibilityPolicy
+import io.github.nku100.impad.compat.rules.ResolvedPlan
 import io.github.nku100.impad.runtime.AppAdapter
 import io.github.nku100.impad.runtime.HookRegistrar
 import io.github.nku100.impad.runtime.InstallOutcome
 import io.github.nku100.impad.runtime.ModuleLog
+import io.github.nku100.impad.runtime.PlanInstallOutcome
 import io.github.nku100.impad.runtime.TargetMethodResolver
 import io.github.nku100.impad.runtime.TinkerClassLoaderBridge
 
 class WeChatAppAdapter : AppAdapter {
     override val compatibilityPolicy = WeChatCompatibilityPolicy.policy
+    override val classLoaderReadyEvent: String = "tinker_ready"
 
     override fun acceptsProcess(processName: String?): Boolean = processName == packageName
 
-    override fun install(
-        classLoader: ClassLoader,
-        descriptors: Map<String, String>,
+    override fun prepareClassLoader(
+        loader: ClassLoader,
+        registrar: HookRegistrar,
+        onReady: (Context, ClassLoader) -> Unit,
+    ) {
+        TinkerClassLoaderBridge(registrar).installWithContext(
+            loader,
+            WECHAT_TINKER_HOOK_ID,
+            onReady,
+        )
+    }
+
+    override fun installPlan(
+        loader: ClassLoader,
+        plan: ResolvedPlan,
         registrar: HookRegistrar,
         log: ModuleLog,
-    ) {
-        val tabletDescriptor = checkNotNull(descriptors["tablet"]) {
-            "Compatible result did not include the tablet descriptor"
+        inputsStillCurrent: () -> Boolean,
+    ): PlanInstallOutcome {
+        if (!WeChatHookInstaller.supports(plan)) {
+            return PlanInstallOutcome.Failed("Unsupported WeChat rule or strategy")
         }
-        val loginDescriptor = checkNotNull(descriptors["login"]) {
-            "Compatible result did not include the login descriptor"
-        }
-        TinkerClassLoaderBridge(registrar).install(classLoader) { tinkerClassLoader ->
-            try {
-                val tabletMethod = TargetMethodResolver.resolve(tinkerClassLoader, tabletDescriptor)
-                val loginMethod = TargetMethodResolver.resolve(tinkerClassLoader, loginDescriptor)
-                log.write(Log.INFO, "resolved tablet=$tabletDescriptor login=$loginDescriptor", null)
-                when (val outcome = WeChatHookInstaller(registrar).install(tabletMethod, loginMethod)) {
-                    is InstallOutcome.Installed ->
-                        log.write(Log.INFO, "installed ${outcome.registrations.size} WeChat hooks", null)
-                    is InstallOutcome.Failed ->
-                        log.write(Log.ERROR, "hook installation failed: ${outcome.reason}", null)
-                }
-            } catch (error: Throwable) {
-                if (error is VirtualMachineError || error is ThreadDeath) throw error
-                log.write(Log.ERROR, "post-Tinker method resolution failed: ${error.message ?: error.javaClass.simpleName}", error)
+        return try {
+            val methods = plan.targets.mapValues { (_, target) ->
+                TargetMethodResolver.resolve(loader, target.descriptor, target.shape)
             }
+            if (!inputsStillCurrent()) return PlanInstallOutcome.StaleInputs
+            when (val result = WeChatHookInstaller(registrar).install(plan, methods)) {
+                is InstallOutcome.Installed -> {
+                    log.write(Log.INFO, "installed ${result.registrations.size} WeChat hooks", null)
+                    log.write(
+                        Log.INFO,
+                        "rule-runtime event=hook_installed elapsedRealtimeNs=${System.nanoTime()} " +
+                            "ruleId=${plan.rule.ruleId} strategyId=${plan.rule.strategyId} " +
+                            "hookCount=${result.registrations.size} processName=$packageName",
+                        null,
+                    )
+                    PlanInstallOutcome.Installed(result.registrations)
+                }
+                is InstallOutcome.Failed -> {
+                    log.write(Log.ERROR, "WeChat rule hook installation failed: ${result.reason}", null)
+                    PlanInstallOutcome.Failed(result.reason)
+                }
+            }
+        } catch (error: Throwable) {
+            if (error is VirtualMachineError || error is ThreadDeath) throw error
+            log.write(Log.ERROR, "WeChat rule plan preparation failed: ${error.message ?: error.javaClass.simpleName}", error)
+            PlanInstallOutcome.Failed(error.message ?: error.javaClass.simpleName)
         }
-        log.write(Log.INFO, "waiting for Tinker class loader", null)
+    }
+
+    private companion object {
+        const val WECHAT_TINKER_HOOK_ID = "impad_wechat_tinker_bootstrap"
     }
 }

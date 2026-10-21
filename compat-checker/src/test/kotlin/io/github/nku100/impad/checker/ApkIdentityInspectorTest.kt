@@ -8,6 +8,7 @@ import java.util.zip.ZipEntry
 import java.util.zip.ZipOutputStream
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFailsWith
 import kotlin.test.assertTrue
 
 class ApkIdentityInspectorTest {
@@ -66,6 +67,29 @@ class ApkIdentityInspectorTest {
         assertEquals("arm64-v8a", identity.abi)
         assertEquals(sha256(base), identity.apkSha256)
         assertEquals(SIGNER_SHA256, identity.signerSha256)
+    }
+
+    @Test
+    fun rejectsSplitWithDifferentPackageVersionOrSigner() = withSplitFixture { sdkRoot, base, split ->
+        listOf("package", "version", "signer").forEach { mismatch ->
+            val inspector = ApkIdentityInspector(sdkRoot) { command ->
+                val isSplit = command.last() == split.absolutePath
+                when {
+                    command.getOrNull(1) == "manifest" -> when (command.getOrNull(2)) {
+                        "application-id" -> if (isSplit && mismatch == "package") "com.example.foreign" else "com.tencent.wework"
+                        "version-name" -> "5.0.9"
+                        "version-code" -> if (isSplit && mismatch == "version") "75142" else "75141"
+                        else -> error("Unexpected manifest query: $command")
+                    }
+                    command.getOrNull(1) == "verify" -> if (isSplit && mismatch == "signer") {
+                        "V3 Signer: certificate SHA-256 digest: ${"1".repeat(64)}"
+                    } else "V3 Signer: certificate SHA-256 digest: $SIGNER_SHA256"
+                    else -> error("Unexpected command: $command")
+                }
+            }
+
+            assertFailsWith<IllegalArgumentException> { inspector.inspect(base, listOf(split)) }
+        }
     }
 
     private fun withFixture(block: (File, File) -> Unit) {

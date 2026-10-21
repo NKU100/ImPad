@@ -15,4 +15,4 @@ dependencyResolutionManagement {
 }
 
 rootProject.name = "ImPad"
-include(":app", ":compat-core", ":compat-checker")
+include(":app", ":compat-core", ":compat-rules", ":compat-checker")

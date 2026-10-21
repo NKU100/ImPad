@@ -12,7 +12,6 @@ object WeComCompatibilityPolicy {
         signerSha256 = SIGNER_SHA256,
         requiredHookIds = setOf("device_type", "app_pad", "service_pad"),
         officialApkPrefix = "https://dldir1.qq.com/wework/work_weixin/",
-        targetsPath = "compatibility/wecom/targets.json",
     )
 
 }

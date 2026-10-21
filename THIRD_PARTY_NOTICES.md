@@ -1,6 +1,6 @@
 # 第三方组件声明
 
-以下清单来自模块 `debugRuntimeClasspath` 的实际解析结果及对应 POM、JAR 许可证材料。第三方组件保留各自原有许可证；本项目的许可选择不会覆盖这些独立组件的权利。
+以下清单基于模块 `debugRuntimeClasspath` 的实际解析结果，并包含由锁定 DexKit AAR/native 输入额外打包的组件；许可证依据对应 POM、JAR 和固定上游源码材料核对。第三方组件保留各自原有许可证；本项目的许可选择不会覆盖这些独立组件的权利。
 
 ## 模块运行依赖
 
@@ -18,12 +18,16 @@
 | `com.google.j2objc:j2objc-annotations:1.3` | Apache-2.0 |
 | `org.jetbrains.kotlinx:kotlinx-serialization-core-jvm:1.11.0` | Apache-2.0 |
 | `org.jetbrains.kotlinx:kotlinx-serialization-json-jvm:1.11.0` | Apache-2.0 |
+| `com.google.flatbuffers:flatbuffers-java:23.5.26` | Apache-2.0；[v23.5.26 上游许可证](https://github.com/google/flatbuffers/blob/v23.5.26/LICENSE) |
+| `org.luckypray:dexkit:2.3.0` | Apache-2.0; `Core/` is LGPL-3.0 |
+| `dev.rikka.ndk.thirdparty:cxx:1.2.0` | Apache-2.0 |
 
 ## 随 APK 提供的许可证材料
 
 许可证原文位于模块 APK 的 `assets/licenses/`，仓库中的对应文件：
 
 - [Apache License 2.0](app/src/main/assets/licenses/Apache-2.0.txt)：Apache 官方完整文本。
+- [DexKit Core LGPL-3.0 License](app/src/main/assets/licenses/DexKit-LGPL-3.0.txt)：从固定的 DexKit 源码提交 `c9cd12a14b75409bebd2f73e4dfc5ff575df3eb8` 原样复制；DexKit 其余源码按 Apache-2.0 授权。
 - [smali-dexlib2 原始 LICENSE](app/src/main/assets/licenses/smali-dexlib2-LICENSE.txt)：从 3.0.10 JAR 原样提取，保留其中 BSD、AOSP／Guava 版权及 Apache 声明全文。
 - [Checker Framework qualifiers 原始 LICENSE](app/src/main/assets/licenses/checker-qual-LICENSE.txt)：从 3.12.0 JAR 原样提取，保留原始版权和 MIT 文本。
 
