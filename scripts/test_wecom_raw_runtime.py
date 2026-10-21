@@ -2,12 +2,10 @@ import base64
 import hashlib
 import io
 import json
-import os
 import shutil
 import sqlite3
 import tempfile
 import unittest
-import zipfile
 from contextlib import redirect_stdout
 from pathlib import Path
 from types import SimpleNamespace
@@ -15,12 +13,11 @@ from unittest.mock import patch
 
 from scripts.ci import candidate_selection, redroid_app_smoke, redroid_ui_smoke, runtime_task
 from scripts.ci.apps.wecom import runtime_policy
+from scripts.testdata.runtime_replay import prepare_candidate_bundle
 
 
 ROOT = Path(__file__).resolve().parents[1]
-RUNTIME = ROOT / 'evidence/task-6-wecom-runtime/round-1/runtime/attempt-2/probe'
-WECom_RAW = RUNTIME / 'apps/wecom'
-BUNDLE = ROOT / 'evidence/task-6-wecom-runtime/round-1/bundle'
+FIXTURE = ROOT / 'scripts/testdata/runtime-replay/wecom'
 PACKAGE = 'com.tencent.wework'
 
 
@@ -33,14 +30,67 @@ def _completed(args, code=0, stdout=b'', stderr=b''):
     return subprocess.CompletedProcess(args, code, stdout, stderr)
 
 
-class WeComSavedRawReplayTest(unittest.TestCase):
+def _activity(name):
+    return (f'topResumedActivity=ActivityRecord{{fixture u0 {PACKAGE}/'
+            f'com.tencent.wework.{name} t1}}\n')
+
+
+def _ui_samples():
+    samples = {}
+    names = {'baseline': 'module-off-login', 'enabled': 'module-on-login',
+             'qrCurrent': 'tablet-qr-current', 'qrConfirmed': 'tablet-qr-confirmed'}
+    for label, filename in names.items():
+        activity = 'LoginWxAuthActivity' if label in ('baseline', 'enabled') else 'LoginQrCodeForAndroidPad'
+        samples[label] = {'activity': _activity(activity),
+                          'hierarchy': (FIXTURE / f'{filename}.xml').read_text()}
+    return samples
+
+
+def _wecom_logcat(candidate, module):
+    plan = candidate['expectedPlan']
+    dexkit = module['dexkit']
+    native_path = '/data/app/io.github.nku100.impad/base.apk'
+    rows = [
+        '07-01 12:00:00.100  2727  2727 I ImPad: (com.tencent.wework)[io.github.nku100.impad,ImPad,test,1,1] '
+        f"status=COMPATIBLE rule plan={plan['ruleId']}/{plan['strategyId']} "
+        f"versionCode={candidate['identity']['versionCode']} apkInputs=1 cacheHit=false",
+        '07-01 12:00:00.200  2727  2727 I ImPad: (com.tencent.wework)[io.github.nku100.impad,ImPad,test,1,1] '
+        'installed 3 WeCom hooks',
+        '07-01 12:00:00.300  2727  2727 I ImPad: (com.tencent.wework)[io.github.nku100.impad,ImPad,test,1,1] '
+        'rule-runtime event=tinker_ready elapsedRealtimeNs=100 contextPackage=com.tencent.wework '
+        'loaderClass=io.github.nku100.impad.TestClassLoader',
+        '07-01 12:00:00.400  2727  2727 I ImPad: (com.tencent.wework)[io.github.nku100.impad,ImPad,test,1,1] '
+        'rule-runtime event=native_loaded elapsedRealtimeNs=200 '
+        f"apiSha256={dexkit['dexkitAndroidApiSha256']} "
+        f"nativeSha256={dexkit['dexkitAndroidArm64NativeSha256']} nativeAbi=arm64-v8a "
+        f'packagingMode=APK_DIRECT sourceApkPath={native_path} '
+        f'nativeLoadPath={native_path}!/lib/arm64-v8a/libdexkit.so',
+        '07-01 12:00:00.500  2727  2727 I ImPad: (com.tencent.wework)[io.github.nku100.impad,ImPad,test,1,1] '
+        f"rule-runtime event=hook_installed elapsedRealtimeNs=300 ruleId={plan['ruleId']} "
+        f"strategyId={plan['strategyId']} hookCount=3 processName={PACKAGE}",
+    ]
+    return '\n'.join(rows) + '\n'
+
+
+class WeComPortableRuntimeReplayTest(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
-        cls.original_summary = json.loads((RUNTIME / 'evidence/smoke-report.json').read_text())
-        cls.candidate = json.loads((BUNDLE / 'candidate-report.json').read_text())
-        cls.module = json.loads((BUNDLE / 'module-identity.json').read_text())
+        cls._fixture_tmp = tempfile.TemporaryDirectory(prefix='wecom-runtime-fixture-')
+        _, cls.candidate_path, cls.candidate, _, _ = prepare_candidate_bundle(
+            'wecom', Path(cls._fixture_tmp.name))
+        cls.module = cls.candidate['module']
+        ui = runtime_policy.derive_ui_evidence(_ui_samples(), PACKAGE, 'LoginQrCodeForAndroidPad')
+        diagnostics, _ = runtime_policy.derive_hook_evidence(
+            (FIXTURE / 'processes.txt').read_text(), _wecom_logcat(cls.candidate, cls.module),
+            cls.candidate, cls.module)
+        cls.original_summary = {'baselineEvidence': ui['baseline'], 'enabled': ui['enabled'],
+                                'runtimeDiagnostics': diagnostics}
 
-    def test_saved_production_raw_replays_ui_qr_and_main_process_hook_claims(self):
+    @classmethod
+    def tearDownClass(cls):
+        cls._fixture_tmp.cleanup()
+
+    def test_pinned_production_raw_replays_ui_qr_and_main_process_hook_claims(self):
         samples = {}
         for label, filename in {
             'baseline': 'module-off-login',
@@ -49,8 +99,9 @@ class WeComSavedRawReplayTest(unittest.TestCase):
             'qrConfirmed': 'tablet-qr-confirmed',
         }.items():
             samples[label] = {
-                'activity': (WECom_RAW / f'{filename}-activity.txt').read_text(),
-                'hierarchy': (WECom_RAW / f'{filename}.xml').read_text(),
+                'activity': _activity('LoginWxAuthActivity' if label in ('baseline', 'enabled')
+                                      else 'LoginQrCodeForAndroidPad'),
+                'hierarchy': (FIXTURE / f'{filename}.xml').read_text(),
             }
         ui = runtime_policy.derive_ui_evidence(
             samples, PACKAGE, 'LoginQrCodeForAndroidPad')
@@ -62,50 +113,25 @@ class WeComSavedRawReplayTest(unittest.TestCase):
         self.assertTrue(ui['qrStable'])
 
         diagnostics, lifecycle = runtime_policy.derive_hook_evidence(
-            (WECom_RAW / 'processes.txt').read_text(),
-            (WECom_RAW / 'app-hook-logs.txt').read_text(),
+            (FIXTURE / 'processes.txt').read_text(),
+            _wecom_logcat(self.candidate, self.module),
             self.candidate, self.module)
         self.assertEqual(self.original_summary['runtimeDiagnostics'], diagnostics)
         self.assertEqual('READY', lifecycle['tinkerEvidence']['status'])
         self.assertEqual('LOADED', lifecycle['nativeEvidence']['status'])
         self.assertEqual(3, lifecycle['hookCount'])
+        placeholder = Path(self._fixture_tmp.name) / 'placeholder.json'
+        placeholder.write_text('{}\n')
+        placeholder_hash = hashlib.sha256(placeholder.read_bytes()).hexdigest()
         with self.assertRaisesRegex(ValueError, 'missing required'):
             runtime_task._validate_wecom_raw_evidence(
-                self.original_summary, RUNTIME, self.candidate, self.module)
+                dict(self.original_summary, evidence=[{
+                    'path': 'placeholder.json', 'sha256': placeholder_hash,
+                }]),
+                Path(self._fixture_tmp.name), self.candidate, self.module)
 
     def _write_candidate_bundle(self, root):
-        candidate_root = root / 'candidate'
-        candidate_root.mkdir()
-        (candidate_root / 'module').mkdir()
-        (candidate_root / 'apk-inputs').mkdir()
-        for rel in ('candidate-report.json', 'static-check.json'):
-            shutil.copyfile(BUNDLE / rel, candidate_root / rel)
-        candidate = json.loads((candidate_root / 'candidate-report.json').read_text())
-        apk_rel = candidate['apkFiles'][0]['path']
-        (candidate_root / apk_rel).parent.mkdir(parents=True, exist_ok=True)
-        os.link(BUNDLE / apk_rel, candidate_root / apk_rel)
-        module_apk = candidate_root / 'module/app-debug.apk'
-
-        fingerprint = self._current_module_fingerprint(ROOT)
-        fingerprint_bytes = (json.dumps(fingerprint, indent=2) + '\n').encode()
-        with zipfile.ZipFile(module_apk, 'w', compression=zipfile.ZIP_DEFLATED) as archive:
-            archive.writestr('assets/runtime-identity.json', fingerprint_bytes)
-            archive.writestr('classes.dex', b'dex\n035\0')
-
-        static_path = candidate_root / candidate['staticReport']
-        static = json.loads(static_path.read_text())
-        execution = static['executionIdentity']
-        execution.update(
-            fingerprintFileSha256=hashlib.sha256(fingerprint_bytes).hexdigest(),
-            sourceTreeSha256=fingerprint['sourceTreeSha256'],
-            routeConfigurationSha256=fingerprint['routeConfigurationSha256'],
-            dependencyLockSha256=fingerprint['dependencyLockSha256'],
-        )
-        static_path.write_text(json.dumps(static, indent=2) + '\n')
-        candidate['staticReportSha256'] = hashlib.sha256(static_path.read_bytes()).hexdigest()
-        module_identity = candidate_selection.prepare_module(module_apk, static, ROOT)
-        candidate['module'] = module_identity
-        (candidate_root / 'candidate-report.json').write_text(json.dumps(candidate, indent=2) + '\n')
+        candidate_root, candidate_path, _, _, module_apk = prepare_candidate_bundle('wecom', root)
 
         acceptance = root / 'compatibility/wecom/acceptance.json'
         acceptance.parent.mkdir(parents=True)
@@ -118,65 +144,10 @@ class WeComSavedRawReplayTest(unittest.TestCase):
         }]
         regression_path = candidate_root / 'regression.json'
         regression_path.write_text(json.dumps(regression) + '\n')
-        return (candidate_root, candidate_root / 'candidate-report.json', module_apk,
+        return (candidate_root, candidate_path, module_apk,
                 regression_path, acceptance)
 
-    @staticmethod
-    def _source_rows(root, paths):
-        return [
-            {'path': path.relative_to(root).as_posix(),
-             'sha256': hashlib.sha256(path.read_bytes()).hexdigest()}
-            for path in sorted(set(paths), key=lambda item: item.relative_to(root).as_posix())
-        ]
-
-    @classmethod
-    def _current_module_fingerprint(cls, root):
-        root = Path(root).resolve()
-        module_sources = candidate_selection.module_source_hashes(root)
-
-        def kotlin_sources(directory):
-            return list((root / directory).rglob('*.kt'))
-
-        resolver_sources = cls._source_rows(
-            root, kotlin_sources('compat-core/src/main/kotlin/io/github/nku100/impad/compat/rules'))
-        android_resolver_paths = [root / path for path in (
-            'app/src/main/kotlin/io/github/nku100/impad/runtime/TargetMethodResolver.kt',
-            'app/src/main/kotlin/io/github/nku100/impad/runtime/RuleRuntimeResolver.kt',
-            'app/src/main/kotlin/io/github/nku100/impad/runtime/RuleResolutionCache.kt',
-            'app/src/main/kotlin/io/github/nku100/impad/runtime/InstalledBuildIdentityReader.kt',
-            'app/src/main/kotlin/io/github/nku100/impad/runtime/AndroidDexKitRuntime.kt',
-            'app/src/main/kotlin/io/github/nku100/impad/runtime/RuleInstallCoordinator.kt',
-            'app/src/main/kotlin/io/github/nku100/impad/ImPadModule.kt',
-        )]
-        resolver_sources.extend(cls._source_rows(root, android_resolver_paths))
-        strategy_paths = (kotlin_sources('app/src/main/kotlin/io/github/nku100/impad/apps/qq')
-                          + kotlin_sources('app/src/main/kotlin/io/github/nku100/impad/apps/wecom')
-                          + [root / path for path in (
-                              'app/src/main/kotlin/io/github/nku100/impad/runtime/HookInstaller.kt',
-                              'app/src/main/kotlin/io/github/nku100/impad/runtime/HookCall.kt',
-                          )])
-        lock_bytes = (root / 'gradle/dexkit-lock.json').read_bytes()
-        lock = json.loads(lock_bytes)
-        artifacts = lock['artifacts']
-        return {
-            'schemaVersion': 1,
-            'ruleSources': cls._source_rows(root, kotlin_sources('compat-rules/src/main/kotlin')),
-            'resolverSources': resolver_sources,
-            'strategySources': cls._source_rows(root, strategy_paths),
-            'moduleSources': module_sources,
-            'sourceTreeSha256': candidate_selection.source_tree_sha256(root),
-            'routeConfigurationSha256': candidate_selection.route_configuration_sha256(module_sources),
-            'dependencyLockSha256': candidate_selection.dependency_lock_sha256(module_sources),
-            'dexkitLockSha256': hashlib.sha256(lock_bytes).hexdigest(),
-            'dexkitSourceCommit': lock['source']['commit'],
-            'dexkitApiSha256': artifacts['jvmApi']['sha256'],
-            'dexkitAndroidApiSha256': artifacts['androidAar']['sha256'],
-            'dexkitLinuxAarch64NativeSha256': artifacts['linuxAarch64']['sha256'],
-            'dexkitLinuxX8664NativeSha256': artifacts['linuxX8664']['sha256'],
-            'dexkitAndroidArm64NativeSha256': artifacts['androidArm64V8a']['sha256'],
-        }
-
-    def _produce_from_saved_ui_and_log_capture(self, root):
+    def _produce_from_fixture_ui_and_log_capture(self, root):
         candidate_root, candidate_path, module_apk, regression_path, acceptance_path = self._write_candidate_bundle(root)
         output = root / 'runtime'
         evidence_dir = output / 'apps/wecom'
@@ -184,16 +155,29 @@ class WeComSavedRawReplayTest(unittest.TestCase):
         retained = (
             'module-off-login.xml', 'module-off-login-activity.txt',
             'module-on-login.xml', 'module-on-login-activity.txt',
-            'tablet-qr-current.xml', 'tablet-qr-current-activity.txt', 'tablet-qr-current.png',
-            'tablet-qr-confirmed.xml', 'tablet-qr-confirmed-activity.txt', 'tablet-qr-confirmed.png',
+            'tablet-qr-current.xml', 'tablet-qr-current-activity.txt',
+            'tablet-qr-confirmed.xml', 'tablet-qr-confirmed-activity.txt',
             'logcat.txt', 'processes.txt', 'manager-module-state.json',
         )
         for name in retained:
-            shutil.copyfile(WECom_RAW / name, evidence_dir / name)
+            if name.endswith('-activity.txt'):
+                label = name.removesuffix('-activity.txt')
+                activity = 'LoginWxAuthActivity' if label in ('module-off-login', 'module-on-login') \
+                    else 'LoginQrCodeForAndroidPad'
+                (evidence_dir / name).write_text(_activity(activity))
+            elif name == 'logcat.txt':
+                fixture_candidate = json.loads((candidate_root / 'candidate-report.json').read_text())
+                (evidence_dir / name).write_text(_wecom_logcat(fixture_candidate, fixture_candidate['module']))
+            elif name == 'processes.txt':
+                shutil.copyfile(FIXTURE / name, evidence_dir / name)
+            elif name.endswith('.xml'):
+                shutil.copyfile(FIXTURE / name, evidence_dir / name)
+            else:
+                (evidence_dir / name).write_text('{}\n')
 
-        source_report = json.loads((WECom_RAW / 'report.json').read_text())
-        full_logcat = (WECom_RAW / 'logcat.txt').read_bytes()
-        processes = (WECom_RAW / 'processes.txt').read_bytes()
+        source_report = json.loads((FIXTURE / 'target.json').read_text())
+        full_logcat = (evidence_dir / 'logcat.txt').read_bytes()
+        processes = (FIXTURE / 'processes.txt').read_bytes()
         state_values = [True, False, True, True]
         state_index = 0
         temp_db = root / 'manager-db'
@@ -241,7 +225,7 @@ class WeComSavedRawReplayTest(unittest.TestCase):
         candidate = json.loads((candidate_root / 'candidate-report.json').read_text())
         module = candidate['module']
         identity = candidate['identity']
-        native_line = next(line for line in (WECom_RAW / 'app-hook-logs.txt').read_text().splitlines()
+        native_line = next(line for line in _wecom_logcat(candidate, module).splitlines()
                            if 'event=native_loaded' in line)
         module_path = native_line.split('sourceApkPath=', 1)[1].split()[0]
         inputs = {'wecom': {'identity': identity, 'signerVerified': True,
@@ -280,7 +264,7 @@ class WeComSavedRawReplayTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
             candidate_path, module_apk, regression_path, smoke_path, output, acceptance_path, pipeline = \
-                self._produce_from_saved_ui_and_log_capture(root)
+                self._produce_from_fixture_ui_and_log_capture(root)
             verified = runtime_task.verify_validation_files(
                 candidate_path, module_apk, regression_path, smoke_path, output,
                 'success', ROOT, acceptance_path, initial_migration=True)
@@ -299,9 +283,9 @@ class WeComSavedRawReplayTest(unittest.TestCase):
     def test_wecom_raw_verifier_rejects_summary_ui_activity_and_scope_tampering(self):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
-            _, _, _, _, output, _, pipeline = self._produce_from_saved_ui_and_log_capture(root)
-            candidate = json.loads((BUNDLE / 'candidate-report.json').read_text())
-            module = json.loads((BUNDLE / 'module-identity.json').read_text())
+            _, _, _, _, output, _, pipeline = self._produce_from_fixture_ui_and_log_capture(root)
+            candidate = self.candidate
+            module = self.module
 
             cases = {
                 'summary entry claim': ('summary', 'baselineEvidence'),
@@ -383,9 +367,9 @@ class WeComSavedRawReplayTest(unittest.TestCase):
     def test_raw_verifier_rejects_missing_second_qr_sample(self):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
-            _, _, _, _, output, _, _ = self._produce_from_saved_ui_and_log_capture(root)
-            candidate = json.loads((BUNDLE / 'candidate-report.json').read_text())
-            module = json.loads((BUNDLE / 'module-identity.json').read_text())
+            _, _, _, _, output, _, _ = self._produce_from_fixture_ui_and_log_capture(root)
+            candidate = self.candidate
+            module = self.module
             smoke = json.loads((output / 'evidence/smoke-report.json').read_text())
             smoke['evidence'] = [row for row in smoke['evidence']
                                  if row['path'] not in {
@@ -398,7 +382,7 @@ class WeComSavedRawReplayTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
             candidate_path, module_apk, regression_path, smoke_path, output, acceptance_path, _ = \
-                self._produce_from_saved_ui_and_log_capture(root)
+                self._produce_from_fixture_ui_and_log_capture(root)
 
             original_apk = module_apk.read_bytes()
             module_apk.write_bytes(original_apk + b'tampered')

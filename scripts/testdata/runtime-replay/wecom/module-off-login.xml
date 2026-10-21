@@ -1,0 +1,1 @@
+<hierarchy rotation="0"><node package="com.tencent.wework" class="android.widget.TextView" text="Welcome" visible="true" enabled="true" bounds="[10,10][300,60]"/></hierarchy>

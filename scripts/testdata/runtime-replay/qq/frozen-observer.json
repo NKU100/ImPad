@@ -1,0 +1,5 @@
+{
+  "fixtureKind": "synthetic-qq-request-replay",
+  "observerSha256": "bba571de5c3db35c637cf33e393fc4f53ea79fe0263de29b4ba883dcdcb618d1",
+  "observerMeaning": "Digest retained from the historical collector used by the sanitized parser fixture; current collector source is still checked independently and must reject this digest."
+}

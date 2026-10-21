@@ -1,0 +1,107 @@
+{
+  "analysisScope": "STATIC_ONLY",
+  "appId": "qq",
+  "executionIdentity": {
+    "cacheIdentitySha256": "85d7b732eb25669dfa17144cb572c247be7c71a4eebf5eb36fd05376eb47972d",
+    "dependencyLockSha256": "33bc276f0e7db9e9f82af7d9d3f4f1e8bced386b58f847b648526ebdab9e66ee",
+    "dexkitAndroidApiSha256": "8df532c4126b58490667f71127dc57aef62ccf3578d1d17330f2a1cb8836218e",
+    "dexkitAndroidArm64NativeSha256": "0444cf15146c256e8bbd2154ae8b120130dab47e9226c7e853a7d653737a95cd",
+    "dexkitApiSha256": "34a8c16d548aa7d8562128f4d2293cec4e0f9896bb1f46224dcd532e878900f5",
+    "dexkitLinuxAarch64NativeSha256": "f23e51a19c10dcf1c395f6bef168af72aab3c9e06edae9446ad8368eb7f5495f",
+    "dexkitLinuxX8664NativeSha256": "9c085b60c6aed18fa65026837f024167b21bfd5b60439c3e6ba4db98901c2ed1",
+    "dexkitLockSha256": "64d6d6b3cdc54d27b3e0b67ac97b4b1ec992a1f2480e3096ca481472bdd4dda7",
+    "dexkitNativeSha256": "9c085b60c6aed18fa65026837f024167b21bfd5b60439c3e6ba4db98901c2ed1",
+    "dexkitPlatform": "linux-x86_64",
+    "dexkitSourceCommit": "c9cd12a14b75409bebd2f73e4dfc5ff575df3eb8",
+    "fingerprintFileSha256": "8ae35a39df3bd93663093d58a2262fd757a40aff65a89d736454541ef217bbee",
+    "routeConfigurationSha256": "103a26e82139dddbaab7118bcb03b3f8be6ead86ba612ba93f2b83688bfb356a",
+    "ruleCatalogSha256": "cc3a3cbf6cfdaea6aedf0e27b6154af544a59550d8e86cfa5d663b4ccfaef66a",
+    "ruleImplementationSha256": "94060a3f3bbbf7bd06a6d34370ba3e5c9214075b72f6bc7186d9c6a110e0379a",
+    "sharedResolverImplementationSha256": "e80b0255933897a2023ac0707cab36ac0ea9bbe5408a7266f625a5a2c38d761d",
+    "sourceTreeSha256": "f51d425d31c8f2d4995d0c5750265ea0cdfbc8a7962cd4da8f35aa35071504eb",
+    "strategyImplementationSha256": "cf5d1358a3db364c6c8b9a5c9608ac8c0343906f0b8690b8c74cf5c0ebab5f0a"
+  },
+  "identity": {
+    "abi": "arm64-v8a",
+    "apkSha256": "0000000000000000000000000000000000000000000000000000000000000000",
+    "packageName": "com.tencent.mobileqq",
+    "signerSha256": "0000000000000000000000000000000000000000000000000000000000000000",
+    "versionCode": 14378,
+    "versionName": "9.3.1"
+  },
+  "inputHashes": [
+    {
+      "path": "apk-inputs/fixture.apk",
+      "sha256": "0000000000000000000000000000000000000000000000000000000000000000"
+    }
+  ],
+  "routeCandidates": [
+    "qq_device_type_001"
+  ],
+  "ruleCatalog": {
+    "appId": "qq",
+    "bindings": [
+      {
+        "max": null,
+        "min": 14378,
+        "ruleId": "qq_device_type_001"
+      }
+    ],
+    "definitions": [
+      {
+        "requiredTargetIds": [
+          "device_type"
+        ],
+        "ruleId": "qq_device_type_001",
+        "strategyId": "qq_tablet_001"
+      }
+    ],
+    "ruleCatalogSha256": "cc3a3cbf6cfdaea6aedf0e27b6154af544a59550d8e86cfa5d663b4ccfaef66a",
+    "schemaVersion": 1,
+    "strategyIds": [
+      "qq_tablet_001"
+    ]
+  },
+  "ruleCatalogSha256": "cc3a3cbf6cfdaea6aedf0e27b6154af544a59550d8e86cfa5d663b4ccfaef66a",
+  "rules": [
+    {
+      "candidateCounts": {
+        "device_type": 1
+      },
+      "diagnostics": [],
+      "ruleId": "qq_device_type_001",
+      "status": "UNIQUE",
+      "strategyId": "qq_tablet_001",
+      "targets": {
+        "device_type": {
+          "descriptor": "Lcom/tencent/common/config/pad/PadUtil;->a(Landroid/content/Context;)Lcom/tencent/common/config/pad/DeviceType;",
+          "shape": {
+            "isStatic": true,
+            "parameters": [
+              "android.content.Context"
+            ],
+            "returnType": "com.tencent.common.config.pad.DeviceType"
+          }
+        }
+      }
+    }
+  ],
+  "selection": {
+    "diagnostics": [],
+    "selectedRuleId": "qq_device_type_001",
+    "status": "SELECTED",
+    "strategyId": "qq_tablet_001",
+    "targets": {
+      "device_type": {
+        "descriptor": "Lcom/tencent/common/config/pad/PadUtil;->a(Landroid/content/Context;)Lcom/tencent/common/config/pad/DeviceType;",
+        "shape": {
+          "isStatic": true,
+          "parameters": [
+            "android.content.Context"
+          ],
+          "returnType": "com.tencent.common.config.pad.DeviceType"
+        }
+      }
+    }
+  }
+}
