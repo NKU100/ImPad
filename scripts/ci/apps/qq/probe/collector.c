@@ -147,7 +147,7 @@ static unsigned long long lookup_socket(const uint8_t *source,const uint8_t *des
 }
 struct flow_owner {
  uint8_t source[16],destination[16];int bytes;unsigned sp,dp;int pid;
- unsigned long long birth,inode,foreign_birth;unsigned generation,socket_uid,owner_attempts,foreign_fin_end;int socket_seen,foreign_pid,foreign_fin_seen;
+ unsigned long long birth,inode,foreign_birth;unsigned generation,socket_uid,owner_attempts;int socket_seen,foreign_pid;
  struct pending_segment *pending_head,*pending_tail;unsigned pending_count;size_t pending_bytes;
 };
 struct pending_segment {
@@ -159,7 +159,7 @@ struct pending_segment {
 #define OWNER_DISALLOWED -1
 #define OWNER_OUT_OF_SCOPE -2
 #define OWNER_IDENTITY_CHANGED -3
-enum {FLOW_PACKET_NOT_DISCARDED=0,FLOW_PACKET_DISCARD=1,FLOW_PACKET_IDENTITY_FAILURE=-1,FLOW_PACKET_AFTER_CLOSE=-2};
+enum {FLOW_PACKET_NOT_DISCARDED=0,FLOW_PACKET_DISCARD=1};
 static int flow_socket_identity_matches(const struct flow_owner *flow,unsigned uid){
  unsigned socket_uid=0;unsigned long long inode=lookup_socket(flow->source,flow->destination,flow->bytes,flow->sp,flow->dp,&socket_uid);
  return inode==flow->inode&&socket_uid==uid&&flow->socket_uid==uid;
@@ -181,40 +181,15 @@ static int flow_owner_identity_matches(const struct flow_owner *flow,unsigned ui
          scan.fd_matches,scan.allowed_matches,scan.foreign_matches,process_current,socket_current);
  return identity;
 }
-static int flow_out_of_scope_identity_matches(const struct flow_owner *flow,unsigned uid){
- int pid=flow->foreign_pid;unsigned long long birth=flow->foreign_birth;
- struct owner_scan scan={0};unsigned long long scanned_birth=0;
- if(flow->socket_uid!=uid||pid<=0||!birth||!flow_socket_identity_matches(flow,uid))return 0;
- int result=owner_lookup(uid,flow->inode,&scanned_birth,&scan);
- int unique=result==OWNER_DISALLOWED&&scan.fd_matches==1&&scan.allowed_matches==0&&
-            scan.foreign_matches==1&&scan.foreign_pid==pid&&scan.foreign_start==birth&&
-            strcmp(scan.foreign_name,out_of_scope_process_name)==0;
- int identity=unique&&started(pid)==birth&&process_matches_name(pid,uid,out_of_scope_process_name)&&
-              owns_fd(pid,flow->inode)&&flow_socket_identity_matches(flow,uid);
- fprintf(stderr,"OWNER_RECHECK pid=%d uid=%u start=%llu inode=%llu result=%s fdMatches=%u allowedMatches=%u foreignMatches=%u\n",
-         pid,uid,birth,flow->inode,identity?"same-unique-owner":
-         result==OWNER_UNKNOWN?"unknown":result==OWNER_ALLOWED?"owner-changed":
-         result==OWNER_DISALLOWED?"owner-changed":"socket-identity-changed",
-         scan.fd_matches,scan.allowed_matches,scan.foreign_matches);
- return identity;
-}
-static int out_of_scope_packet_action(struct flow_owner *flow,unsigned sequence,unsigned flags,size_t payload_size){
- if(flow->pid!=OWNER_DISALLOWED)return FLOW_PACKET_NOT_DISCARDED;
- if(flow->foreign_fin_seen){
-  uint32_t payload_end=sequence+(uint32_t)payload_size;
-  if(payload_size&&(int32_t)(payload_end-(uint32_t)flow->foreign_fin_end)>0)return FLOW_PACKET_AFTER_CLOSE;
-  return FLOW_PACKET_DISCARD;
- }
- if(!payload_size&&!(flags&1))return FLOW_PACKET_DISCARD;
- if(!flow_out_of_scope_identity_matches(flow,flow->socket_uid))return FLOW_PACKET_IDENTITY_FAILURE;
- if((flags&1)&&!(flags&4)){flow->foreign_fin_seen=1;flow->foreign_fin_end=(unsigned long long)(sequence+(uint32_t)payload_size+1);}
- if(payload_size)fprintf(stderr,"OWNER_DISCARD reason=confirmed-main-process-out-of-scope pid=%d uid=%u start=%llu inode=%llu generation=%u sequence=%u flags=%u bytes=%zu\n",
-         flow->foreign_pid,flow->socket_uid,flow->foreign_birth,flow->inode,flow->generation,sequence,flags,payload_size);
- return FLOW_PACKET_DISCARD;
+static int out_of_scope_packet_action(const struct flow_owner *flow){
+ return flow->pid==OWNER_DISALLOWED?FLOW_PACKET_DISCARD:FLOW_PACKET_NOT_DISCARDED;
 }
 static int starts_new_flow_generation(const struct flow_owner *known,unsigned flags,unsigned sequence){
- if((flags&2)&&!(flags&16)&&known&&known->pid==OWNER_DISALLOWED&&known->foreign_fin_seen)return 1;
- return (flags&2)&&!(flags&16)&&!(known&&known->generation==sequence);
+ if(!(flags&2)||(flags&16))return 0;
+ if(!known||known->generation!=sequence)return 1;
+ unsigned socket_uid=0;
+ unsigned long long inode=lookup_socket(known->source,known->destination,known->bytes,known->sp,known->dp,&socket_uid);
+ return !known->socket_seen||!inode||inode!=known->inode||socket_uid!=known->socket_uid;
 }
 static int scan_flow_owner(struct flow_owner *flow,unsigned uid,struct owner_scan *scan){
  unsigned socket_uid=0;unsigned long long inode=lookup_socket(flow->source,flow->destination,flow->bytes,flow->sp,flow->dp,&socket_uid);
@@ -354,10 +329,7 @@ int main(int argc,char **argv){
    known->bytes=bytes;known->sp=sp;known->dp=dp;known->generation=generation;
    int result=resolve_flow_owner(known,(unsigned)uid,OWNER_INITIAL_ATTEMPTS,"syn");
    if(result==OWNER_OUT_OF_SCOPE){known->pid=OWNER_OUT_OF_SCOPE;continue;}
-   if(result==OWNER_DISALLOWED){known->pid=OWNER_DISALLOWED;int action=out_of_scope_packet_action(known,generation,flags,payload_size);
-    if(action==FLOW_PACKET_IDENTITY_FAILURE){fprintf(stderr,"OWNER_FAIL reason=out-of-scope-owner-identity-changed phase=syn inode=%llu pid=%d\n",known->inode,known->foreign_pid);return fail(8,__LINE__);}
-    continue;
-   }
+   if(result==OWNER_DISALLOWED){known->pid=OWNER_DISALLOWED;continue;}
    if(result==OWNER_IDENTITY_CHANGED){fprintf(stderr,"OWNER_FAIL reason=socket-identity-changed-on-syn\n");return fail(8,__LINE__);}
    if(result==OWNER_UNKNOWN){
     if(pending_append(known,generation,flags,generation,observed_ns,tcp+header,payload_size)){
@@ -385,11 +357,7 @@ int main(int argc,char **argv){
    continue;
   }
   if(known->pid==OWNER_OUT_OF_SCOPE)continue;
-  if(known->pid==OWNER_DISALLOWED){int action=out_of_scope_packet_action(known,generation,flags,payload_size);
-   if(action==FLOW_PACKET_AFTER_CLOSE){fprintf(stderr,"OWNER_FAIL reason=out-of-scope-payload-after-fin uid=%u inode=%llu generation=%u sequence=%u finEnd=%u bytes=%zu\n",known->socket_uid,known->inode,known->generation,generation,(unsigned)known->foreign_fin_end,payload_size);return fail(8,__LINE__);}
-   if(action==FLOW_PACKET_IDENTITY_FAILURE){fprintf(stderr,"OWNER_FAIL reason=out-of-scope-owner-identity-changed uid=%u inode=%llu generation=%u sequence=%u pid=%d\n",known->socket_uid,known->inode,known->generation,generation,known->foreign_pid);return fail(8,__LINE__);}
-   continue;
-  }
+  if(out_of_scope_packet_action(known)==FLOW_PACKET_DISCARD)continue;
   if(known->pid==OWNER_UNKNOWN){
    unsigned remaining=known->owner_attempts<OWNER_MAX_ATTEMPTS?OWNER_MAX_ATTEMPTS-known->owner_attempts:0;
    int result=remaining?resolve_flow_owner(known,(unsigned)uid,remaining,"deferred"):OWNER_UNKNOWN;
@@ -401,9 +369,7 @@ int main(int argc,char **argv){
     size_t pending_bytes=known->pending_bytes;known->pid=OWNER_DISALLOWED;
     if(pending_bytes)fprintf(stderr,"OWNER_DISCARD reason=confirmed-main-process-out-of-scope-buffered pid=%d uid=%u start=%llu inode=%llu generation=%u pendingSegments=%u pendingBytes=%zu\n",
                             known->foreign_pid,known->socket_uid,known->foreign_birth,known->inode,known->generation,known->pending_count,pending_bytes);
-    pending_clear(known);int action=out_of_scope_packet_action(known,generation,flags,payload_size);
-    if(action==FLOW_PACKET_IDENTITY_FAILURE){fprintf(stderr,"OWNER_FAIL reason=out-of-scope-owner-identity-changed-after-recheck uid=%u inode=%llu generation=%u sequence=%u pid=%d\n",known->socket_uid,known->inode,known->generation,generation,known->foreign_pid);return fail(8,__LINE__);}
-    continue;
+    pending_clear(known);continue;
    }
    if(result==OWNER_IDENTITY_CHANGED){fprintf(stderr,"OWNER_FAIL reason=socket-identity-changed-during-recheck uid=%u inode=%llu generation=%u\n",known->socket_uid,known->inode,known->generation);return fail(8,__LINE__);}
    if(result==OWNER_UNKNOWN){if(payload_size){fprintf(stderr,"OWNER_FAIL reason=owner-unresolved-at-payload uid=%u inode=%llu generation=%u sequence=%u bytes=%zu attempts=%u\n",known->socket_uid,known->inode,known->generation,generation,payload_size,known->owner_attempts);return fail(8,__LINE__);}continue;}

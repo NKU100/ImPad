@@ -34,4 +34,10 @@
 4. 执行受影响测试、构建、metadata、workflow 校验及残余引用审计，证明正式路径不再消费旧 profiles、targets 或模式开关。
 5. Linux 静态与构建优先使用用户提供的 x64 DevCloud，ARM64 runtime 使用用户提供的 Oracle VPS 任务独占容器。不新增本机虚拟机；与正在进行的企微 5.0.12 验收隔离，不能竞争其设备或修改其冻结输入。
 
+### QQ collector 验收补充（2026-10-21）
+
+QQ runtime 继续复用既有自然请求采集、MSF socket/进程归属与 capture 完整性合同。collector 在 SYN 阶段必须通过 socket inode、UID、精确进程名、PID 与 process starttime 检查建立该 tuple generation 的归属缓存；只有精确 `com.tencent.mobileqq:MSF` owner 可进入请求事件，未知 owner 保持 fail-closed。已确认的非目标进程 flow 按该 generation 的缓存归属过滤，不增加每个 packet 的唯一 FD 重扫，也不新增 FD handoff 跟踪或依赖 FIN 的关闭监听。MSF 请求仍须执行原有进程身份校验；重复 SYN 只有在当前 tuple 的 socket inode 与 UID 均可读取且和缓存完全一致时才沿用 generation（同 socket 重传）；同 ISN 下身份变化、身份缺失或无法证明缓存 socket 仍相同时，必须重置并重新解析归属，未知结果继续 fail-closed。
+
+每包 FD 唯一性与 FD handoff 不属于本次迁移验收增量。沿用历史缓存合同意味着 SYN 之后发生的 FD handoff 未经该合同验证；这是明确保留的既有局限，不得声称该风险不存在，也不得因此放宽未知 owner、UID、精确进程名、starttime、包序列、重组、丢包、partial、scope 或 AppID 校验。历史 GitHub run 39133831034 只证明其自身版本、APK、模块和运行环境，不替代本计划最终模块的 QQ runtime 验收。
+
 企微 5.0.12 追加验收继续按现有冻结产物执行。微信扩展先完成设计检查与实施计划，再改产品代码。提交、推送、合并、发布与 GitHub Actions dispatch 仍需用户另行授权。
