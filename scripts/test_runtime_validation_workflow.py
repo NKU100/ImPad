@@ -102,6 +102,66 @@ def _workflow_if(expression, context):
 
 
 class RuntimeValidationWorkflowTest(unittest.TestCase):
+    def test_module_artifact_pairing_is_resolved_by_the_prepare_shell_steps(self):
+        runtime = parsed_workflows()['runtime-validation.yml']
+        steps = runtime['jobs']['prepare']['steps']
+        contract = next(step for step in steps
+                        if step.get('name') == 'Validate operation and candidate artifact contract')
+        selection = next(step for step in steps
+                         if step.get('name') == 'Resolve exact module artifact selection')
+        download = next(step for step in steps if step.get('name') == 'Reuse exact module build')
+        self.assertIn('MODULE_ARTIFACT', contract['env'])
+        self.assertIn('MODULE_ARTIFACT', contract['run'])
+        self.assertEqual("${{ steps.module-artifact.outputs.name }}", download['with']['name'])
+
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+
+            def run_selection(run_id, artifact, app_id='qq'):
+                output = root / f'output-{run_id}-{artifact}'
+                result = subprocess.run(
+                    ['bash', '-e', '-c', selection['run']],
+                    env=dict(os.environ, APP_ID=app_id, ARTIFACT_PREFIX='impad',
+                             MODULE_RUN_ID=run_id, MODULE_ARTIFACT=artifact,
+                             GITHUB_OUTPUT=str(output)), capture_output=True, text=True)
+                return result, output.read_text() if output.exists() else ''
+
+            def output_value(raw):
+                match = re.fullmatch(r'name<<([^\n]+)\n(.*?)\n\1\n', raw, re.S)
+                if match:
+                    return match.group(2)
+                match = re.fullmatch(r'name=(?:\n)?', raw)
+                if match:
+                    return ''
+                self.fail(f'Unexpected GITHUB_OUTPUT encoding: {raw!r}')
+
+            artifact_only = {'OPERATION': 'verify', 'CANDIDATE_MODE': 'latest', 'APK_URL': '',
+                             'MODULE_RUN_ID': '', 'MODULE_ARTIFACT': 'custom-module',
+                             'CANDIDATE_ARTIFACT': '', 'SOURCE_HEAD': ''}
+            rejected = subprocess.run(['bash', '-e', '-c', contract['run']],
+                                      env=dict(os.environ, **artifact_only),
+                                      capture_output=True, text=True)
+            self.assertNotEqual(0, rejected.returncode)
+
+            run_only, output = run_selection('12345', '')
+            self.assertEqual(0, run_only.returncode, run_only.stderr)
+            self.assertEqual('impad-qq-adapted-module', output_value(output))
+
+            custom, output = run_selection('23456', 'chosen-debug-module')
+            self.assertEqual(0, custom.returncode, custom.stderr)
+            self.assertEqual('chosen-debug-module', output_value(output))
+
+            invalid_run = subprocess.run(
+                ['bash', '-e', '-c', contract['run']],
+                env=dict(os.environ, **(artifact_only | {
+                    'MODULE_RUN_ID': 'run-123', 'MODULE_ARTIFACT': 'chosen-debug-module'})),
+                capture_output=True, text=True)
+            self.assertNotEqual(0, invalid_run.returncode)
+
+            default_path, output = run_selection('', '')
+            self.assertEqual(0, default_path.returncode, default_path.stderr)
+            self.assertEqual('', output_value(output))
+
     def test_manual_and_reusable_verify_entry_accept_and_forward_optional_module_artifact(self):
         workflows = parsed_workflows()
         shared = workflows['compatibility-app.yml']
