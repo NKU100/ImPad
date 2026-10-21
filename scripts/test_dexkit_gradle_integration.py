@@ -400,6 +400,7 @@ class DexKitGradleIntegrationTest(unittest.TestCase):
         wrapper_dir = fixture_root / "bin"
         wrapper_dir.mkdir(parents=True, exist_ok=True)
         download_log = fixture_root / "official-download-urls.txt"
+        toolchain_download_log = fixture_root / "official-toolchain-download-urls.txt"
         wrapper = wrapper_dir / "python3"
         wrapper.write_text(textwrap.dedent(f'''\
             #!{sys.executable}
@@ -410,8 +411,11 @@ class DexKitGradleIntegrationTest(unittest.TestCase):
             if arguments and os.path.realpath(arguments[0]) == os.path.realpath(script):
                 import scripts.ci.prepare_dexkit as prepare
                 expected_url = os.environ["DEXKIT_TEST_OFFICIAL_URL"]
+                allowed_toolchain_urls = set(os.environ["DEXKIT_TEST_TOOLCHAIN_URLS"].splitlines())
+                original_urlopen = prepare.urllib.request.urlopen
                 fixture = os.environ["DEXKIT_TEST_AAR_FIXTURE"]
                 log = os.environ["DEXKIT_TEST_DOWNLOAD_LOG"]
+                toolchain_log = os.environ["DEXKIT_TEST_TOOLCHAIN_LOG"]
                 class Response:
                     status = 200
                     headers = {{}}
@@ -425,6 +429,10 @@ class DexKitGradleIntegrationTest(unittest.TestCase):
                     def __exit__(self, *_args): return False
                 def mocked_urlopen(request, timeout=60):
                     url = request.full_url
+                    if url in allowed_toolchain_urls:
+                        with open(toolchain_log, "a", encoding="utf-8") as output:
+                            output.write(url + "\\n")
+                        return original_urlopen(request, timeout=timeout)
                     if url != expected_url:
                         raise AssertionError("Unexpected DexKit artifact URL: " + url)
                     with open(log, "a", encoding="utf-8") as output:
@@ -443,6 +451,12 @@ class DexKitGradleIntegrationTest(unittest.TestCase):
         environment["DEXKIT_TEST_OFFICIAL_URL"] = artifact["url"]
         environment["DEXKIT_TEST_AAR_FIXTURE"] = str(fixture)
         environment["DEXKIT_TEST_DOWNLOAD_LOG"] = str(download_log)
+        environment["DEXKIT_TEST_TOOLCHAIN_LOG"] = str(toolchain_download_log)
+        environment["DEXKIT_TEST_TOOLCHAIN_URLS"] = "\n".join(sorted({
+            spec["url"]
+            for build in lock["build"].values()
+            for spec in build["toolchain"].values()
+        }))
         return subprocess.run(
             [
                 "./gradlew",
