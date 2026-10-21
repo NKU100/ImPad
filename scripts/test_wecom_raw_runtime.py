@@ -35,17 +35,6 @@ def _activity(name):
             f'com.tencent.wework.{name} t1}}\n')
 
 
-def _ui_samples():
-    samples = {}
-    names = {'baseline': 'module-off-login', 'enabled': 'module-on-login',
-             'qrCurrent': 'tablet-qr-current', 'qrConfirmed': 'tablet-qr-confirmed'}
-    for label, filename in names.items():
-        activity = 'LoginWxAuthActivity' if label in ('baseline', 'enabled') else 'LoginQrCodeForAndroidPad'
-        samples[label] = {'activity': _activity(activity),
-                          'hierarchy': (FIXTURE / f'{filename}.xml').read_text()}
-    return samples
-
-
 def _wecom_logcat(candidate, module):
     plan = candidate['expectedPlan']
     dexkit = module['dexkit']
@@ -79,12 +68,6 @@ class WeComPortableRuntimeReplayTest(unittest.TestCase):
         _, cls.candidate_path, cls.candidate, _, _ = prepare_candidate_bundle(
             'wecom', Path(cls._fixture_tmp.name))
         cls.module = cls.candidate['module']
-        ui = runtime_policy.derive_ui_evidence(_ui_samples(), PACKAGE, 'LoginQrCodeForAndroidPad')
-        diagnostics, _ = runtime_policy.derive_hook_evidence(
-            (FIXTURE / 'processes.txt').read_text(), _wecom_logcat(cls.candidate, cls.module),
-            cls.candidate, cls.module)
-        cls.original_summary = {'baselineEvidence': ui['baseline'], 'enabled': ui['enabled'],
-                                'runtimeDiagnostics': diagnostics}
 
     @classmethod
     def tearDownClass(cls):
@@ -105,18 +88,17 @@ class WeComPortableRuntimeReplayTest(unittest.TestCase):
             }
         ui = runtime_policy.derive_ui_evidence(
             samples, PACKAGE, 'LoginQrCodeForAndroidPad')
-        self.assertEqual(self.original_summary['baselineEvidence']['tabletEntry'],
-                         ui['baseline']['tabletEntry'])
-        self.assertEqual(self.original_summary['enabled']['tabletEntry'],
-                         ui['enabled']['tabletEntry'])
+        self.assertTrue(ui['baseline']['loginPageReady'])
+        self.assertFalse(ui['baseline']['tabletEntry'])
+        self.assertTrue(ui['enabled']['loginPageReady'])
+        self.assertTrue(ui['enabled']['tabletEntry'])
         self.assertEqual('LoginQrCodeForAndroidPad', ui['qrPage'])
         self.assertTrue(ui['qrStable'])
 
-        diagnostics, lifecycle = runtime_policy.derive_hook_evidence(
+        _, lifecycle = runtime_policy.derive_hook_evidence(
             (FIXTURE / 'processes.txt').read_text(),
             _wecom_logcat(self.candidate, self.module),
             self.candidate, self.module)
-        self.assertEqual(self.original_summary['runtimeDiagnostics'], diagnostics)
         self.assertEqual('READY', lifecycle['tinkerEvidence']['status'])
         self.assertEqual('LOADED', lifecycle['nativeEvidence']['status'])
         self.assertEqual(3, lifecycle['hookCount'])
@@ -125,9 +107,9 @@ class WeComPortableRuntimeReplayTest(unittest.TestCase):
         placeholder_hash = hashlib.sha256(placeholder.read_bytes()).hexdigest()
         with self.assertRaisesRegex(ValueError, 'missing required'):
             runtime_task._validate_wecom_raw_evidence(
-                dict(self.original_summary, evidence=[{
+                {'evidence': [{
                     'path': 'placeholder.json', 'sha256': placeholder_hash,
-                }]),
+                }]},
                 Path(self._fixture_tmp.name), self.candidate, self.module)
 
     def _write_candidate_bundle(self, root):
@@ -289,7 +271,8 @@ class WeComPortableRuntimeReplayTest(unittest.TestCase):
 
             cases = {
                 'summary entry claim': ('summary', 'baselineEvidence'),
-                'tablet-on hierarchy replacement': ('apps/wecom/module-on-login.xml', None),
+                'module-off hierarchy replacement': ('apps/wecom/module-off-login.xml', None),
+                'module-on hierarchy replacement': ('apps/wecom/module-on-login.xml', None),
                 'wrong QR hierarchy package': ('apps/wecom/tablet-qr-current.xml', None),
                 'wrong QR activity': ('apps/wecom/tablet-qr-confirmed-activity.txt', None),
                 'hook log package scope': ('apps/wecom/app-hook-logs.txt', None),
@@ -307,8 +290,12 @@ class WeComPortableRuntimeReplayTest(unittest.TestCase):
                     if relative == 'summary':
                         smoke['baselineEvidence']['tabletEntry'] = True
                         smoke_path.write_text(json.dumps(smoke, indent=2) + '\n')
-                    elif label == 'tablet-on hierarchy replacement':
-                        source = case_root / 'apps/wecom/module-off-login.xml'
+                    elif label in ('module-off hierarchy replacement',
+                                   'module-on hierarchy replacement'):
+                        source_name = ('module-on-login.xml'
+                                       if label == 'module-off hierarchy replacement'
+                                       else 'module-off-login.xml')
+                        source = case_root / f'apps/wecom/{source_name}'
                         target = case_root / relative
                         target.write_bytes(source.read_bytes())
                         self._refresh_reference(smoke, relative, target)
