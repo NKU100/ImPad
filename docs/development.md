@@ -46,7 +46,7 @@ python3 -m scripts.ci.candidate_selection \
 
 ## 有界回归与身份
 
-`python3 -m scripts.ci.static_regression --app-id qq`、`--app-id wecom` 和 `--app-id wechat` 分别使用该应用 acceptance 表中的固定代表，执行同一个规则 checker。历史 `targets.json` 仅作为原始历史资料保留；它们不参与 schema 验证、候选选择或 APK 构建。常规回归集按首次成功验收代表固定并去重，不扫描历史 target/profile 数据。普通 verify/register 不提供首次迁移开关；缺失、空或损坏的 acceptance 表均失败关闭。
+`python3 -m scripts.ci.static_regression --app-id qq`、`--app-id wecom` 和 `--app-id wechat` 分别使用该应用 acceptance 表中的固定代表，执行同一个规则 checker。旧 `targets.json` 和 profile 文件已从当前仓库树移除，历史版本可从 Git 历史恢复；它们不参与 schema 验证、候选选择或 APK 构建。常规回归集按首次成功验收代表固定并去重，不扫描历史 target/profile 数据。普通 verify/register 不提供首次迁移开关；缺失、空或损坏的 acceptance 表均失败关闭。
 
 三个应用的运行规则、路由和策略随模块源码构建。运行时不加载 acceptance 表，也不使用其作为按 APK SHA 或历史 descriptor 准入的清单。Acceptance 只供固定静态回归和证据索引使用；所有应用的正式运行均使用共享规则解析、身份验证和策略绑定。
 

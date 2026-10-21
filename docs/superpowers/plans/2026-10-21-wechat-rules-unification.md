@@ -8,7 +8,7 @@
 
 **Tech Stack:** Kotlin、Android/libxposed、Tinker、DexKit、Gradle、Python 3、GitHub Actions、x64 DevCloud（Linux 静态检查与构建）、Oracle ARM VPS（ARM64 runtime）。
 
-**Spec:** [已批准设计](../specs/2026-10-21-wechat-rules-unification-design.md)。背景：[runtime feature matching 设计](../specs/2026-10-19-runtime-feature-matching-design.md)和[原 WeChatPad 设计](../specs/2026-10-04-wechatpad-design.md)。
+**Spec:** [已批准设计](../specs/2026-10-21-wechat-rules-unification-design.md)。此前的 runtime feature matching 与原 WeChatPad 设计草案已从当前树清理；需要追溯时可从 Git 历史恢复。
 
 ## Global Constraints
 
@@ -18,7 +18,7 @@
 - QQ、企微已有规则、策略、专用辅助行为及已有 acceptance 记录不可改写；增加新验收记录只能追加，原记录字段、首次代表和证据引用保持不变。
 - 微信首次 acceptance 仅由主代理本地受控执行：固定 `appId=wechat`、8.0.69 / 3040；只有 `compatibility/wechat/acceptance.json` 真正不存在才可创建。任何已有文件（包括空文件或损坏文件）都中止，不覆盖、不修复性重建、不用缺表自动触发迁移。
 - 首次登记复用 `read_acceptance_snapshot`、`verify_validation_files`、`make_record` 的显式迁移 API；先生成并审阅 `recordDraft`，再用 `O_CREAT|O_EXCL` 等价的独占创建写入，禁止 `os.replace`。普通 CLI 与 workflow 不暴露 initial-migration 开关；登记后日常 verify/register 均为非迁移模式。
-- 历史 `compatibility/{wechat,qq,wecom}/targets.json` 可保留为历史资料；APK 不打包这些文件，正式 runtime、checker、回归、候选准备、适配和 workflow 均不得读取或消费它们。
+- 历史 `compatibility/{wechat,qq,wecom}/targets.json` 已从当前树移除，旧版本可从 Git 历史恢复；APK、正式 runtime、checker、回归、候选准备、适配和 workflow 均不读取或消费它们。
 - 最终正式执行路径没有 `RULES`/`LEGACY` 选择、旧 profile 回退或旧 descriptor resolver/cache/assets 生成分支；仅删除经引用审计证明只服务旧路径的代码与依赖。
 - 最终 runtime 验收绑定同一份最终模块 APK 原始字节及 SHA；不同 APK 的旧 runtime 结果不能替代。每个应用均执行固定 acceptance 回归；常规窗口按既有规则最多三个代表 APK。
 - 微信不登录、不扫码，不把进入二维码页表述为服务端登录成功；只验收模块开关下的平板入口、稳定二维码页、Tinker/native/Hook 时序及生产 raw verifier。
@@ -54,7 +54,7 @@
 | 候选与环境控制 | `scripts/ci/app_policy.py`、`candidate_selection.py`、`runtime_adaptation.py`、`redroid_prepare_apps.py`、`codex_adaptation.py`、`codex_task.py` 和 `scripts/ci/apps/*`：使用应用策略与共享 RULES 报告，移除旧 targets/profile 分支。 |
 | Actions | `.github/workflows/build.yml`、`compatibility-app.yml`、`runtime-validation.yml` 与 `compatibility-{wechat,qq,wecom}.yml`：保留现有 workflow 和每应用入口，删除 LEGACY 条件并将三应用接入同一 checker、回归和 runtime。 |
 | APK 元数据/旧 runtime | `app/build.gradle.kts`、`compat-core/build.gradle.kts`、`compat-rules/build.gradle.kts`、`settings.gradle.kts`、`compat-core/.../AppCompatibilityPolicy.kt`、`ImPadModule.kt`、`AppAdapter.kt` 及相关旧 resolver/cache/tests：删除生成/读取 targets 的路径、模式枚举和仅供旧 descriptor 流程使用的实现。 |
-| 历史与验收资料 | 保留三个 `compatibility/<app>/targets.json` 原字节；不把它们加入 APK。追加式 acceptance 不改变 QQ/企微既有 record。证据索引放入 `evidence/wechat/` 与最终验收清单；大体积原始材料保存在任务证据归档，不进 Git。 |
+| 历史与验收资料 | QQ/微信/企微 acceptance 记录保持独立；旧 `targets.json` 曾在实施期间保留，现已从当前树清理并可由 Git 历史恢复，不进入 APK。证据索引放入 `evidence/wechat/` 与最终验收清单；大体积原始材料保存在任务证据归档，不进 Git。 |
 
 ## Task 1: 微信真实规则、Tinker runtime 接入与首次受控登记
 
@@ -93,8 +93,8 @@
 - Modify: `app/src/main/kotlin/io/github/nku100/impad/ImPadModule.kt`、`runtime/AppAdapter.kt`、registry及旧 descriptor resolver/cache；`app/build.gradle.kts` 与 metadata tests
 - Modify: `scripts/ci/app_policy.py`、`candidate_selection.py`、`static_regression.py`、`acceptance.py`、`runtime_task.py`、`runtime_adaptation.py`、`redroid_prepare_apps.py`、`codex_adaptation.py`、`codex_task.py`
 - Modify: `.github/workflows/build.yml`、`.github/workflows/compatibility-app.yml`、`.github/workflows/runtime-validation.yml`；检查 `.github/workflows/compatibility-{wechat,qq,wecom}.yml` 并仅在入口参数仍携带旧 profile/mode 时修改
-- Modify: `.github/codex/adapt-wechat.md`、`adapt-qq.md`、`adapt-wecom.md` 与 `docs/development.md`、`docs/validation/compatibility-check-ci.md` 中与旧路径有关的操作说明
-- Delete: `compatibility/resolution-modes.json`、`app/src/main/kotlin/io/github/nku100/impad/runtime/RuntimeCompatibilityResolver.kt`、`RuntimeResolutionCache.kt`、`compat-core/src/main/kotlin/io/github/nku100/impad/compat/CompatibilityTarget.kt`、`CompatibilityResult.kt`、`CompatibilityResolver.kt`、`CandidatePipeline.kt`、`DexFactReader.kt`、`DexMethodFact.kt`、`HookMethodMatcher.kt`、`ResolutionCache.kt` 及其仅 legacy 测试/依赖（逐项以调用图确认）；删除旧 targets 资产生成器。保留 `compatibility/{wechat,qq,wecom}/targets.json` 历史文件原样。
+- Modify: `.github/codex/adapt-wechat.md`、`adapt-qq.md`、`adapt-wecom.md` 与 `docs/development.md` 中与旧路径有关的操作说明
+- Delete: `compatibility/resolution-modes.json`、`app/src/main/kotlin/io/github/nku100/impad/runtime/RuntimeCompatibilityResolver.kt`、`RuntimeResolutionCache.kt`、`compat-core/src/main/kotlin/io/github/nku100/impad/compat/CompatibilityTarget.kt`、`CompatibilityResult.kt`、`CompatibilityResolver.kt`、`CandidatePipeline.kt`、`DexFactReader.kt`、`DexMethodFact.kt`、`HookMethodMatcher.kt`、`ResolutionCache.kt` 及其仅 legacy 测试/依赖（逐项以调用图确认）；删除旧 targets 资产生成器。迁移阶段曾保留 `compatibility/{wechat,qq,wecom}/targets.json` 原字节；迁移验收完成后，按用户最新授权将其从当前树移除，历史版本可从 Git 历史恢复。QQ/企微现有 `acceptance.json` 记录不变。
 - Tests: `compat-core/src/test/.../ResolutionModeConfigurationTest.kt` 等旧模式测试移除或改为单一路径断言；扩展 `scripts/test_app_policy.py`、`test_candidate_selection.py`、`test_static_regression.py`、`test_runtime_validation_workflow.py`、`test_build_module.py`、`app` metadata tests。
 
 **Interfaces:**

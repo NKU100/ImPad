@@ -17,9 +17,10 @@ or descriptors from historical data into rule features.
 
 Keep the WeChat adapter behavior bound to the rule's explicit strategy and use
 the existing Tinker-ready bridge, identity checks, resolver, cache, and atomic
-installation coordinator. Do not modify QQ or WeCom rules, strategy behavior,
-acceptance records, or historical `targets.json` files. Do not edit acceptance
-tables or registration code during adaptation.
+installation coordinator. Do not modify QQ or WeCom rules, strategy behavior, or
+acceptance records. Do not recreate deprecated profile or `targets.json` files;
+they are absent from the current tree. Do not edit acceptance tables or
+registration code during adaptation.
 
 Run the shared checker, fixed acceptance regression, focused rule/runtime tests,
 metadata validation, and module build through the managed build path. If a
