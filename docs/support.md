@@ -16,4 +16,4 @@ QQ collector 继续使用 SYN 阶段建立的 owner/generation 缓存，并在�
 
 统一模块在 Oracle ARM64 ReDroid 上的四轮尝试未通过，包括复测一份曾在其他运行中成功的精确 binary/APK。Oracle framework 文件与权限一致性未获证，环境或部署差异仍待定位；这些失败不能证明纯宿主原因，也不能据此推断 GitHub-hosted 运行环境有相同问题。上述三个 GitHub-hosted run 是绑定当前模块身份的新运行验收。
 
-其他应用版本或模块构建不由这些结果推定通过。历史 `targets.json` 文件仅作为追溯资料保留，不是当前模块打包、规则检查、运行准入或流水线输入；历史 profile 标签也不代表本节列出的当前验收范围。
+其他应用版本或模块构建不由这些结果推定通过。旧 `targets.json` 和 profile 文件已从当前仓库树移除；需要追溯时可从 Git 历史恢复。它们不参与当前模块打包、规则检查、运行准入或流水线。

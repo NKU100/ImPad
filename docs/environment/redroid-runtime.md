@@ -7,7 +7,7 @@
 - `compatibility-app.yml`：仅由三个应用入口调用；适配 job 启动独立容器，验证无模块基线和框架后才启动模型。每轮构建通过后安装精确候选与本轮模块，独立验证行为；失败证据交回同一会话。
 - `runtime-validation.yml`：统一手动／自动验收入口；手动选择版本并构建模块，自动调用复用候选 artifact 和模块 artifact；重新校验候选摘要、签名和静态规则后在新容器执行验收。
 
-`environment/redroid-smoke/` 中保留迁移前的运行样例供追溯，不作为当前流水线输入。三个应用的候选均从共享 `PREPARED` 报告、静态报告、APK 输入清单和构建时模块身份准备；不会读取或生成 `targets.json`、旧 profile 或 debug-only 本地 target assets。候选准备不授予正式支持；登记仍依赖独立验收及可信登记入口。
+迁移前的 ReDroid smoke JSON 与旧 `targets.json`/profile 文件已从当前仓库树移除，历史内容可从 Git 历史恢复。三个应用的候选均从共享 `PREPARED` 报告、静态报告、APK 输入清单和构建时模块身份准备；不读取或生成旧 target assets。候选准备不授予正式支持；登记仍依赖独立验收及可信登记入口。
 
 ## 主机工具与隔离
 

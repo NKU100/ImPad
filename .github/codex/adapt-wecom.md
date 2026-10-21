@@ -6,8 +6,9 @@ Inspect the candidate's actual tablet and local login behavior, including caller
 paths and callbacks. Add a new immutable WeCom rule and strategy only when the
 shared catalog cannot resolve the behavior. Register it additively through
 `RuleCatalog`; do not change existing WeCom rule IDs, queries, required targets,
-strategies, or runtime behavior. Keep WeCom acceptance and historical
-`targets.json` unchanged.
+strategies, or runtime behavior. Keep WeCom acceptance records unchanged. Do not
+recreate deprecated profile or `targets.json` files; those files are absent from
+the current tree.
 
 Use `acceptance.propose_forward_binding` with the validated acceptance snapshot.
 If the candidate is not newer than all accepted records, stop for routing
