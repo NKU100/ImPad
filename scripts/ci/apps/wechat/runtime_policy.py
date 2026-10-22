@@ -228,8 +228,9 @@ def derive_hook_evidence(process_text, logs, candidate, module, installed_module
     plan = candidate.get('expectedPlan', {})
     package_name = identity.get('packageName')
     if (package_name != 'com.tencent.mm' or not isinstance(plan, dict)
-            or plan.get('ruleId') != 'wechat_tablet_login_001'
-            or plan.get('strategyId') != 'wechat_tablet_login_behavior_001'
+            or any(not isinstance(plan.get(key), str)
+                   or not re.fullmatch(r'[^/\s]+', plan[key])
+                   for key in ('ruleId', 'strategyId'))
             or not isinstance(module.get('dexkit'), dict)):
         raise ValueError('WeChat module lifecycle expectation is incomplete')
     processes = {}

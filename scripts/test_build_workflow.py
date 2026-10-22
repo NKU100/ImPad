@@ -26,6 +26,30 @@ class BuildWorkflowTest(unittest.TestCase):
         self.assertEqual(1, len(matches), identifier)
         return matches[0]
 
+    def test_unit_test_step_runs_every_module_test_suite(self):
+        step = next(step for step in self.steps
+                    if step.get('name') == 'Run unit tests and verify module packaging')
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            tools = root / 'bin'
+            tools.mkdir()
+            for name in ('sudo', 'python3'):
+                path = tools / name
+                path.write_text('#!/bin/sh\nexit 0\n')
+                path.chmod(0o755)
+            gradle = root / 'gradlew'
+            gradle.write_text('#!/bin/sh\nprintf "%s\\n" "$@" > gradle-arguments\n')
+            gradle.chmod(0o755)
+            result = subprocess.run(['bash', '-euo', 'pipefail', '-c', step['run']],
+                                    cwd=root, env=dict(os.environ, PATH=str(tools) + os.pathsep + os.environ['PATH']),
+                                    text=True, capture_output=True)
+            self.assertEqual(0, result.returncode, result.stderr)
+            arguments = (root / 'gradle-arguments').read_text().splitlines()
+            for task in (':compat-core:test', ':compat-rules:test', ':compat-checker:test',
+                         ':app:testDebugUnitTest', ':app:testReleaseUnitTest', ':app:verifyModuleMetadata'):
+                with self.subTest(task=task):
+                    self.assertIn(task, arguments)
+
     def resolve(self, directory, **overrides):
         env = dict(os.environ, EVENT_NAME='workflow_dispatch', BUILD_REF='refs/heads/codex/r8',
                    BUILD_REPOSITORY='NKU100/ImPad', BUILD_ACTOR='NKU100',

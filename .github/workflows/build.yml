@@ -88,7 +88,7 @@ jobs:
           sudo apt-get update
           sudo apt-get install --yes age
           python3 -m unittest discover -s scripts -p 'test_*.py'
-          ./gradlew --no-daemon :compat-core:test :compat-checker:test :app:testDebugUnitTest :app:testReleaseUnitTest :app:verifyModuleMetadata
+          ./gradlew --no-daemon :compat-core:test :compat-rules:test :compat-checker:test :app:testDebugUnitTest :app:testReleaseUnitTest :app:verifyModuleMetadata
 
       - name: Restore official APK cache
         uses: actions/cache@v5
