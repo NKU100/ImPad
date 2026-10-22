@@ -130,8 +130,7 @@ def prepare_rules(repository, report_path, candidate_apk, directory):
     from scripts.ci.acceptance import select_representatives
     for accepted in select_representatives(snapshot.records):
         identity = accepted['identity']
-        source = {'identity': identity, 'sourceUrl': accepted['source']['url']}
-        cached = ensure_apk(source, Path(repository) / '.cache' / f'{policy.app_id}-apks', policy.app_id)
+        cached = ensure_apk(accepted, Path(repository) / '.cache' / f'{policy.app_id}-apks', policy.app_id)
         old_digest = identity['apkSha256'].lower()
         destination = apk_dir / f"{identity['versionCode']}-{old_digest}.apk"
         shutil.copyfile(cached, destination)

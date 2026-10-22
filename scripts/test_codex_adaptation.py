@@ -1,13 +1,16 @@
 import copy
+import hashlib
+import json
 import tempfile
 import unittest
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
 from scripts.ci.acceptance import RoutingReviewRequired
 from scripts.ci.codex_adaptation import (
     candidate_key, eligible_candidate, gradle_command, run_bounded,
-    sha256, validate_existing_tests, validate_paths,
+    prepare_rules, sha256, validate_existing_tests, validate_paths,
 )
 
 
@@ -98,6 +101,53 @@ class CodexAdaptationTest(unittest.TestCase):
             launch.return_value = process
             run_bounded(['codex'], Path(temporary), {}, Path(temporary) / 'model.log')
             process.wait.assert_called_once_with(timeout=None)
+
+    def test_prepare_rules_passes_full_acceptance_record_to_real_cached_ensure_apk(self):
+        class ReachedCheckout(Exception):
+            pass
+
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            repository = root / 'repo'
+            repository.mkdir()
+            cache = repository / '.cache/wechat-apks'
+            cache.mkdir(parents=True)
+            accepted_bytes = b'fixed-accepted-apk-fixture'
+            accepted_digest = hashlib.sha256(accepted_bytes).hexdigest()
+            accepted_apk = cache / f'{accepted_digest}.apk'
+            accepted_apk.write_bytes(accepted_bytes)
+            accepted = copy.deepcopy(self.record)
+            accepted['identity']['apkSha256'] = accepted_digest
+            accepted['source'] = {
+                'type': 'official',
+                'url': 'https://dldir1v6.qq.com/weixin/android/weixin8069android3040_0x2800455a_arm64.apk',
+            }
+            report = copy.deepcopy(self.report)
+            candidate_bytes = b'incompatible-candidate-fixture'
+            candidate_apk = root / 'candidate.apk'
+            candidate_apk.write_bytes(candidate_bytes)
+            report['identity']['apkSha256'] = hashlib.sha256(candidate_bytes).hexdigest()
+            report_path = root / 'candidate-report.json'
+            report_path.write_text(json.dumps(report))
+            snapshot = SimpleNamespace(records=[accepted], sha256='f' * 64)
+            (root / 'adaptation/checkout').mkdir(parents=True)
+
+            copied_sources = []
+
+            def stop_after_cache_hit(source, destination):
+                copied_sources.append(Path(source))
+                if len(copied_sources) == 2:
+                    self.assertEqual(accepted_apk, Path(source))
+                    raise ReachedCheckout('accepted cache passed')
+
+            with patch('scripts.ci.codex_adaptation._rules_acceptance', return_value=(snapshot, {})), \
+                 patch('scripts.ci.codex_adaptation.eligible_candidate', return_value=True), \
+                 patch('scripts.ci.acceptance.select_representatives', return_value=[accepted]), \
+                 patch('scripts.ci.codex_adaptation.git', side_effect=['base', 'agent-base']), \
+                 patch('scripts.ci.codex_adaptation.subprocess.run'), \
+                 patch('scripts.ci.codex_adaptation.shutil.copyfile', side_effect=stop_after_cache_hit):
+                with self.assertRaisesRegex(ReachedCheckout, 'accepted cache passed'):
+                    prepare_rules(repository, report_path, candidate_apk, root / 'adaptation')
 
     def test_explicit_command_timeout_terminates_the_process_group(self):
         with tempfile.TemporaryDirectory() as temporary:
