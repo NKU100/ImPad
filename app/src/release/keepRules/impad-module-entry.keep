@@ -1,0 +1,6 @@
+# The libxposed loader reads this class name from META-INF/xposed/java_init.list.
+-keep class io.github.nku100.impad.ImPadModule {
+    public <init>();
+    public void onModuleLoaded(io.github.libxposed.api.XposedModuleInterface$ModuleLoadedParam);
+    public void onPackageLoaded(io.github.libxposed.api.XposedModuleInterface$PackageLoadedParam);
+}

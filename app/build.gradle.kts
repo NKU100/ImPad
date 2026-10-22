@@ -72,6 +72,9 @@ android {
         targetSdk = 37
         versionCode = 2
         versionName = "1.0.0"
+        ndk {
+            abiFilters += "arm64-v8a"
+        }
     }
 
     signingConfigs {
@@ -100,6 +103,9 @@ android {
         }
         release {
             isDebuggable = false
+            optimization {
+                enable = true
+            }
             if (hasStableSigningKey) {
                 signingConfig = signingConfigs.getByName("stable")
             }
@@ -230,6 +236,15 @@ fun registerModuleMetadataVerification(taskName: String, variant: String) = task
         }
 
         ZipFile(apk).use { archive ->
+            val packagedNativeAbis = archive.entries().asSequence()
+                .mapNotNull { entry ->
+                    Regex("^lib/([^/]+)/[^/]+\\.so$").matchEntire(entry.name)?.groupValues?.get(1)
+                }
+                .toSet()
+            check(packagedNativeAbis == setOf("arm64-v8a")) {
+                "$variant APK must package only arm64-v8a native libraries: $packagedNativeAbis"
+            }
+
             val fingerprintEntry = checkNotNull(archive.getEntry("assets/runtime-identity.json")) {
                 "Build-time module fingerprint is missing from the APK"
             }

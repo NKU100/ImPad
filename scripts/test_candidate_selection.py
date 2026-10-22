@@ -6,11 +6,13 @@ from pathlib import Path
 import tempfile
 import unittest
 from unittest.mock import patch
+import zipfile
 
 from scripts.ci.app_policy import get_policy
 from scripts.ci.candidate_selection import (
-    main, module_source_hashes, prepare_candidate, prepare_candidate_from_adaptation_report,
-    prepare_module, source_tree_sha256, write_local_runtime_assets,
+    dependency_lock_sha256, main, module_source_hashes, prepare_candidate,
+    prepare_candidate_from_adaptation_report, prepare_module, route_configuration_sha256,
+    source_tree_sha256, write_local_runtime_assets,
 )
 
 
@@ -65,6 +67,49 @@ class CandidateSelectionTest(unittest.TestCase):
             self.assertEqual(row['sha256'], hashlib.sha256(staged.read_bytes()).hexdigest())
         from scripts.ci.acceptance import validate_expected_plan
         validate_expected_plan(candidate['expectedPlan'], static['ruleCatalog'], identity['versionCode'])
+
+    @staticmethod
+    def _fingerprinted_module_fixture(root, mutate_fingerprint=None):
+        keep_rule = root / 'app/src/release/keepRules/impad-module-entry.keep'
+        keep_rule.parent.mkdir(parents=True)
+        keep_rule.write_text('-keep class example.Module { public <init>(); }\n')
+        for relative, content in {
+            'gradle/dexkit-lock.json': b'{"lock":1}\n',
+            'gradle/libs.versions.toml': b'[versions]\n',
+            'gradle/wrapper/gradle-wrapper.properties': b'distributionUrl=example\n',
+        }.items():
+            path = root / relative
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_bytes(content)
+
+        sources = module_source_hashes(root)
+        fingerprint = {
+            'schemaVersion': 1,
+            'moduleSources': sources,
+            'sourceTreeSha256': source_tree_sha256(root),
+            'routeConfigurationSha256': route_configuration_sha256(sources),
+            'dependencyLockSha256': dependency_lock_sha256(sources),
+        }
+        if mutate_fingerprint is not None:
+            mutate_fingerprint(fingerprint)
+        raw_fingerprint = (json.dumps(fingerprint, indent=2) + '\n').encode()
+        module_apk = root / 'module.apk'
+        with zipfile.ZipFile(module_apk, 'w') as archive:
+            archive.writestr('assets/runtime-identity.json', raw_fingerprint)
+        catalog_sha = 'd' * 64
+        static_report = {
+            'appId': 'qq',
+            'routeCandidates': [],
+            'ruleCatalogSha256': catalog_sha,
+            'executionIdentity': {
+                'ruleCatalogSha256': catalog_sha,
+                'fingerprintFileSha256': hashlib.sha256(raw_fingerprint).hexdigest(),
+                'sourceTreeSha256': fingerprint['sourceTreeSha256'],
+                'routeConfigurationSha256': fingerprint['routeConfigurationSha256'],
+                'dependencyLockSha256': fingerprint['dependencyLockSha256'],
+            },
+        }
+        return keep_rule, module_apk, static_report, fingerprint
 
     def test_candidate_cli_requires_explicit_app_and_rejects_targets_input(self):
         error = io.StringIO()
@@ -175,6 +220,60 @@ class CandidateSelectionTest(unittest.TestCase):
         self.assertIn('scripts/ci/apps/qq/probe/collector.c', paths)
         self.assertIn('scripts/ci/apps/wechat/probe/parser_test.c', paths)
         self.assertNotIn('scripts/ci/apps/qq/probe/collector_owner_test.c', paths)
+
+    def test_production_module_enumerator_matches_unique_apk_inputs_including_release_keep_rules(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            keep_rule, module_apk, static_report, fingerprint = self._fingerprinted_module_fixture(root)
+            sources = module_source_hashes(root)
+            source_paths = [row['path'] for row in sources]
+
+            self.assertEqual(len(source_paths), len(set(source_paths)))
+            self.assertEqual(
+                [row['path'] for row in fingerprint['moduleSources']],
+                source_paths,
+            )
+            keep_rows = [row for row in sources
+                         if row['path'] == 'app/src/release/keepRules/impad-module-entry.keep']
+            self.assertEqual(1, len(keep_rows))
+            self.assertEqual(hashlib.sha256(keep_rule.read_bytes()).hexdigest(), keep_rows[0]['sha256'])
+            with patch('scripts.ci.candidate_selection.subprocess.check_output', return_value='0' * 40 + '\n'):
+                prepared = prepare_module(module_apk, static_report, root)
+            self.assertEqual(fingerprint['moduleSources'], prepared['fingerprint']['moduleSources'])
+
+    def test_release_keep_rule_content_change_invalidates_prepared_module_fingerprint(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            keep_rule, module_apk, static_report, _ = self._fingerprinted_module_fixture(root)
+            keep_rule.write_text(keep_rule.read_text() + '# changed\n')
+            with self.assertRaisesRegex(ValueError, 'fingerprint does not match current source'):
+                prepare_module(module_apk, static_report, root)
+
+    def test_missing_release_keep_rule_invalidates_prepared_module_fingerprint(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            keep_rule, module_apk, static_report, _ = self._fingerprinted_module_fixture(root)
+            keep_rule.unlink()
+            with self.assertRaisesRegex(ValueError, 'fingerprint does not match current source'):
+                prepare_module(module_apk, static_report, root)
+
+    def test_tampered_release_keep_rule_hash_in_apk_fingerprint_is_rejected(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+
+            def tamper_keep_hash(fingerprint):
+                keep = next(row for row in fingerprint['moduleSources']
+                            if row['path'] == 'app/src/release/keepRules/impad-module-entry.keep')
+                keep['sha256'] = '0' * 64
+                payload = ''.join(
+                    f"{row['path']}\n{row['sha256']}\n"
+                    for row in sorted(fingerprint['moduleSources'], key=lambda item: item['path'])
+                )
+                fingerprint['sourceTreeSha256'] = hashlib.sha256(payload.encode()).hexdigest()
+
+            _, module_apk, static_report, _ = self._fingerprinted_module_fixture(root, tamper_keep_hash)
+            with self.assertRaisesRegex(ValueError, 'fingerprint does not match current source'):
+                prepare_module(module_apk, static_report, root)
 
 
 if __name__ == '__main__':

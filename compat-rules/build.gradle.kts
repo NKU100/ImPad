@@ -63,6 +63,7 @@ val dexkitLockFile = rootProject.file("gradle/dexkit-lock.json")
 val moduleSourceInputs = rootProject.fileTree(rootProject.projectDir) {
     include(
         "app/src/main/**",
+        "app/src/release/keepRules/**",
         "compat-core/src/main/**",
         "compat-rules/src/main/**",
         "compat-checker/src/main/**",
