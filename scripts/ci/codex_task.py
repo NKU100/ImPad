@@ -72,7 +72,54 @@ def pending_attempt(issues, app_id):
 
 def list_issues(repo):
     pages = json.loads(gh("api", "--paginate", "--slurp", f"repos/{repo}/issues?state=all&per_page=100"))
-    return [issue for page in pages for issue in page]
+    issues = [issue for page in pages for issue in page]
+    if issues:
+        return issues
+    # An empty REST list has occurred while individual issues remained readable.
+    # Confirm absence independently before creating another adaptation record.
+    owner, name = repo.split('/')
+    query = '''query($owner:String!,$name:String!,$endCursor:String){
+      repository(owner:$owner,name:$name){issues(first:100,after:$endCursor,states:[OPEN,CLOSED]){
+        nodes{number} pageInfo{hasNextPage endCursor}
+      }}
+    }'''
+    crosscheck = json.loads(gh('api', 'graphql', '--paginate', '--slurp',
+                              '-f', 'query=' + query, '-F', 'owner=' + owner, '-F', 'name=' + name))
+    numbers = []
+    try:
+        if not crosscheck:
+            raise ValueError('Empty GraphQL response')
+        for index, page in enumerate(crosscheck):
+            if page.get('errors'):
+                raise ValueError('GraphQL returned errors')
+            connection = page['data']['repository']['issues']
+            if connection['pageInfo']['hasNextPage'] is not (index < len(crosscheck) - 1):
+                raise ValueError('Incomplete GraphQL pagination')
+            for node in connection['nodes']:
+                number = node['number']
+                if type(number) is not int or number <= 0 or number in numbers:
+                    raise ValueError('Invalid or duplicate issue number')
+                numbers.append(number)
+    except (KeyError, TypeError, ValueError) as error:
+        raise ValueError('Cannot confirm empty REST issue list through GraphQL') from error
+    for number in numbers:
+        issue = json.loads(gh('api', f'repos/{repo}/issues/{number}'))
+        if not isinstance(issue, dict) or issue.get('number') != number or 'pull_request' in issue:
+            raise ValueError('Issue detail does not match GraphQL discovery')
+        user = issue.get('user')
+        labels = issue.get('labels')
+        if (issue.get('state') not in {'open', 'closed'}
+                or not isinstance(user, dict)
+                or not isinstance(user.get('login'), str) or not user['login']
+                or not isinstance(user.get('type'), str) or not user['type']
+                or not isinstance(labels, list)
+                or any(not isinstance(label, dict) or not isinstance(label.get('name'), str)
+                       for label in labels)
+                or 'body' not in issue
+                or (issue['body'] is not None and not isinstance(issue['body'], str))):
+            raise ValueError('Incomplete issue detail in GraphQL discovery')
+        issues.append(issue)
+    return issues
 
 
 def owner_comments(comments, owner, cursor=0):
@@ -304,8 +351,7 @@ def claim(repo, report, targets, directory, run_url, app_id=None):
     if not eligible_candidate(report, targets, policy.app_id):
         raise ValueError("Only verified, unknown candidate builds may start an adaptation")
     key = candidate_key(report)
-    pages = json.loads(gh("api", "--paginate", "--slurp", f"repos/{repo}/issues?state=all&per_page=100"))
-    issues = [issue for page in pages for issue in page]
+    issues = list_issues(repo)
     # Read both marker generations and fail closed if a candidate has duplicate records.
     matches = [i for i in candidate_attempts(issues, key)
                if i.get("state") == "open" or issue_status(i) == "RUNTIME_VERIFIED"]
