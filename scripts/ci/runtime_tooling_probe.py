@@ -70,7 +70,8 @@ def probe(root, app_id='wechat'):
         subprocess.run([adb, '-s', SERIAL, 'wait-for-device'], env=env, check=True,
                        timeout=120, capture_output=True)
 
-        relay = DeviceRelay(task, env)
+        # An inherited relative socket belongs to the caller's directory, not the probe checkout.
+        relay = DeviceRelay(task, env, adb_cwd=Path.cwd())
         env['IMPAD_ADB_RELAY'] = str(relay.root)
         wrapper = str(Path(__file__).with_name('adb-device.sh').resolve())
         current_step = 'app-launch'
