@@ -13,6 +13,8 @@ class RuntimeToolingProbeTest(unittest.TestCase):
         self.assertEqual('tcp:localhost:5039', normalize_adb_server_socket('tcp:localhost:5039'))
         self.assertEqual('localfilesystem:/tmp/impad.sock',
                          normalize_adb_server_socket('localfilesystem:/tmp/impad.sock'))
+        self.assertEqual('localfilesystem:.impad-private.sock',
+                         normalize_adb_server_socket('localfilesystem:.impad-private.sock'))
         self.assertEqual('localfilesystem:/tmp/legacy.sock',
                          normalize_adb_server_socket('/tmp/legacy.sock'))
 
@@ -40,21 +42,23 @@ class RuntimeToolingProbeTest(unittest.TestCase):
         relay.adb = '/sdk/adb'
         relay.serial = '127.0.0.1:16555'
         relay.env = {}
+        relay.workspace = Path('/workspace')
         with tempfile.TemporaryDirectory() as directory:
             relay.directory = Path(directory)
             calls = []
 
             def execute(command, cwd, request, timeout):
-                calls.append((command, timeout))
+                calls.append((command, cwd, timeout))
                 return 0, f'out-{len(calls)}'.encode(), f'err-{len(calls)}'.encode()
 
             with patch.object(relay, 'execute', side_effect=execute):
                 self.assertEqual(0, relay.dispatch(['app-launch'], Path('/workspace'), 'request')[0])
+            self.assertTrue(all(cwd == relay.workspace for _, cwd, _ in calls))
 
             rows = [json.loads(line) for line in (relay.directory / 'app-launch-steps.jsonl').read_text().splitlines()]
             self.assertEqual(['wait-for-device', 'page-size-compatibility', 'force-stop', 'launch-activity'],
                              [row['label'] for row in rows])
-            self.assertEqual([60, 60, 60, 60], [timeout for _, timeout in calls])
+            self.assertEqual([60, 60, 60, 60], [timeout for _, _, timeout in calls])
             for index, row in enumerate(rows, 1):
                 self.assertEqual('PASSED', row['status'])
                 self.assertEqual(0, row['exitCode'])
@@ -71,6 +75,7 @@ class RuntimeToolingProbeTest(unittest.TestCase):
         relay.adb = '/sdk/adb'
         relay.serial = '127.0.0.1:16555'
         relay.env = {}
+        relay.workspace = Path('/workspace')
         with tempfile.TemporaryDirectory() as directory:
             relay.directory = Path(directory)
             calls = []
@@ -91,6 +96,32 @@ class RuntimeToolingProbeTest(unittest.TestCase):
             self.assertEqual('TIMED_OUT', rows[-1]['status'])
             self.assertEqual('partial stdout', rows[-1]['stdout'])
             self.assertIn('exceeded 60 seconds', rows[-1]['stderr'])
+
+    def test_relay_uses_workspace_cwd_and_preserves_relative_local_file_semantics(self):
+        relay = DeviceRelay.__new__(DeviceRelay)
+        relay.policy = __import__('scripts.ci.app_policy', fromlist=['get_policy']).get_policy('wecom')
+        relay.adb = '/sdk/adb'
+        relay.serial = '127.0.0.1:16555'
+        relay.env = {'ADB_SERVER_SOCKET': 'localfilesystem:.impad-private.sock'}
+        relay.workspace = Path('/deep/非ASCII/workspace')
+        calls = []
+
+        def execute(command, cwd, request, timeout):
+            calls.append((command, cwd, timeout))
+            return 0, b'', b''
+
+        with patch.object(relay, 'execute', side_effect=execute):
+            relay.dispatch(['install', '-r', 'app.apk'], relay.workspace / 'subdir', 'request')
+            relay.dispatch(['push', 'one.bin', 'two.bin', '/sdcard/'], relay.workspace / 'subdir', 'request')
+            relay.dispatch(['pull', '/sdcard/result.bin', 'out/result.bin'], relay.workspace / 'subdir', 'request')
+            relay.dispatch(['pull', '/sdcard/result.bin', 'out/result.bin/'], relay.workspace / 'subdir', 'request')
+
+        self.assertEqual([relay.workspace] * 4, [cwd for _, cwd, _ in calls])
+        self.assertEqual(str(relay.workspace / 'subdir/app.apk'), calls[0][0][-1])
+        self.assertEqual([str(relay.workspace / 'subdir/one.bin'),
+                          str(relay.workspace / 'subdir/two.bin'), '/sdcard/'], calls[1][0][-3:])
+        self.assertEqual(str(relay.workspace / 'subdir/out/result.bin'), calls[2][0][-1])
+        self.assertEqual(str(relay.workspace / 'subdir/out/result.bin') + '/', calls[3][0][-1])
 
     def _fake_adb(self, root, serial):
         log = root / 'fake-adb.jsonl'

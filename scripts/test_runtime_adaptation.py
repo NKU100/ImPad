@@ -14,6 +14,8 @@ from scripts.ci.app_policy import get_policy
 
 class RuntimeAdaptationTest(unittest.TestCase):
     def setUp(self):
+        original_cwd = Path.cwd()
+        self.addCleanup(os.chdir, original_cwd)
         for name in ['ROOT', 'EVIDENCE', 'stage', 'APP_ID', 'APP_POLICY', 'APP_PACKAGE', 'UI_STRATEGY']:
             original = getattr(runtime.smoke, name)
             self.addCleanup(setattr, runtime.smoke, name, original)
@@ -61,7 +63,7 @@ class RuntimeAdaptationTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
             directory = root / 'task'; directory.mkdir()
-            worktree = root / 'checkout'; worktree.mkdir()
+            worktree = root / ('deep-' * 20) / '非ASCII' / 'checkout'; worktree.mkdir(parents=True)
             runtime_root = root / 'runtime'; runtime_root.mkdir()
             (runtime_root / 'wechat.apk').write_bytes(b'app specific apk')
             report = {'appId': 'wechat', 'identity': {'apkSha256': sha256(runtime_root / 'wechat.apk')}}
@@ -84,6 +86,11 @@ class RuntimeAdaptationTest(unittest.TestCase):
             state = json.loads(state_path.read_text())
             self.assertTrue(state['runtime']['serverOwned'])
             self.assertTrue(state['runtime']['socket'].startswith('localfilesystem:'))
+            endpoint_path = state['runtime']['socket'].removeprefix('localfilesystem:')
+            self.assertFalse(Path(endpoint_path).is_absolute())
+            self.assertLess(len(os.fsencode(endpoint_path)), 108)
+            self.assertEqual(worktree.resolve(), Path.cwd())
+            self.assertEqual(worktree.resolve(), Path(run_command.call_args_list[0].kwargs['cwd']).resolve())
             with patch.dict('os.environ', {}, clear=True):
                 configured, _ = runtime.configure(directory)
                 self.assertEqual(configured['runtime']['socket'], os.environ['ADB_SERVER_SOCKET'])
@@ -101,7 +108,7 @@ class RuntimeAdaptationTest(unittest.TestCase):
                 self.assertFalse(runtime.stop_owned_adb_server(directory))
                 run_command.assert_not_called()
 
-            state_path.write_text(json.dumps({'runtime': {
+            state_path.write_text(json.dumps({'worktree': str(directory), 'runtime': {
                 'socket': 'localfilesystem:/tmp/impad-private.sock', 'serverOwned': True}}))
             with patch.object(runtime.subprocess, 'run', return_value=SimpleNamespace(returncode=0)) as run_command:
                 self.assertTrue(runtime.stop_owned_adb_server(directory))
@@ -109,6 +116,21 @@ class RuntimeAdaptationTest(unittest.TestCase):
             self.assertEqual(['adb', '-L', 'localfilesystem:/tmp/impad-private.sock', 'kill-server'],
                              call.args[0])
             self.assertEqual('localfilesystem:/tmp/impad-private.sock', call.kwargs['env']['ADB_SERVER_SOCKET'])
+            self.assertEqual(directory.resolve(), call.kwargs['cwd'])
+
+    def test_configure_uses_workspace_as_cwd_for_relative_private_endpoint(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            task = root / 'task'; task.mkdir()
+            workspace = root / '非ASCII' / ('deep-' * 20)
+            workspace.mkdir(parents=True)
+            (task / 'state.json').write_text(json.dumps({
+                'appId': 'wechat', 'worktree': str(workspace),
+                'runtime': {'root': str(root), 'serial': 'emulator-5554',
+                            'socket': 'localfilesystem:.impad-adb-private.sock'}}))
+            runtime.configure(task)
+            self.assertEqual(workspace.resolve(), Path.cwd())
+            self.assertEqual('localfilesystem:.impad-adb-private.sock', os.environ['ADB_SERVER_SOCKET'])
 
     def test_runtime_failure_copies_evidence_for_same_goal_feedback(self):
         with tempfile.TemporaryDirectory() as temporary:
