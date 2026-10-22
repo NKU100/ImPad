@@ -177,10 +177,47 @@ def write_diagnostics(directory, iterations, client, status='continue'):
               'threadId': getattr(client, 'thread_id', None),
               'inputDelivered': getattr(client, 'input_delivered', False)}
     result['authenticationRefresh'] = getattr(client, 'authentication_refresh', None)
+    account_read = getattr(client, 'account_read_diagnostic', None)
+    if account_read is not None:
+        result['accountRead'] = account_read
+    authentication_failure = getattr(client, 'authentication_failure', None)
+    if authentication_failure is not None:
+        result['authenticationFailure'] = authentication_failure
     target = directory / 'goal-diagnostics.json'
     temporary = target.with_suffix('.json.tmp')
     temporary.write_text(json.dumps(sanitize(result, secrets), indent=2) + '\n')
     temporary.replace(target)
+
+
+def account_read_summary(response):
+    response_is_dict = isinstance(response, dict)
+    account_present = response_is_dict and 'account' in response
+    account = response.get('account') if response_is_dict else None
+    if not response_is_dict:
+        account_shape = 'unavailable'
+    elif not account_present:
+        account_shape = 'missing'
+    elif account is None:
+        account_shape = 'null'
+    elif isinstance(account, dict):
+        account_shape = 'dict'
+    else:
+        account_shape = 'other'
+
+    account_type = account.get('type') if isinstance(account, dict) else None
+    if not isinstance(account_type, str) or account_type not in {'apiKey', 'chatgpt', 'amazonBedrock'}:
+        account_type = 'unknown'
+    requires_openai_auth = response.get('requiresOpenaiAuth') if response_is_dict else None
+    if not isinstance(requires_openai_auth, bool):
+        requires_openai_auth = 'unknown'
+
+    return {
+        'responseIsDict': response_is_dict,
+        'accountFieldPresent': account_present,
+        'accountShape': account_shape,
+        'accountType': account_type,
+        'requiresOpenaiAuth': requires_openai_auth,
+    }
 
 
 def verification_error(directory, error):
@@ -336,16 +373,33 @@ def run_model_goal(directory, prompt_path):
     try:
         client = AppServer(directory, env)
         client.authentication_refresh = 'requested'
+        client.authentication_failure = None
+        client.account_read_diagnostic = None
         write_diagnostics(directory, [], client, 'authenticating')
         try:
             # Request managed refresh explicitly before workspace routing begins.
-            account = client.request('account/read', {'refreshToken': True}).get('account')
-            if not isinstance(account, dict) or account.get('type') != 'chatgpt':
-                raise RuntimeError('Codex authentication did not return a managed ChatGPT account')
+            account_response = client.request('account/read', {'refreshToken': True})
         except Exception:
+            client.authentication_failure = 'account_read_rpc'
             client.authentication_refresh = 'failed'
             write_diagnostics(directory, [], client, 'interrupted')
-            raise
+            raise RuntimeError('Codex account/read RPC failed') from None
+        client.account_read_diagnostic = account_read_summary(account_response)
+        if not client.account_read_diagnostic['responseIsDict']:
+            client.authentication_failure = 'account_response_invalid'
+        elif (not client.account_read_diagnostic['accountFieldPresent']
+              or client.account_read_diagnostic['accountShape'] == 'null'):
+            client.authentication_failure = 'account_missing'
+        elif client.account_read_diagnostic['accountShape'] != 'dict':
+            client.authentication_failure = 'account_invalid'
+        elif client.account_read_diagnostic['accountType'] != 'chatgpt':
+            client.authentication_failure = 'account_type_mismatch'
+        if client.authentication_failure is not None:
+            client.authentication_refresh = 'failed'
+            write_diagnostics(directory, [], client, 'interrupted')
+            raise RuntimeError(
+                'Codex authentication preflight failed: ' + client.authentication_failure
+            )
         client.authentication_refresh = 'succeeded'
         write_diagnostics(directory, [], client, 'authenticated')
         resume_context = read_json(directory / 'resume-context.json', {})
@@ -360,7 +414,7 @@ def run_model_goal(directory, prompt_path):
         secrets = getattr(client, 'secrets', []) + auth_secrets()
         diagnostics['controllerError'] = redact(str(error), secrets)
         stderr = directory / 'app-server.stderr.log'
-        if stderr.is_file():
+        if stderr.is_file() and getattr(client, 'authentication_failure', None) is None:
             diagnostics['serverErrorTail'] = redact(stderr.read_text(errors='replace')[-2000:], secrets)
         path.write_text(json.dumps(diagnostics, indent=2) + '\n')
         raise

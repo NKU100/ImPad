@@ -11,7 +11,7 @@ from scripts.ci.codex_goal import run_goal, run_model_goal, redact, write_diagno
 
 
 class AuthenticationTest(unittest.TestCase):
-    def exercise(self, response=None, error=None):
+    def exercise(self, response=None, error=None, stderr_content=None):
         client = MagicMock()
         client.secrets = ['private-access-token']
         client.messages = []
@@ -27,6 +27,8 @@ class AuthenticationTest(unittest.TestCase):
         client.request.side_effect = request
         with tempfile.TemporaryDirectory() as root:
             directory = Path(root)
+            if stderr_content is not None:
+                (directory / 'app-server.stderr.log').write_text(stderr_content)
             prompt = directory / 'prompt.md'
             prompt.write_text('adapt exact candidate')
             with patch('scripts.ci.codex_goal.AppServer', return_value=client), \
@@ -52,15 +54,28 @@ class AuthenticationTest(unittest.TestCase):
         self.assertEqual(1, calls)
         self.assertIsNone(error)
         self.assertEqual('succeeded', report['authenticationRefresh'])
+        self.assertEqual({
+            'responseIsDict': True,
+            'accountFieldPresent': True,
+            'accountShape': 'dict',
+            'accountType': 'chatgpt',
+            'requiresOpenaiAuth': True,
+        }, report['accountRead'])
         self.assertNotIn('private', json.dumps(report))
 
     def test_refresh_failure_prevents_goal_and_is_redacted(self):
-        _, events, calls, error, report = self.exercise(error=RuntimeError('refresh rejected private-access-token'))
+        _, events, calls, error, report = self.exercise(error=RuntimeError(
+            'refresh rejected private-access-token private@example.com account-secret'),
+            stderr_content='account response private@example.com account-secret')
         self.assertEqual(['refresh'], events)
         self.assertEqual(0, calls)
         self.assertIsNotNone(error)
         self.assertEqual('failed', report['authenticationRefresh'])
+        self.assertEqual('account_read_rpc', report['authenticationFailure'])
         self.assertNotIn('private-access-token', json.dumps(report))
+        self.assertNotIn('private@example.com', json.dumps(report))
+        self.assertNotIn('account-secret', json.dumps(report))
+        self.assertNotIn('private@example.com', str(error))
 
     def test_missing_managed_account_prevents_goal(self):
         _, events, calls, error, report = self.exercise({'account': None, 'requiresOpenaiAuth': True})
@@ -68,6 +83,70 @@ class AuthenticationTest(unittest.TestCase):
         self.assertEqual(0, calls)
         self.assertIsNotNone(error)
         self.assertEqual('failed', report['authenticationRefresh'])
+        self.assertEqual('account_missing', report['authenticationFailure'])
+        self.assertEqual({
+            'responseIsDict': True,
+            'accountFieldPresent': True,
+            'accountShape': 'null',
+            'accountType': 'unknown',
+            'requiresOpenaiAuth': True,
+        }, report['accountRead'])
+
+    def test_non_chatgpt_and_unknown_account_types_are_classified_without_raw_values(self):
+        for account_type, safe_type in [('apiKey', 'apiKey'), ('amazonBedrock', 'amazonBedrock'),
+                                        ('private-account-kind', 'unknown'),
+                                        (['private-kind'], 'unknown')]:
+            with self.subTest(account_type=safe_type):
+                _, events, calls, error, report = self.exercise({
+                    'account': {'type': account_type, 'email': 'private@example.com',
+                                'token': 'private-access-token'},
+                    'requiresOpenaiAuth': 'not-a-bool',
+                })
+                self.assertEqual(['refresh'], events)
+                self.assertEqual(0, calls)
+                self.assertIsNotNone(error)
+                self.assertIn('account_type_mismatch', str(error))
+                self.assertEqual('account_type_mismatch', report['authenticationFailure'])
+                self.assertEqual({
+                    'responseIsDict': True,
+                    'accountFieldPresent': True,
+                    'accountShape': 'dict',
+                    'accountType': safe_type,
+                    'requiresOpenaiAuth': 'unknown',
+                }, report['accountRead'])
+                serialized = json.dumps(report)
+                if isinstance(account_type, str) and account_type not in {'apiKey', 'chatgpt', 'amazonBedrock'}:
+                    self.assertNotIn(account_type, serialized)
+                self.assertNotIn('private-kind', serialized)
+                self.assertNotIn('private@example.com', serialized)
+                self.assertNotIn('private-access-token', serialized)
+
+    def test_missing_account_field_and_non_object_response_have_safe_shapes(self):
+        for response, failure, expected in [
+            ({'requiresOpenaiAuth': False}, 'account_missing', {
+                'responseIsDict': True, 'accountFieldPresent': False,
+                'accountShape': 'missing', 'accountType': 'unknown',
+                'requiresOpenaiAuth': False,
+            }),
+            ({'account': ['private-content'], 'requiresOpenaiAuth': 0}, 'account_invalid', {
+                'responseIsDict': True, 'accountFieldPresent': True,
+                'accountShape': 'other', 'accountType': 'unknown',
+                'requiresOpenaiAuth': 'unknown',
+            }),
+            (['unexpected', 'private'], 'account_response_invalid', {
+                'responseIsDict': False, 'accountFieldPresent': False,
+                'accountShape': 'unavailable', 'accountType': 'unknown',
+                'requiresOpenaiAuth': 'unknown',
+            }),
+        ]:
+            with self.subTest(response_is_dict=isinstance(response, dict)):
+                _, events, calls, error, report = self.exercise(response)
+                self.assertEqual(['refresh'], events)
+                self.assertEqual(0, calls)
+                self.assertIsNotNone(error)
+                self.assertEqual(failure, report['authenticationFailure'])
+                self.assertEqual(expected, report['accountRead'])
+                self.assertNotIn('unexpected', json.dumps(report))
 
 
 class FakeClient:
