@@ -12,6 +12,10 @@ on:
         type: choice
         options: [release, debug]
         default: release
+      release_validation:
+        description: Build a temporary-signed release/R8 test artifact on an owner-controlled feature branch
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -20,6 +24,31 @@ jobs:
   build:
     runs-on: ubuntu-24.04
     steps:
+      - name: Resolve opt-in build mode
+        id: validation-mode
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          BUILD_REF: ${{ github.ref }}
+          BUILD_REPOSITORY: ${{ github.repository }}
+          BUILD_ACTOR: ${{ github.actor }}
+          BUILD_TRIGGERING_ACTOR: ${{ github.triggering_actor }}
+          RELEASE_VALIDATION: ${{ inputs.release_validation || false }}
+          BUILD_TYPE: ${{ inputs.build_type || 'auto' }}
+        run: |
+          set -euo pipefail
+          enabled=false
+          if [[ "$RELEASE_VALIDATION" == true ]]; then
+            if [[ "$EVENT_NAME" != workflow_dispatch || "$BUILD_REPOSITORY" != NKU100/ImPad ||
+                  "$BUILD_ACTOR" != NKU100 || "$BUILD_TRIGGERING_ACTOR" != NKU100 ||
+                  "$BUILD_REF" != refs/heads/* || "$BUILD_REF" == refs/heads/main ||
+                  "$BUILD_TYPE" != release ]]; then
+              echo 'Release validation requires an owner-triggered manual release on a feature branch.' >&2
+              exit 1
+            fi
+            enabled=true
+          fi
+          printf 'enabled=%s\n' "$enabled" >> "$GITHUB_OUTPUT"
+
       - name: Check out build revision for DexKit preparation
         uses: actions/checkout@v7
         with:
@@ -36,6 +65,8 @@ jobs:
 
       - name: Check out source
         uses: actions/checkout@v7
+        with:
+          ref: ${{ github.sha }}
 
       - name: Set up JDK 21
         uses: actions/setup-java@v6
@@ -97,18 +128,118 @@ jobs:
           bash scripts/ci/build_module.sh "$REQUESTED_BUILD_TYPE"
 
       - name: Build debug APK with runner debug key
+        id: debug-build
         if: >-
-          github.event_name == 'pull_request' ||
+          steps.validation-mode.outputs.enabled != 'true' &&
+          (github.event_name == 'pull_request' ||
           ((github.event_name == 'push' || github.event_name == 'workflow_dispatch') && github.ref != 'refs/heads/main' &&
-          !startsWith(github.ref, 'refs/tags/v'))
+          !startsWith(github.ref, 'refs/tags/v')))
         env:
           REQUESTED_BUILD_TYPE: ${{ inputs.build_type || 'debug' }}
         run: bash scripts/ci/build_module.sh "$REQUESTED_BUILD_TYPE"
 
+      - name: Build temporary-signed release R8 validation artifact
+        id: release-validation
+        if: steps.validation-mode.outputs.enabled == 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          test -z "$(git status --porcelain --untracked-files=no)"
+          test ! -e keystore.properties
+          validation_directory=$(mktemp -d "$RUNNER_TEMP/impad-release-validation.XXXXXX")
+          trap 'rm -rf "$validation_directory"' EXIT
+          validation_password=$(openssl rand -hex 24)
+          echo "::add-mask::$validation_password"
+          unset WECHATPAD_KEYSTORE_BASE64 WECHATPAD_DEBUG_KEYSTORE
+          export WECHATPAD_KEYSTORE="$validation_directory/validation.p12"
+          export WECHATPAD_KEYSTORE_PASSWORD="$validation_password"
+          export WECHATPAD_KEY_ALIAS=release-validation
+          export WECHATPAD_KEY_PASSWORD="$validation_password"
+          keytool -genkeypair -noprompt -storetype PKCS12 -keyalg RSA -keysize 2048 \
+            -validity 2 -dname 'CN=ImPad temporary release validation' \
+            -keystore "$WECHATPAD_KEYSTORE" -alias "$WECHATPAD_KEY_ALIAS" \
+            -storepass "$validation_password" -keypass "$validation_password"
+          ./gradlew --no-daemon :app:assembleRelease :app:verifyReleaseModuleMetadata
+          apk=app/build/outputs/apk/release/app-release.apk
+          tools="$ANDROID_HOME/build-tools/37.0.0"
+          analyzer="$ANDROID_HOME/cmdline-tools/latest/bin/apkanalyzer"
+          "$tools/apksigner" verify --verbose --print-certs "$apk" > "$validation_directory/signature.txt"
+          "$tools/zipalign" -c -P 16 4 "$apk" > "$validation_directory/zipalign.txt"
+          test "$("$analyzer" manifest debuggable "$apk")" = false
+          "$analyzer" dex code --class io.github.nku100.impad.ImPadModule "$apk" > "$validation_directory/entry-dex.txt"
+          python3 - "$apk" "$validation_directory" <<'PY'
+          import hashlib
+          import json
+          import os
+          from pathlib import Path
+          import shutil
+          import subprocess
+          import sys
+          import zipfile
+          from scripts.ci.candidate_selection import module_source_hashes, read_module_fingerprint, source_tree_sha256
+
+          apk, temporary = map(Path, sys.argv[1:])
+          fingerprint, _ = read_module_fingerprint(apk)
+          sources = module_source_hashes(Path.cwd())
+          if fingerprint['moduleSources'] != sources or fingerprint['sourceTreeSha256'] != source_tree_sha256(Path.cwd()):
+              raise SystemExit('Release validation APK differs from the exact source inputs')
+          subprocess.run(['git', 'ls-files', '--error-unmatch', '--', *[row['path'] for row in sources]],
+                         check=True, stdout=subprocess.DEVNULL)
+          lock = json.loads(Path('gradle/dexkit-lock.json').read_text())
+          with zipfile.ZipFile(apk) as archive:
+              natives = [name for name in archive.namelist() if name.startswith('lib/') and name.endswith('.so')]
+              if natives != ['lib/arm64-v8a/libdexkit.so']:
+                  raise SystemExit('Release validation APK must contain only the locked arm64 native')
+              if hashlib.sha256(archive.read(natives[0])).hexdigest() != lock['artifacts']['androidArm64V8a']['sha256']:
+                  raise SystemExit('Release validation native differs from the lock')
+              if archive.read('META-INF/xposed/java_init.list').decode().strip() != 'io.github.nku100.impad.ImPadModule':
+                  raise SystemExit('Release validation Xposed entry differs')
+          mapping = Path('app/build/outputs/mapping/release')
+          for name in ('mapping.txt', 'usage.txt', 'seeds.txt', 'configuration.txt'):
+              if not (mapping / name).is_file() or not (mapping / name).stat().st_size:
+                  raise SystemExit(f'Release validation R8 output is missing: {name}')
+          if 'io.github.nku100.impad.ImPadModule' not in (mapping / 'seeds.txt').read_text().splitlines():
+              raise SystemExit('Release validation R8 seeds omit the Xposed entry')
+          artifact = Path('work/r8-release-validation')
+          artifact.mkdir(parents=True)
+          destination = artifact / 'impad-release-r8-validation.apk'
+          shutil.copyfile(apk, destination)
+          shutil.copytree(mapping, artifact / 'r8')
+          for name in ('signature.txt', 'zipalign.txt', 'entry-dex.txt'):
+              shutil.copyfile(temporary / name, artifact / name)
+          source_archive = artifact / 'impad-release-r8-validation-source.tar.gz'
+          with source_archive.open('wb') as output:
+              subprocess.run(['git', 'archive', '--format=tar.gz', 'HEAD'], check=True, stdout=output)
+          checksums = {path.name: hashlib.sha256(path.read_bytes()).hexdigest()
+                       for path in (destination, source_archive)}
+          (artifact / 'SHA256SUMS').write_text(''.join(f'{digest}  {name}\n' for name, digest in checksums.items()))
+          (artifact / 'runtime-identity.json').write_text(json.dumps(fingerprint, indent=2) + '\n')
+          (artifact / 'build.json').write_text(json.dumps({
+              'buildType': 'release', 'optimization': 'R8', 'validationOnly': True,
+              'signing': 'ephemeral-test-key', 'commit': os.environ['GITHUB_SHA'],
+              'runId': os.environ['GITHUB_RUN_ID'], 'ref': os.environ['GITHUB_REF'],
+              'repository': os.environ['GITHUB_REPOSITORY'],
+              'sourceTreeSha256': fingerprint['sourceTreeSha256'], 'sha256': checksums,
+          }, indent=2) + '\n')
+          PY
+
       - name: Upload module APK
+        id: upload-module
+        if: steps.validation-mode.outputs.enabled != 'true'
         uses: actions/upload-artifact@v7
         with:
           name: impad-module-apk
           path: work/module-artifact/
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Upload temporary-signed release R8 validation artifact
+        id: upload-release-validation
+        if: steps.validation-mode.outputs.enabled == 'true'
+        uses: actions/upload-artifact@v7
+        with:
+          name: impad-r8-release-validation
+          path: work/r8-release-validation/
           if-no-files-found: error
           retention-days: 14

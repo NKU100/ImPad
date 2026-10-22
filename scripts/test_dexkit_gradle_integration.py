@@ -97,7 +97,8 @@ def _run_fixture_git(repository: Path, *arguments: str) -> str:
     return result.stdout.strip()
 
 
-def _github_if_matches(expression: str, event_name: str, ref: str) -> bool:
+def _github_if_matches(expression: str, event_name: str, ref: str,
+                       step_outputs: dict[str, str] | None = None) -> bool:
     normalized = re.sub(
         r"startsWith\(\s*github\.ref\s*,\s*('[^']*'|\"[^\"]*\")\s*\)",
         lambda match: str(ref.startswith(ast.literal_eval(match.group(1)))),
@@ -105,6 +106,8 @@ def _github_if_matches(expression: str, event_name: str, ref: str) -> bool:
     )
     normalized = normalized.replace("github.event_name", repr(event_name))
     normalized = normalized.replace("github.ref", repr(ref))
+    for name, value in (step_outputs or {}).items():
+        normalized = normalized.replace(name, repr(value))
     normalized = normalized.replace("&&", " and ").replace("||", " or ")
     root = ast.parse(normalized, mode="eval").body
 
@@ -249,7 +252,8 @@ class DexKitGradleIntegrationTest(unittest.TestCase):
         ]
         for step in publication_steps:
             self.assertFalse(
-                _github_if_matches(step.get("if", ""), "pull_request", "refs/pull/42/merge"),
+                _github_if_matches(step.get("if", ""), "pull_request", "refs/pull/42/merge",
+                                   {"steps.validation-mode.outputs.enabled": "false"}),
                 f"PR event can enter release/publish step {step.get('name')!r}",
             )
 
