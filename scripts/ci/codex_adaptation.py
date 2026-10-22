@@ -238,8 +238,8 @@ def validate_existing_tests(worktree, existing_tests):
             raise ValueError("Existing regression tests must remain unchanged")
 
 
-def git(cwd, *arguments):
-    return subprocess.check_output(["git", *arguments], cwd=cwd).decode().strip()
+def git(cwd, *arguments, env=None):
+    return subprocess.check_output(["git", *arguments], cwd=cwd, env=env).decode().strip()
 
 
 def patch_tree(checkout, base, patch_path):
