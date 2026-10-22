@@ -13,6 +13,54 @@ export function adaptationArguments(env = process.env) {
     '--app-id', appId, '--directory', env.CODEX_TASK_DIR, '--prompt', env.ADAPTATION_PROMPT];
 }
 
+const diagnosticEnums = {
+  status: new Set(['authenticating', 'authenticated', 'running', 'verified', 'blocked', 'interrupted']),
+  authenticationRefresh: new Set(['requested', 'succeeded', 'failed']),
+  authenticationFailure: new Set(['account_read_rpc', 'account_response_invalid', 'account_missing',
+    'account_invalid', 'account_type_mismatch']),
+  accountShape: new Set(['unavailable', 'missing', 'null', 'dict', 'other']),
+  accountType: new Set(['apiKey', 'chatgpt', 'amazonBedrock', 'unknown']),
+  authenticationLoadOutcome: new Set(['loaded', 'not_loaded', 'load_error', 'unknown', 'probe_error']),
+  authenticationLoadAccountType: new Set(['chatgpt', 'apiKey', 'unknown']),
+};
+
+function safeGoalDiagnostics(value) {
+  if (value === null || typeof value !== 'object' || Array.isArray(value)) return null;
+  const summary = {};
+  for (const field of ['status', 'authenticationRefresh', 'authenticationFailure']) {
+    if (diagnosticEnums[field].has(value[field])) summary[field] = value[field];
+  }
+  if (value.accountRead !== null && typeof value.accountRead === 'object' && !Array.isArray(value.accountRead)) {
+    const accountRead = {};
+    for (const field of ['responseIsDict', 'accountFieldPresent']) {
+      if (typeof value.accountRead[field] === 'boolean') accountRead[field] = value.accountRead[field];
+    }
+    for (const [field, enumName] of [['accountShape', 'accountShape'], ['accountType', 'accountType']]) {
+      if (diagnosticEnums[enumName].has(value.accountRead[field])) accountRead[field] = value.accountRead[field];
+    }
+    if (typeof value.accountRead.requiresOpenaiAuth === 'boolean' ||
+        value.accountRead.requiresOpenaiAuth === 'unknown') {
+      accountRead.requiresOpenaiAuth = value.accountRead.requiresOpenaiAuth;
+    }
+    if (Object.keys(accountRead).length) summary.accountRead = accountRead;
+  }
+  if (value.authenticationLoad !== null && typeof value.authenticationLoad === 'object' &&
+      !Array.isArray(value.authenticationLoad)) {
+    const authenticationLoad = {};
+    if (diagnosticEnums.authenticationLoadOutcome.has(value.authenticationLoad.outcome)) {
+      authenticationLoad.outcome = value.authenticationLoad.outcome;
+    }
+    if (diagnosticEnums.authenticationLoadAccountType.has(value.authenticationLoad.accountType)) {
+      authenticationLoad.accountType = value.authenticationLoad.accountType;
+    }
+    const exitCode = value.authenticationLoad.exitCode;
+    authenticationLoad.exitCode = exitCode === null ||
+      (Number.isInteger(exitCode) && exitCode >= 0 && exitCode <= 255) ? exitCode : null;
+    if (Object.keys(authenticationLoad).length) summary.authenticationLoad = authenticationLoad;
+  }
+  return Object.keys(summary).length ? summary : null;
+}
+
 // Runs in the trusted action process; runtime upload credentials never enter the model environment.
 export async function run(core) {
   const appId = process.env.APP_ID;
@@ -110,6 +158,15 @@ export async function run(core) {
     const destination = path.join(root, 'runner-health.json');
     await writeFile(destination, JSON.stringify(telemetry, null, 2), {mode: 0o600});
     const files = [destination];
+    try {
+      const diagnostics = JSON.parse(await readFile(path.join(task, 'goal-diagnostics.json'), 'utf8'));
+      const safeDiagnostics = safeGoalDiagnostics(diagnostics);
+      if (safeDiagnostics) {
+        const safeDestination = path.join(root, 'goal-diagnostics.json');
+        await writeFile(safeDestination, JSON.stringify(safeDiagnostics, null, 2) + '\n', {mode: 0o600});
+        files.push(safeDestination);
+      }
+    } catch {}
     const logs = {};
     try {
       logs.kernel = execFileSync('sudo', ['-n', 'journalctl', '-k', '--since', `@${started}`,
