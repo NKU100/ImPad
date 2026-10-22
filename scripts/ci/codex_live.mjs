@@ -20,15 +20,40 @@ const diagnosticEnums = {
     'account_invalid', 'account_type_mismatch']),
   accountShape: new Set(['unavailable', 'missing', 'null', 'dict', 'other']),
   accountType: new Set(['apiKey', 'chatgpt', 'amazonBedrock', 'unknown']),
+  refreshLogOutcome: new Set(['unavailable', 'read_error', 'no_failure_recorded', 'failure_recorded']),
+  refreshLogReason: new Set(['expired', 'reused', 'revoked', 'invalid_grant', 'multiple', 'unknown']),
+  refreshLogHttpStatus: new Set(['unauthorized', 'bad_request', 'other', 'multiple', 'unknown']),
   authenticationLoadOutcome: new Set(['loaded', 'not_loaded', 'load_error', 'unknown', 'probe_error']),
   authenticationLoadAccountType: new Set(['chatgpt', 'apiKey', 'unknown']),
 };
+
+function safeRefreshLogEntry(value) {
+  if (value === null || typeof value !== 'object' || Array.isArray(value)) return null;
+  const result = {};
+  for (const [field, enumName] of [
+    ['outcome', 'refreshLogOutcome'], ['reason', 'refreshLogReason'], ['httpStatus', 'refreshLogHttpStatus'],
+  ]) {
+    if (diagnosticEnums[enumName].has(value[field])) result[field] = value[field];
+  }
+  return Object.keys(result).length ? result : null;
+}
 
 function safeGoalDiagnostics(value) {
   if (value === null || typeof value !== 'object' || Array.isArray(value)) return null;
   const summary = {};
   for (const field of ['status', 'authenticationRefresh', 'authenticationFailure']) {
     if (diagnosticEnums[field].has(value[field])) summary[field] = value[field];
+  }
+  if (value.authenticationRefreshLog !== null && typeof value.authenticationRefreshLog === 'object' &&
+      !Array.isArray(value.authenticationRefreshLog)) {
+    const authenticationRefreshLog = {};
+    for (const field of ['beforeRefresh', 'afterRefresh']) {
+      const entry = safeRefreshLogEntry(value.authenticationRefreshLog[field]);
+      if (entry) authenticationRefreshLog[field] = entry;
+    }
+    if (Object.keys(authenticationRefreshLog).length) {
+      summary.authenticationRefreshLog = authenticationRefreshLog;
+    }
   }
   if (value.accountRead !== null && typeof value.accountRead === 'object' && !Array.isArray(value.accountRead)) {
     const accountRead = {};
