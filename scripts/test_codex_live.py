@@ -12,6 +12,10 @@ NODE = os.environ.get("CODEX_TEST_NODE") or shutil.which("node")
 
 
 class CodexLiveLauncherTest(unittest.TestCase):
+    @staticmethod
+    def _final_snapshot(paths):
+        return max(paths, key=lambda path: int(path.parent.name.rsplit('-', 1)[1]))
+
     def _node_environment(self, temporary, app_id):
         task = Path(temporary) / 'task'
         task.mkdir()
@@ -194,7 +198,8 @@ await run({
             uploaded_diagnostics = list(artifact_directory.rglob("goal-diagnostics.json"))
             self.assertTrue(uploaded_diagnostics,
                             f"live snapshot omitted goal diagnostics: {result.stdout}\n{result.stderr}")
-            safe_summary = json.loads(uploaded_diagnostics[-1].read_text())
+            final_diagnostics = self._final_snapshot(uploaded_diagnostics)
+            safe_summary = json.loads(final_diagnostics.read_text())
             self.assertEqual({
                 "status": "interrupted",
                 "authenticationRefresh": "failed",
@@ -220,8 +225,8 @@ await run({
                 "CONTROLLER_ERROR_PRIVATE_SENTINEL", "SERVER_ERROR_PRIVATE_SENTINEL",
                 "controllerError", "serverErrorTail", "modelMessages", "threadId",
             ):
-                self.assertNotIn(private_value, uploaded_diagnostics[-1].read_text())
-            self.assertTrue((uploaded_diagnostics[-1].parent / "runner-logs.json.age").is_file())
+                self.assertNotIn(private_value, final_diagnostics.read_text())
+            self.assertTrue((final_diagnostics.parent / "runner-logs.json.age").is_file())
             self.assertFalse((task / "native-thread.json").exists())
 
             null_artifacts = Path(temporary) / "uploaded-null-artifacts"
@@ -235,7 +240,7 @@ await run({
             null_diagnostics = list(null_artifacts.rglob("goal-diagnostics.json"))
             self.assertTrue(null_diagnostics,
                             f"live snapshot omitted null-exit diagnostics: {null_result.stderr}")
-            null_summary = json.loads(null_diagnostics[-1].read_text())
+            null_summary = json.loads(self._final_snapshot(null_diagnostics).read_text())
             self.assertEqual(None, null_summary["authenticationLoad"]["exitCode"])
 
             for invalid_exit_code in ("bool", "999999"):
@@ -251,7 +256,7 @@ await run({
                     invalid_diagnostics = list(invalid_artifacts.rglob("goal-diagnostics.json"))
                     self.assertTrue(invalid_diagnostics,
                                     f"live snapshot omitted invalid-exit diagnostics: {invalid_result.stderr}")
-                    invalid_summary = json.loads(invalid_diagnostics[-1].read_text())
+                    invalid_summary = json.loads(self._final_snapshot(invalid_diagnostics).read_text())
                     self.assertEqual(None, invalid_summary["authenticationLoad"]["exitCode"])
 
 
