@@ -43,6 +43,7 @@ class RuntimeToolingProbeTest(unittest.TestCase):
         relay.serial = '127.0.0.1:16555'
         relay.env = {}
         relay.workspace = Path('/workspace')
+        relay.adb_cwd = relay.workspace
         with tempfile.TemporaryDirectory() as directory:
             relay.directory = Path(directory)
             calls = []
@@ -76,6 +77,7 @@ class RuntimeToolingProbeTest(unittest.TestCase):
         relay.serial = '127.0.0.1:16555'
         relay.env = {}
         relay.workspace = Path('/workspace')
+        relay.adb_cwd = relay.workspace
         with tempfile.TemporaryDirectory() as directory:
             relay.directory = Path(directory)
             calls = []
@@ -104,6 +106,7 @@ class RuntimeToolingProbeTest(unittest.TestCase):
         relay.serial = '127.0.0.1:16555'
         relay.env = {'ADB_SERVER_SOCKET': 'localfilesystem:.impad-private.sock'}
         relay.workspace = Path('/deep/非ASCII/workspace')
+        relay.adb_cwd = Path('/socket-owner')
         calls = []
 
         def execute(command, cwd, request, timeout):
@@ -116,7 +119,7 @@ class RuntimeToolingProbeTest(unittest.TestCase):
             relay.dispatch(['pull', '/sdcard/result.bin', 'out/result.bin'], relay.workspace / 'subdir', 'request')
             relay.dispatch(['pull', '/sdcard/result.bin', 'out/result.bin/'], relay.workspace / 'subdir', 'request')
 
-        self.assertEqual([relay.workspace] * 4, [cwd for _, cwd, _ in calls])
+        self.assertEqual([relay.adb_cwd] * 4, [cwd for _, cwd, _ in calls])
         self.assertEqual(str(relay.workspace / 'subdir/app.apk'), calls[0][0][-1])
         self.assertEqual([str(relay.workspace / 'subdir/one.bin'),
                           str(relay.workspace / 'subdir/two.bin'), '/sdcard/'], calls[1][0][-3:])
@@ -130,6 +133,9 @@ class RuntimeToolingProbeTest(unittest.TestCase):
             '#!/usr/bin/env python3\n'
             'import json, os, pathlib, sys, time\n'
             'args=sys.argv[1:]\n'
+            'expected=os.environ.get("FAKE_ADB_EXPECT_CWD")\n'
+            'if expected and pathlib.Path.cwd() != pathlib.Path(expected):\n'
+            ' print("ADB socket working directory changed", file=sys.stderr); sys.exit(1)\n'
             'joined=" ".join(args)\n'
             'fail_marker=os.environ.get("FAKE_ADB_FAIL_MARKER", "setprop bionic.linker.16kb.app_compat.enabled true")\n'
             'path=pathlib.Path(os.environ["FAKE_ADB_LOG"])\n'
@@ -240,6 +246,36 @@ class RuntimeToolingProbeTest(unittest.TestCase):
             self.assertTrue(report['retainedStepLog'])
             self.assertFalse(any(row['args'] == ['kill-server'] for row in
                                  map(json.loads, command_log.read_text().splitlines())))
+
+    def test_inherited_relative_endpoint_uses_owner_cwd_through_nested_probe(self):
+        from scripts.ci import runtime_tooling_probe
+        from scripts.ci.redroid_environment_probe import SERIAL
+
+        original_cwd = Path.cwd()
+        with tempfile.TemporaryDirectory() as temporary:
+            owner = Path(temporary).resolve() / ('deep-' * 20) / '非ASCII'
+            owner.mkdir(parents=True)
+            root = owner / 'tooling'
+            root.mkdir()
+            adb, command_log = self._fake_adb(Path(temporary), SERIAL)
+            environment = {
+                'IMPAD_ADB_BINARY': str(adb), 'FAKE_ADB_LOG': str(command_log),
+                'FAKE_ADB_EXPECT_CWD': str(owner),
+                'FAKE_ADB_FAIL_MARKER': 'no-matching-command',
+                'ADB_SERVER_SOCKET': 'localfilesystem:.impad-test.sock',
+            }
+            try:
+                os.chdir(owner)
+                with patch.dict(os.environ, environment, clear=False):
+                    self.assertTrue(runtime_tooling_probe.probe(root, 'wecom'))
+            finally:
+                os.chdir(original_cwd)
+            report = json.loads((root / 'tooling-report.json').read_text())
+            self.assertEqual('PASSED', report['status'])
+            self.assertEqual('NOT_OWNED', report['serverShutdown'])
+            records = list(map(json.loads, command_log.read_text().splitlines()))
+            self.assertTrue(all(row['endpoint'] == environment['ADB_SERVER_SOCKET'] for row in records))
+            self.assertFalse(any('start-server' in row['args'] or 'kill-server' in row['args'] for row in records))
 
     def test_private_endpoint_full_managed_probe_records_all_four_steps(self):
         from scripts.ci import runtime_tooling_probe

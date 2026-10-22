@@ -105,6 +105,7 @@ class AdbDeviceTest(unittest.TestCase):
             relay.directory = Path(temporary)
             relay.adb = '/sdk/adb'; relay.serial = 'emulator-5554'
             relay.workspace = Path('/workspace')
+            relay.adb_cwd = relay.workspace
             with patch.object(relay, 'execute', return_value=(0,b'',b'')) as execute:
                 relay.dispatch(['wechat-launch'], Path('/workspace'), 'request')
             calls = [c.args[0] for c in execute.call_args_list]

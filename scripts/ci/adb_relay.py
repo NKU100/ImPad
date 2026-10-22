@@ -70,11 +70,12 @@ def validate_request(request, workspace):
 
 
 class DeviceRelay:
-    def __init__(self, directory, env):
+    def __init__(self, directory, env, *, adb_cwd=None):
         state = json.loads((directory / 'state.json').read_text())
         self.policy = get_policy(state.get('appId'))
         self.directory = directory.resolve()
         self.workspace = Path(state['worktree']).resolve()
+        self.adb_cwd = self.workspace if adb_cwd is None else Path(adb_cwd).resolve()
         self.root = self.workspace / 'work/analysis/adb-relay'
         self.root.mkdir(parents=True, exist_ok=True)
         self.fd = os.open(self.root, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
@@ -159,7 +160,7 @@ class DeviceRelay:
             for label, command in commands:
                 started_at = datetime.now(timezone.utc).isoformat()
                 started = time.monotonic()
-                result = self.execute(command, self.workspace, request, 60)
+                result = self.execute(command, self.adb_cwd, request, 60)
                 finished = time.monotonic()
                 finished_at = datetime.now(timezone.utc).isoformat()
                 code, stdout, stderr = result
@@ -192,7 +193,7 @@ class DeviceRelay:
             if len(args) == 3 and args[2].endswith('/') and not destination.endswith('/'):
                 destination += '/'
             args = [args[0], args[1], destination]
-        return self.execute(prefix + args, self.workspace, request, timeout)
+        return self.execute(prefix + args, self.adb_cwd, request, timeout)
 
     def serve(self):
         while not self.stop.is_set():
