@@ -136,10 +136,10 @@ class DeviceRelay:
             if self.policy.app_id != 'qq':
                 raise ValueError('Managed request identity smoke is available only for QQ')
             return self.execute([sys.executable, str(Path(__file__).with_name('host_runtime.py')),
-                                 str(self.directory)], cwd, request, 900, cleanup_grace=60)
+                                 str(self.directory)], self.workspace, request, 900, cleanup_grace=60)
         if args[0] == 'verify-build':
             return self.execute([sys.executable, str(Path(__file__).with_name('host_build.py')),
-                                 str(self.directory)], cwd, request, 900)
+                                 str(self.directory)], self.workspace, request, 900)
         prefix = [self.adb, '-s', self.serial]
         if args[0] in {'app-launch', 'wechat-launch'}:
             policy = self.policy if args[0] == 'app-launch' else get_policy('wechat')
@@ -159,7 +159,7 @@ class DeviceRelay:
             for label, command in commands:
                 started_at = datetime.now(timezone.utc).isoformat()
                 started = time.monotonic()
-                result = self.execute(command, cwd, request, 60)
+                result = self.execute(command, self.workspace, request, 60)
                 finished = time.monotonic()
                 finished_at = datetime.now(timezone.utc).isoformat()
                 code, stdout, stderr = result
@@ -182,7 +182,15 @@ class DeviceRelay:
                     return result
             return result
         timeout = 240 if args[0] == 'install' else 120 if args[0] in {'push', 'pull', 'wait-for-device'} else 30
-        return self.execute(prefix + args, cwd, request, timeout)
+        if args[0] == 'install':
+            args = [args[0], *(arg if arg.startswith('-') else str((cwd / arg).resolve())
+                               for arg in args[1:])]
+        elif args[0] == 'push':
+            args = [args[0], *(str((cwd / arg).resolve()) for arg in args[1:-1]), args[-1]]
+        elif args[0] == 'pull':
+            destination = cwd if len(args) == 2 else (cwd / args[2]).resolve()
+            args = [args[0], args[1], str(destination)]
+        return self.execute(prefix + args, self.workspace, request, timeout)
 
     def serve(self):
         while not self.stop.is_set():

@@ -16,6 +16,7 @@ class HostRuntimeTest(unittest.TestCase):
         relay=DeviceRelay.__new__(DeviceRelay)
         relay.policy=SimpleNamespace(app_id='qq')
         relay.directory=Path('/trusted/task')
+        relay.workspace=Path('/workspace')
         relay.execute=Mock(return_value=(0,b'ok',b''))
         result=relay.dispatch(['verify-runtime'],Path('/workspace'), 'request')
         self.assertEqual(0,result[0])

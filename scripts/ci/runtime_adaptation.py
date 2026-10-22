@@ -24,6 +24,7 @@ def configure(directory):
     policy = get_policy(app_id)
     smoke.configure_app_id(policy.app_id)
     root = Path(state['runtime']['root'])
+    os.chdir(Path(state['worktree']).resolve())
     smoke.ROOT = root
     os.environ['ADB_SERVER_SOCKET'] = normalize_adb_server_socket(state['runtime']['socket'])
     os.environ['ANDROID_SERIAL'] = state['runtime']['serial']
@@ -65,10 +66,10 @@ def initialize(directory, root, serial=SERIAL):
         raise RuntimeError('ReDroid baseline already has a tablet entry')
     (root / 'prepared.json').write_text(json.dumps({'appId': policy.app_id, 'baseline': policy.runtime_baseline}))
     smoke.configure_manager(True)
-    endpoint_directory = workspace / 'work/analysis/adb-endpoints'
-    endpoint_directory.mkdir(parents=True, exist_ok=True)
-    socket = endpoint_directory / f'{uuid.uuid4().hex}.sock'
-    address = normalize_adb_server_socket(str(socket))
+    address = normalize_adb_server_socket(f'localfilesystem:.impad-adb-{uuid.uuid4().hex}.sock')
+    if len(os.fsencode(address.removeprefix('localfilesystem:'))) >= 108:
+        raise ValueError('Private ADB endpoint exceeds the Unix socket pathname limit')
+    os.chdir(workspace)
     env = dict(os.environ, ADB_SERVER_SOCKET=address, ANDROID_SERIAL=serial)
     state['runtime'] = {'root': str(root), 'serial': serial, 'socket': address,
                         'serverOwned': True, 'environment': 'redroid'}
@@ -76,15 +77,15 @@ def initialize(directory, root, serial=SERIAL):
     adb = os.environ.get('IMPAD_ADB_BINARY', 'adb')
     try:
         # Use a task-private server for the sandbox while leaving any inherited server untouched.
-        subprocess.run([adb, '-L', address, 'start-server'], env=env, check=True, timeout=30)
-        subprocess.run([adb, 'connect', serial], env=env, check=True, timeout=30)
-        subprocess.run([adb, '-s', serial, 'wait-for-device'], env=env, check=True, timeout=120)
-        devices = subprocess.check_output([adb, 'devices'], env=env, text=True).splitlines()[1:]
+        subprocess.run([adb, '-L', address, 'start-server'], env=env, cwd=workspace, check=True, timeout=30)
+        subprocess.run([adb, 'connect', serial], env=env, cwd=workspace, check=True, timeout=30)
+        subprocess.run([adb, '-s', serial, 'wait-for-device'], env=env, cwd=workspace, check=True, timeout=120)
+        devices = subprocess.check_output([adb, 'devices'], env=env, cwd=workspace, text=True).splitlines()[1:]
         connected = [line.split()[0] for line in devices if line.strip()]
         if connected != [serial]:
             raise RuntimeError('The model ADB server must expose exactly the dedicated ReDroid')
     except Exception:
-        stopped = subprocess.run([adb, '-L', address, 'kill-server'], env=env,
+        stopped = subprocess.run([adb, '-L', address, 'kill-server'], env=env, cwd=workspace,
                                  check=False, timeout=30)
         state['runtime']['serverOwned'] = stopped.returncode != 0
         state_path.write_text(json.dumps(state, indent=2))
@@ -100,13 +101,15 @@ def stop_owned_adb_server(directory):
     state_path = Path(directory) / 'state.json'
     if not state_path.is_file():
         return False
-    runtime = json.loads(state_path.read_text()).get('runtime', {})
+    state = json.loads(state_path.read_text())
+    runtime = state.get('runtime', {})
     if runtime.get('serverOwned') is not True:
         return False
     endpoint = normalize_adb_server_socket(runtime.get('socket'))
     env = dict(os.environ, ADB_SERVER_SOCKET=endpoint)
+    workspace = Path(state['worktree']).resolve()
     result = subprocess.run([os.environ.get('IMPAD_ADB_BINARY', 'adb'), '-L', endpoint, 'kill-server'],
-                            env=env, check=False, timeout=30)
+                            env=env, cwd=workspace, check=False, timeout=30)
     if result.returncode:
         raise RuntimeError(f'Owned ADB server failed to stop at {endpoint}')
     return True
