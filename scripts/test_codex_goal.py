@@ -7,7 +7,67 @@ import time
 import unittest
 from pathlib import Path
 from unittest.mock import patch, MagicMock
-from scripts.ci.codex_goal import run_goal, redact, write_diagnostics, AppServer
+from scripts.ci.codex_goal import run_goal, run_model_goal, redact, write_diagnostics, AppServer
+
+
+class AuthenticationTest(unittest.TestCase):
+    def exercise(self, response=None, error=None):
+        client = MagicMock()
+        client.secrets = ['private-access-token']
+        client.messages = []
+        client.thread_id = None
+        client.input_delivered = False
+        client.authentication_refresh = None
+        events = []
+        def request(*args):
+            events.append('refresh')
+            if error is not None:
+                raise error
+            return response
+        client.request.side_effect = request
+        with tempfile.TemporaryDirectory() as root:
+            directory = Path(root)
+            prompt = directory / 'prompt.md'
+            prompt.write_text('adapt exact candidate')
+            with patch('scripts.ci.codex_goal.AppServer', return_value=client), \
+                 patch('scripts.ci.codex_goal.run_goal', side_effect=lambda *args: events.append('goal') or 'verified') as goal, \
+                 patch('scripts.ci.codex_goal.auth_secrets', return_value=client.secrets), \
+                 patch('scripts.ci.codex_session_checkpoint.save_session'), \
+                 patch.dict(os.environ, {'CODEX_HOME': root}):
+                caught = None
+                try:
+                    run_model_goal(directory, prompt)
+                except RuntimeError as failure:
+                    caught = failure
+                report_path = directory / 'goal-diagnostics.json'
+                report = json.loads(report_path.read_text()) if report_path.exists() else {}
+        return client, events, goal.call_count, caught, report
+
+    def test_refresh_precedes_goal_and_diagnostics_exclude_account_details(self):
+        client, events, calls, error, report = self.exercise({
+            'account': {'type': 'chatgpt', 'email': 'private@example.com',
+                        'access_token': 'private-access-token'}, 'requiresOpenaiAuth': True})
+        self.assertEqual(['refresh', 'goal'], events)
+        client.request.assert_called_once_with('account/read', {'refreshToken': True})
+        self.assertEqual(1, calls)
+        self.assertIsNone(error)
+        self.assertEqual('succeeded', report['authenticationRefresh'])
+        self.assertNotIn('private', json.dumps(report))
+
+    def test_refresh_failure_prevents_goal_and_is_redacted(self):
+        _, events, calls, error, report = self.exercise(error=RuntimeError('refresh rejected private-access-token'))
+        self.assertEqual(['refresh'], events)
+        self.assertEqual(0, calls)
+        self.assertIsNotNone(error)
+        self.assertEqual('failed', report['authenticationRefresh'])
+        self.assertNotIn('private-access-token', json.dumps(report))
+
+    def test_missing_managed_account_prevents_goal(self):
+        _, events, calls, error, report = self.exercise({'account': None, 'requiresOpenaiAuth': True})
+        self.assertEqual(['refresh'], events)
+        self.assertEqual(0, calls)
+        self.assertIsNotNone(error)
+        self.assertEqual('failed', report['authenticationRefresh'])
 
 
 class FakeClient:
@@ -161,6 +221,11 @@ class NativeAdbEnvironmentTest(unittest.TestCase):
     def test_actual_model_controller_environment_preserves_native_adb(self):
         from scripts.ci import codex_goal as goal
         with tempfile.TemporaryDirectory() as directory, patch.dict(os.environ, {'IMPAD_ADB_BINARY': '/usr/bin/adb', 'GH_TOKEN': 'must-not-leak', 'CODEX_HOME': directory}), patch.object(goal, 'AppServer') as server, patch.object(goal, 'run_goal', return_value='verified'), patch('scripts.ci.codex_session_checkpoint.save_session'), patch.object(goal, 'read_json', return_value={}):
+            server.return_value.secrets = []
+            server.return_value.messages = []
+            server.return_value.thread_id = None
+            server.return_value.input_delivered = False
+            server.return_value.request.return_value = {'account': {'type': 'chatgpt'}}
             root = Path(directory)
             prompt = root / 'prompt.md'; prompt.write_text('Adapt')
             goal.run_model_goal(root, prompt)

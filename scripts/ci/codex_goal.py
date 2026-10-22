@@ -176,6 +176,7 @@ def write_diagnostics(directory, iterations, client, status='continue'):
               'modelMessages': getattr(client, 'messages', [])[-10:],
               'threadId': getattr(client, 'thread_id', None),
               'inputDelivered': getattr(client, 'input_delivered', False)}
+    result['authenticationRefresh'] = getattr(client, 'authentication_refresh', None)
     target = directory / 'goal-diagnostics.json'
     temporary = target.with_suffix('.json.tmp')
     temporary.write_text(json.dumps(sanitize(result, secrets), indent=2) + '\n')
@@ -334,6 +335,19 @@ def run_model_goal(directory, prompt_path):
     handlers = {number: signal.signal(number, interrupted) for number in [signal.SIGTERM, signal.SIGINT]}
     try:
         client = AppServer(directory, env)
+        client.authentication_refresh = 'requested'
+        write_diagnostics(directory, [], client, 'authenticating')
+        try:
+            # Request managed refresh explicitly before workspace routing begins.
+            account = client.request('account/read', {'refreshToken': True}).get('account')
+            if not isinstance(account, dict) or account.get('type') != 'chatgpt':
+                raise RuntimeError('Codex authentication did not return a managed ChatGPT account')
+        except Exception:
+            client.authentication_refresh = 'failed'
+            write_diagnostics(directory, [], client, 'interrupted')
+            raise
+        client.authentication_refresh = 'succeeded'
+        write_diagnostics(directory, [], client, 'authenticated')
         resume_context = read_json(directory / 'resume-context.json', {})
         status = run_goal(client, directory, prompt_path.read_text(), resume_context)
         output = os.environ.get('GITHUB_OUTPUT')
