@@ -6,11 +6,34 @@ import subprocess
 import tempfile
 from unittest.mock import patch
 
-from scripts.ci.app_policy import POLICIES, get_policy, policy_for_report, validate_rule_changes
+from scripts.ci.app_policy import POLICIES, get_policy, policy_for_report, validate_rule_changes, _catalog_at_revision
 from scripts.ci.codex_adaptation import validate_paths
 
 
 class AppPolicyTest(unittest.TestCase):
+    def test_revision_catalog_reads_checker_json_from_the_archived_tree(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            self._guard_repository(root)
+            catalog = dict(self._catalog('wecom'), schemaVersion=1)
+            (root / 'catalog-fixture.json').write_text(json.dumps(catalog))
+            wrapper = root / 'gradlew'
+            wrapper.write_text(
+                '#!/usr/bin/env python3\n'
+                'import json, shlex, sys\n'
+                'from pathlib import Path\n'
+                'assert sys.argv[1:4] == ["--offline", "--no-daemon", ":compat-checker:run"]\n'
+                'arguments = shlex.split(sys.argv[4].removeprefix("--args="))\n'
+                'assert arguments[:3] == ["catalog", "--app-id", "wecom"]\n'
+                'assert arguments[3] == "--report"\n'
+                'Path(arguments[4]).write_text(Path("catalog-fixture.json").read_text())\n'
+            )
+            wrapper.chmod(0o755)
+            subprocess.run(['git', 'add', '.'], cwd=root, check=True)
+            subprocess.run(['git', 'commit', '-qm', 'checker report fixture'], cwd=root, check=True)
+            revision = subprocess.check_output(['git', 'rev-parse', 'HEAD'], cwd=root, text=True).strip()
+            self.assertEqual(catalog, _catalog_at_revision(root, revision, 'wecom'))
+
     def test_registered_app_policies_have_no_legacy_mode_or_targets_path(self):
         self.assertEqual(set(POLICIES), {"wechat", "qq", "wecom"})
         for app_id in ("wechat", "qq", "wecom"):

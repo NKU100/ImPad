@@ -2,6 +2,7 @@
 from dataclasses import dataclass
 from typing import Optional
 import re
+import json
 import hashlib
 import subprocess
 import io
