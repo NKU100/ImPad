@@ -175,7 +175,7 @@ def prepare_candidate_from_adaptation_report(app_id: str, adaptation_report: Pat
 
 
 _MODULE_SOURCE_TREES = (
-    'app/src/main', 'compat-core/src/main', 'compat-rules/src/main',
+    'app/src/main', 'app/src/release/keepRules', 'compat-core/src/main', 'compat-rules/src/main',
     'compat-checker/src/main', 'scripts/ci', '.github/actions/prepare-dexkit-system-deps',
 )
 _MODULE_SOURCE_FILES = (
