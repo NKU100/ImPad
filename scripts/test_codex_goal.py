@@ -5,9 +5,97 @@ import os
 import threading
 import time
 import unittest
+import sys
+import subprocess
 from pathlib import Path
 from unittest.mock import patch, MagicMock
-from scripts.ci.codex_goal import run_goal, run_model_goal, redact, write_diagnostics, AppServer
+from scripts.ci.codex_goal import run_goal, run_model_goal, redact, write_diagnostics, AppServer, authentication_load_summary
+
+
+class AuthenticationLoadTest(unittest.TestCase):
+    def test_undecodable_probe_output_is_nonblocking_and_not_published(self):
+        result = authentication_load_summary(
+            [sys.executable, '-c',
+             'import sys; sys.stderr.buffer.write(bytes([255]) + b"private-token"); sys.exit(1)'],
+            dict(os.environ))
+        self.assertEqual({'outcome': 'probe_error', 'accountType': 'unknown', 'exitCode': None}, result)
+        self.assertNotIn('private-token', json.dumps(result))
+
+    def exercise(self, status_message, exit_code, account):
+        with tempfile.TemporaryDirectory() as root:
+            directory = Path(root)
+            (directory / 'state.json').write_text('{}')
+            prompt = directory / 'prompt.md'
+            prompt.write_text('adapt exact candidate')
+            fixture = directory / 'cli.py'
+            calls = directory / 'calls.jsonl'
+            fixture.write_text(
+                'import json, sys\n'
+                'from pathlib import Path\n'
+                f'calls = Path({str(calls)!r})\n'
+                'with calls.open("a") as stream: stream.write(json.dumps(sys.argv[1:]) + "\\n")\n'
+                'if "login" in sys.argv:\n'
+                f'    print({status_message!r}, file=sys.stderr)\n'
+                f'    sys.exit({exit_code})\n'
+                'for line in sys.stdin:\n'
+                '    request = json.loads(line)\n'
+                '    if "id" not in request: continue\n'
+                f'    result = {{"account": {account!r}, "requiresOpenaiAuth": True}} if request["method"] == "account/read" else {{}}\n'
+                '    print(json.dumps({"id": request["id"], "result": result}), flush=True)\n'
+            )
+            def command(directory, env, args):
+                return [sys.executable, str(fixture), *args[1:]]
+            processes = []
+            real_popen = subprocess.Popen
+            def popen(*args, **kwargs):
+                process = real_popen(*args, **kwargs)
+                processes.append(process)
+                return process
+            with patch('scripts.ci.codex_sandbox.model_command', side_effect=command), \
+                 patch('scripts.ci.codex_goal.subprocess.Popen', side_effect=popen), \
+                 patch('scripts.ci.codex_trace.EncryptedTrace'), \
+                 patch('scripts.ci.codex_goal.run_goal', return_value='verified'), \
+                 patch('scripts.ci.codex_session_checkpoint.save_session'), \
+                 patch.dict(os.environ, {'CODEX_HOME': root}):
+                try:
+                    run_model_goal(directory, prompt)
+                except RuntimeError:
+                    pass
+                finally:
+                    for process in processes:
+                        for stream in (process.stdin, process.stdout, process.stderr):
+                            if stream is not None:
+                                stream.close()
+            return (json.loads((directory / 'goal-diagnostics.json').read_text()),
+                    [json.loads(line) for line in calls.read_text().splitlines()])
+
+    def test_loaded_auth_is_distinguished_from_missing_account_after_refresh(self):
+        report, calls = self.exercise('Logged in using ChatGPT', 0, None)
+        self.assertEqual({'outcome': 'loaded', 'accountType': 'chatgpt', 'exitCode': 0},
+                         report.get('authenticationLoad'))
+        self.assertEqual('account_missing', report['authenticationFailure'])
+        self.assertEqual(2, len(calls))
+        self.assertEqual(calls[0][:-2], calls[1][:-3])
+        self.assertEqual(['login', 'status'], calls[0][-2:])
+        self.assertEqual(['app-server', '--listen', 'stdio://'], calls[1][-3:])
+
+    def test_load_errors_and_absent_auth_are_distinguished_without_raw_stderr(self):
+        for message, expected in [
+            ('Error checking login status: secret@example.com private-token', 'load_error'),
+            ('Not logged in', 'not_loaded'),
+            ('unexpected secret@example.com private-token', 'unknown'),
+        ]:
+            with self.subTest(outcome=expected):
+                report, _ = self.exercise(message, 1, None)
+                self.assertEqual({'outcome': expected, 'accountType': 'unknown', 'exitCode': 1},
+                                 report.get('authenticationLoad'))
+                self.assertNotIn('secret@example.com', json.dumps(report))
+                self.assertNotIn('private-token', json.dumps(report))
+
+    def test_load_probe_does_not_replace_account_read_acceptance(self):
+        report, _ = self.exercise('Not logged in', 1, {'type': 'chatgpt'})
+        self.assertEqual('not_loaded', report.get('authenticationLoad', {}).get('outcome'))
+        self.assertEqual('succeeded', report['authenticationRefresh'])
 
 
 class AuthenticationTest(unittest.TestCase):

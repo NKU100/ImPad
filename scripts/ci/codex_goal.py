@@ -71,11 +71,12 @@ class AppServer:
             self.stderr = (directory / 'app-server.stderr.log').open('w')
             from scripts.ci.codex_sandbox import model_command
             command = model_command(directory, env,
-                ['codex', 'app-server', '--listen', 'stdio://', '-c', 'features.goals=true',
+                ['codex', '-c', 'features.goals=true',
                  '-c', 'features.multi_agent=false', '-c', 'features.multi_agent_v2=false',
                  '-c', 'features.apps=false', '-c', 'features.plugins=false',
                  '-c', 'features.shell_snapshot=false', '-c', 'web_search="disabled"'])
-            self.process = subprocess.Popen(command,
+            self.authentication_load = authentication_load_summary(command, env)
+            self.process = subprocess.Popen([*command, 'app-server', '--listen', 'stdio://'],
                 stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=self.stderr,
                 text=True, env=env, start_new_session=True)
             self.request('initialize', {'clientInfo': {'name': 'impad_ci', 'version': '1'},
@@ -177,6 +178,9 @@ def write_diagnostics(directory, iterations, client, status='continue'):
               'threadId': getattr(client, 'thread_id', None),
               'inputDelivered': getattr(client, 'input_delivered', False)}
     result['authenticationRefresh'] = getattr(client, 'authentication_refresh', None)
+    authentication_load = getattr(client, 'authentication_load', None)
+    if isinstance(authentication_load, dict):
+        result['authenticationLoad'] = authentication_load
     account_read = getattr(client, 'account_read_diagnostic', None)
     if account_read is not None:
         result['accountRead'] = account_read
@@ -187,6 +191,28 @@ def write_diagnostics(directory, iterations, client, status='continue'):
     temporary = target.with_suffix('.json.tmp')
     temporary.write_text(json.dumps(sanitize(result, secrets), indent=2) + '\n')
     temporary.replace(target)
+
+
+def authentication_load_summary(command, env):
+    # Use the same sandbox and config as app-server; login status does not refresh tokens.
+    try:
+        result = subprocess.run([*command, 'login', 'status'], env=env,
+                                capture_output=True, text=True, timeout=30)
+    except (OSError, subprocess.SubprocessError, UnicodeError):
+        return {'outcome': 'probe_error', 'accountType': 'unknown', 'exitCode': None}
+    message = result.stderr
+    account_type = 'unknown'
+    outcome = 'unknown'
+    if result.returncode == 0:
+        if 'Logged in using ChatGPT' in message:
+            outcome, account_type = 'loaded', 'chatgpt'
+        elif 'Logged in using an API key' in message:
+            outcome, account_type = 'loaded', 'apiKey'
+    elif 'Error checking login status:' in message:
+        outcome = 'load_error'
+    elif 'Not logged in' in message:
+        outcome = 'not_loaded'
+    return {'outcome': outcome, 'accountType': account_type, 'exitCode': result.returncode}
 
 
 def account_read_summary(response):
