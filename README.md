@@ -2,17 +2,11 @@
 
 ImPad 是通过 LSPosed 为微信、QQ 和企业微信提供平板登录界面适配的 Android 模块。
 
-## 已验证范围
-
-微信 8.0.69（3040）、QQ 9.3.1（14378）和企业微信 5.0.8（70675）已使用同一份模块 APK，通过 GitHub-hosted ARM64 ReDroid 运行验收。模块 APK SHA-256 为 `d8cdaf1aba2d19503c9a9a2679195456657faae1b5fae8e9d52e2c5ba1b88691`，构建源码提交为 `8690ed5162ba71c1d756f9e57793c774f2501de7`，127 项模块源码树 SHA-256 为 `654e389fd9b35a1362d6d9c79d2f07f8cd249f141fdfff59c74cff1b70f25aae`。
-
-三次独立运行均通过应用验收、运行冒烟、tooling 4/4 和 production verifier。对应的 [QQ 9.3.1](https://github.com/NKU100/ImPad/actions/runs/39555436990)、[微信 8.0.69](https://github.com/NKU100/ImPad/actions/runs/39556863774) 和[企业微信 5.0.8](https://github.com/NKU100/ImPad/actions/runs/39557803980) 验收均使用无账号流程：未登录真实账号、未扫码、未提交登录。具体行为与边界见[已验证版本与范围](docs/support.md)。
-
-这些结果只适用于表列的应用 APK 和精确模块构建。验收观察到 QQ QFix、微信和企微 Tinker 就绪，以及各自流程中的 native 加载；这不代表完整热补丁行为或所有设备、版本均已覆盖。QQ 采集沿用 SYN 阶段 owner 缓存合同；FD handoff 未纳入验证范围。
+模块通过共享规则识别目标应用中的平板登录入口，具体已验证版本见[已验证版本与范围](docs/support.md)。应用更新后需要重新验证兼容性。
 
 ## 安装与使用
 
-- Android 9 或更高版本及已 Root 的设备。
+- Android 9 或更高版本、ARM64（`arm64-v8a`）且已 Root 的设备。
 - 已安装并正常运行 LSPosed。
 
 1. 安装 ImPad APK。
@@ -30,9 +24,9 @@ ImPad 是通过 LSPosed 为微信、QQ 和企业微信提供平板登录界面�
 
 本地精确候选准备命令及其边界见[开发与兼容性维护](docs/development.md)。
 
-## 验收边界
+## 验证范围
 
-无账号验收不证明真实账号登录、服务端接受或双设备会话共存。当前验收不代表所有 Android 设备均通过，也不覆盖未观测的完整热补丁变化或 QQ socket FD handoff。
+无账号验收验证模块加载与平板登录入口，不证明真实账号登录、服务端接受或双设备会话共存。具体测试环境、结果与限制见[验证记录](docs/validation/runtime-feature-matching-final.md)。
 
 ## 许可证
 
