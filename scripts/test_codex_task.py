@@ -24,6 +24,11 @@ def candidate_report():
     }, 'sourceUrl': 'https://dldir1v6.qq.com/weixin/android/wechat.apk'}
 
 
+def empty_graphql_issues():
+    return json.dumps([{'data': {'repository': {'issues': {
+        'nodes': [], 'pageInfo': {'hasNextPage': False, 'endCursor': None}}}}}])
+
+
 class CodexTaskTest(unittest.TestCase):
     def test_checkpoint_is_reused_only_when_the_latest_candidate_is_the_same(self):
         with tempfile.TemporaryDirectory() as root:
@@ -76,6 +81,8 @@ class CodexTaskTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as root:
             directory = Path(root)
             def github(*args):
+                if 'graphql' in args:
+                    return empty_graphql_issues()
                 if 'actions/artifacts?' in str(args):
                     return json.dumps([{'artifacts':[artifact]}])
                 return '[]'
@@ -94,6 +101,8 @@ class CodexTaskTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as root:
             directory = Path(root)
             def github(*args):
+                if 'graphql' in args:
+                    return empty_graphql_issues()
                 return json.dumps([{'artifacts': [artifact]}]) if 'actions/artifacts?' in str(args) else '[]'
             with patch('scripts.ci.codex_task.eligible_candidate', return_value=True), \
                     patch('scripts.ci.codex_task.gh', side_effect=github), \
@@ -121,6 +130,8 @@ class CodexTaskTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as root:
             directory = Path(root)
             def github(*args):
+                if 'graphql' in args:
+                    return empty_graphql_issues()
                 if 'actions/artifacts?' in str(args):
                     return json.dumps([{'artifacts': [artifact]}])
                 if 'issues?state=all' in str(args):
