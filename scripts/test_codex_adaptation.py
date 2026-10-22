@@ -1,6 +1,7 @@
 import copy
 import hashlib
 import json
+import subprocess
 import tempfile
 import unittest
 from pathlib import Path
@@ -11,10 +12,36 @@ from scripts.ci.acceptance import RoutingReviewRequired
 from scripts.ci.codex_adaptation import (
     candidate_key, eligible_candidate, gradle_command, run_bounded,
     prepare_rules, sha256, validate_existing_tests, validate_paths,
+    _worktree_tree,
 )
 
 
 class CodexAdaptationTest(unittest.TestCase):
+    def test_proposed_tree_uses_private_index_and_preserves_real_staging(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            repository = Path(temporary)
+            def run_git(*arguments):
+                return subprocess.check_output(['git', *arguments], cwd=repository).decode().strip()
+            run_git('init', '-q')
+            run_git('config', 'user.name', 'Test')
+            run_git('config', 'user.email', 'test@example.invalid')
+            source = repository / 'source.txt'
+            source.write_text('base\n')
+            run_git('add', 'source.txt')
+            run_git('commit', '-qm', 'base')
+            base = run_git('rev-parse', 'HEAD')
+            source.write_text('staged\n')
+            run_git('add', 'source.txt')
+            index_before = (repository / '.git/index').read_bytes()
+            source.write_text('candidate\n')
+            (repository / 'new.txt').write_text('new candidate\n')
+            proposed = _worktree_tree(repository, base)
+            self.assertEqual('candidate', run_git('show', f'{proposed}:source.txt'))
+            self.assertEqual('new candidate', run_git('show', f'{proposed}:new.txt'))
+            self.assertEqual('staged', run_git('show', ':source.txt'))
+            self.assertEqual(index_before, (repository / '.git/index').read_bytes())
+            self.assertEqual(base, run_git('rev-parse', 'HEAD'))
+
     def setUp(self):
         self.record = {
             'recordId': 'wechat-first', 'appId': 'wechat',
