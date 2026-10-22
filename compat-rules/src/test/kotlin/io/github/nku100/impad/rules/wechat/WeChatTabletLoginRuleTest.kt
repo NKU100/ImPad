@@ -1,26 +1,86 @@
 package io.github.nku100.impad.rules.wechat
 
 import io.github.nku100.impad.compat.rules.RuleResolution
+import io.github.nku100.impad.compat.rules.RuleDefinition
+import io.github.nku100.impad.compat.rules.VersionBinding
+import io.github.nku100.impad.compat.rules.VersionRouter
 import io.github.nku100.impad.rules.RuleCatalog
 import io.github.nku100.impad.rules.RuleQuery
 import io.github.nku100.impad.rules.RuleSession
 import java.io.File
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFailsWith
 import kotlin.test.assertIs
 import kotlin.test.assertNotNull
+import kotlin.test.assertTrue
 
 class WeChatTabletLoginRuleTest {
     @Test
-    fun catalogRoutesWechatToTheImmutable3040TabletLoginRule() {
+    fun catalogPreservesTheHistorical3040TabletLoginRoute() {
         val catalog = runCatching { RuleCatalog.forApp("wechat") }.getOrNull()
         assertNotNull(catalog, "WeChat rule catalog route is missing")
-        assertEquals("wechat", catalog.appId)
-        assertEquals(setOf("wechat_tablet_login_001"), catalog.definitions.map { it.ruleId }.toSet())
-        assertEquals(setOf("wechat_tablet_login_behavior_001"), catalog.strategyIds)
-        assertEquals(setOf("tablet", "login"), catalog.definitions.single().requiredTargetIds)
-        assertEquals(3040L, catalog.bindings.single().min)
-        assertEquals(null, catalog.bindings.single().max)
+        assertHistoricalCatalog(catalog)
+    }
+
+    @Test
+    fun syntheticCatalogAllowsAForwardOnlyRuleExtensionAtAnyFutureVersion() {
+        val extended = syntheticCatalog(
+            definitions = listOf(historicalDefinition(), futureDefinition()),
+            bindings = listOf(
+                VersionBinding(HISTORICAL_RULE_ID, 3040L, 3040L),
+                VersionBinding(FUTURE_RULE_ID, FUTURE_VERSION, null),
+            ),
+            strategies = setOf(HISTORICAL_STRATEGY_ID, FUTURE_STRATEGY_ID),
+        )
+
+        assertHistoricalCatalog(extended)
+        assertEquals(listOf(HISTORICAL_RULE_ID), VersionRouter.candidates(3040L, extended.bindings))
+        assertEquals(listOf(FUTURE_RULE_ID), VersionRouter.candidates(FUTURE_VERSION, extended.bindings))
+    }
+
+    @Test
+    fun syntheticCatalogRejectsReplacingTheHistoricalRoute() {
+        val replaced = syntheticCatalog(
+            definitions = listOf(historicalDefinition(), futureDefinition()),
+            bindings = listOf(VersionBinding(FUTURE_RULE_ID, 3040L, null)),
+            strategies = setOf(HISTORICAL_STRATEGY_ID, FUTURE_STRATEGY_ID),
+        )
+
+        assertFailsWith<AssertionError> {
+            assertHistoricalCatalog(replaced)
+        }
+    }
+
+    @Test
+    fun syntheticCatalogRejectsChangingHistoricalTargetsOrStrategy() {
+        val changedTargets = syntheticCatalog(
+            definitions = listOf(
+                historicalDefinition(targets = setOf("tablet")),
+                futureDefinition(),
+            ),
+            bindings = forwardBindings(),
+            strategies = setOf(HISTORICAL_STRATEGY_ID, FUTURE_STRATEGY_ID),
+        )
+        val changedStrategy = syntheticCatalog(
+            definitions = listOf(
+                historicalDefinition(strategyId = "wechat_tablet_login_behavior_replaced"),
+                futureDefinition(),
+            ),
+            bindings = forwardBindings(),
+            strategies = setOf(
+                HISTORICAL_STRATEGY_ID,
+                "wechat_tablet_login_behavior_replaced",
+                FUTURE_STRATEGY_ID,
+            ),
+        )
+
+        assertFailsWith<AssertionError> {
+            assertHistoricalCatalog(changedTargets)
+        }
+        assertFailsWith<AssertionError> {
+            assertHistoricalCatalog(changedStrategy)
+        }
     }
 
     @Test
@@ -29,7 +89,7 @@ class WeChatTabletLoginRuleTest {
         RuleSession.open(listOf(apk)).use { session ->
             val selected = assertIs<RuleResolution.Unique>(rule().resolve(session))
             assertEquals(mapOf("tablet" to 1, "login" to 1), selected.candidateCounts)
-            assertEquals(catalog.definitions.single().ref, selected.plan.rule)
+            assertEquals(catalog.definitions.single { it.ruleId == HISTORICAL_RULE_ID }.ref, selected.plan.rule)
             assertEquals(setOf("tablet", "login"), selected.plan.targets.keys)
         }
     }
@@ -169,6 +229,61 @@ class WeChatTabletLoginRuleTest {
         }.getOrNull()
         assertNotNull(objectClass, "WeChat tablet/login rule implementation is missing")
         return objectClass.getField("INSTANCE").get(null) as RuleQuery
+    }
+
+    private fun syntheticCatalog(
+        definitions: List<RuleDefinition>,
+        bindings: List<VersionBinding>,
+        strategies: Set<String>,
+    ) = RuleCatalog(
+        appId = "wechat",
+        queries = definitions.map { definition ->
+            object : RuleQuery {
+                override val definition = definition
+                override fun resolve(session: RuleSession): RuleResolution = RuleResolution.Missing()
+            }
+        },
+        bindings = bindings,
+        strategyIds = strategies,
+    )
+
+    private fun assertHistoricalCatalog(catalog: RuleCatalog) {
+        assertEquals("wechat", catalog.appId)
+        val historical = assertNotNull(
+            catalog.definitions.singleOrNull { it.ruleId == HISTORICAL_RULE_ID },
+            "Historical WeChat rule definition is missing or duplicated",
+        )
+        assertEquals(HISTORICAL_STRATEGY_ID, historical.strategyId)
+        assertEquals(setOf("tablet", "login"), historical.requiredTargetIds)
+        assertTrue(HISTORICAL_STRATEGY_ID in catalog.strategyIds)
+
+        val historicalBinding = assertNotNull(
+            catalog.bindings.singleOrNull { it.ruleId == HISTORICAL_RULE_ID },
+            "Historical WeChat route is missing or duplicated",
+        )
+        assertEquals(3040L, historicalBinding.min)
+        assertEquals(listOf(HISTORICAL_RULE_ID), VersionRouter.candidates(3040L, catalog.bindings))
+    }
+
+    private fun historicalDefinition(
+        strategyId: String = HISTORICAL_STRATEGY_ID,
+        targets: Set<String> = setOf("tablet", "login"),
+    ) = RuleDefinition(HISTORICAL_RULE_ID, strategyId, targets)
+
+    private fun futureDefinition() =
+        RuleDefinition(FUTURE_RULE_ID, FUTURE_STRATEGY_ID, setOf("tablet", "login"))
+
+    private fun forwardBindings() = listOf(
+        VersionBinding(HISTORICAL_RULE_ID, 3040L, 3040L),
+        VersionBinding(FUTURE_RULE_ID, FUTURE_VERSION, null),
+    )
+
+    private companion object {
+        const val HISTORICAL_RULE_ID = "wechat_tablet_login_001"
+        const val HISTORICAL_STRATEGY_ID = "wechat_tablet_login_behavior_001"
+        const val FUTURE_RULE_ID = "synthetic_future_rule"
+        const val FUTURE_STRATEGY_ID = "synthetic_future_strategy"
+        const val FUTURE_VERSION = 5000L
     }
 
     private fun withApk(apk: File, block: (File) -> Unit) {
