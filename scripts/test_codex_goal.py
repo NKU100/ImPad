@@ -99,7 +99,7 @@ class AuthenticationLoadTest(unittest.TestCase):
 
 
 class AuthenticationTest(unittest.TestCase):
-    def exercise(self, response=None, error=None, stderr_content=None):
+    def exercise(self, response=None, error=None, stderr_content=None, refresh_stderr_content=None):
         client = MagicMock()
         client.secrets = ['private-access-token']
         client.messages = []
@@ -109,6 +109,9 @@ class AuthenticationTest(unittest.TestCase):
         events = []
         def request(*args):
             events.append('refresh')
+            if refresh_stderr_content is not None:
+                with (directory / 'app-server.stderr.log').open('a') as stream:
+                    stream.write(refresh_stderr_content)
             if error is not None:
                 raise error
             return response
@@ -235,6 +238,64 @@ class AuthenticationTest(unittest.TestCase):
                 self.assertEqual(failure, report['authenticationFailure'])
                 self.assertEqual(expected, report['accountRead'])
                 self.assertNotIn('unexpected', json.dumps(report))
+
+    def test_refresh_rejection_log_is_projected_without_an_extra_rpc(self):
+        client, events, calls, error, report = self.exercise(
+            {'account': None, 'requiresOpenaiAuth': True},
+            stderr_content='2026-10-22T14:54:03.7314010Z startup completed\n',
+            refresh_stderr_content='ERROR Failed to refresh token status=401 Unauthorized '
+                                   'detail=refresh_token_reused private@example.com private-access-token\n')
+        client.request.assert_called_once_with('account/read', {'refreshToken': True})
+        self.assertEqual(['refresh'], events)
+        self.assertEqual(0, calls)
+        self.assertIsNotNone(error)
+        self.assertEqual({
+            'beforeRefresh': {'outcome': 'no_failure_recorded', 'reason': 'unknown', 'httpStatus': 'unknown'},
+            'afterRefresh': {'outcome': 'failure_recorded', 'reason': 'reused', 'httpStatus': 'unauthorized'},
+        }, report.get('authenticationRefreshLog'))
+        self.assertNotIn('private', json.dumps(report))
+
+
+class AuthenticationRefreshLogTest(unittest.TestCase):
+    def summary(self, content):
+        from scripts.ci import codex_goal
+        with tempfile.TemporaryDirectory() as root:
+            path = Path(root) / 'stderr.log'
+            path.write_text(content)
+            return codex_goal.authentication_refresh_log_summary(path)
+
+    def test_only_refresh_failure_lines_contribute_fixed_classes(self):
+        for message, reason, status in [
+            ('ERROR Failed to refresh token status=401 detail=refresh_token_expired', 'expired', 'unauthorized'),
+            ('ERROR Failed to refresh token status=400 detail=invalid_grant', 'invalid_grant', 'bad_request'),
+            ('ERROR Failed to refresh token status=403 detail=refresh_token_invalidated', 'revoked', 'other'),
+            ('ERROR Failed to refresh token: Your refresh token was already used.', 'reused', 'unknown'),
+            ('ERROR Failed to refresh token: transport failure private-details', 'unknown', 'unknown'),
+            ('ERROR Failed to refresh token: 503: private-details', 'unknown', 'other'),
+            ('ERROR Failed to refresh token status=401 detail=refresh_token_reused\n'
+             'ERROR Failed to refresh token status=400 detail=refresh_token_expired', 'multiple', 'multiple'),
+        ]:
+            with self.subTest(reason=reason, status=status):
+                summary = self.summary(message + ' private-access-token private@example.com')
+                self.assertEqual({'outcome': 'failure_recorded', 'reason': reason, 'httpStatus': status}, summary)
+                self.assertNotIn('private', json.dumps(summary))
+
+    def test_timestamp_and_unrelated_auth_errors_are_not_refresh_rejections(self):
+        self.assertEqual({'outcome': 'no_failure_recorded', 'reason': 'unknown', 'httpStatus': 'unknown'},
+                         self.summary('2026-10-22T14:54:03.7314010Z startup\n'
+                                      'routing unauthorized (401) refresh_token_reused\n'))
+        self.assertEqual({'outcome': 'failure_recorded', 'reason': 'unknown', 'httpStatus': 'unknown'},
+                         self.summary('2026-10-22T14:54:03.7314010Z Failed to refresh token: network unavailable\n'))
+
+    def test_missing_or_unreadable_log_remains_diagnostic_only(self):
+        from scripts.ci import codex_goal
+        with tempfile.TemporaryDirectory() as root:
+            path = Path(root) / 'stderr.log'
+            self.assertEqual({'outcome': 'unavailable', 'reason': 'unknown', 'httpStatus': 'unknown'},
+                             codex_goal.authentication_refresh_log_summary(path))
+            with patch.object(Path, 'read_text', side_effect=OSError('private-file-details')):
+                self.assertEqual({'outcome': 'read_error', 'reason': 'unknown', 'httpStatus': 'unknown'},
+                                 codex_goal.authentication_refresh_log_summary(path))
 
 
 class FakeClient:

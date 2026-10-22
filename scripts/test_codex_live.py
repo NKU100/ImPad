@@ -167,6 +167,14 @@ await run({
                 "        diagnostic['authenticationLoad'] = {'outcome': 'load_error',\n"
                 "            'accountType': 'unknown', 'exitCode': exit_code,\n"
                 "            'stderr': 'AUTH_LOAD_PRIVATE_SENTINEL'}\n"
+                "        diagnostic['authenticationRefreshLog'] = {\n"
+                "            'beforeRefresh': {'outcome': 'failure_recorded',\n"
+                "                'reason': 'invalid_grant', 'httpStatus': 'bad_request',\n"
+                "                'backendDetail': 'BEFORE_REFRESH_PRIVATE_SENTINEL'},\n"
+                "            'afterRefresh': {'outcome': 'failure_recorded',\n"
+                "                'reason': 'expired', 'httpStatus': 'unauthorized',\n"
+                "                'rawError': 'AFTER_REFRESH_PRIVATE_SENTINEL'},\n"
+                "            'unapprovedField': 'REFRESH_LOG_EXTRA_PRIVATE_SENTINEL'}\n"
                 "        diagnostic['unapprovedField'] = 'TOP_LEVEL_PRIVATE_SENTINEL'\n"
                 "        diagnostic['controllerError'] = 'CONTROLLER_ERROR_PRIVATE_SENTINEL'\n"
                 "        diagnostic['serverErrorTail'] = 'SERVER_ERROR_PRIVATE_SENTINEL'\n"
@@ -209,6 +217,18 @@ await run({
                     "accountType": "unknown",
                     "exitCode": 37,
                 },
+                "authenticationRefreshLog": {
+                    "beforeRefresh": {
+                        "outcome": "failure_recorded",
+                        "reason": "invalid_grant",
+                        "httpStatus": "bad_request",
+                    },
+                    "afterRefresh": {
+                        "outcome": "failure_recorded",
+                        "reason": "expired",
+                        "httpStatus": "unauthorized",
+                    },
+                },
                 "accountRead": {
                     "responseIsDict": True,
                     "accountFieldPresent": True,
@@ -222,6 +242,8 @@ await run({
                 "ACCOUNT_TYPE_PRIVATE_SENTINEL", "EMAIL_PRIVATE_SENTINEL",
                 "TOKEN_PRIVATE_SENTINEL", "RESPONSE_PRIVATE_SENTINEL",
                 "AUTH_LOAD_PRIVATE_SENTINEL", "TOP_LEVEL_PRIVATE_SENTINEL",
+                "BEFORE_REFRESH_PRIVATE_SENTINEL", "AFTER_REFRESH_PRIVATE_SENTINEL",
+                "REFRESH_LOG_EXTRA_PRIVATE_SENTINEL", "backendDetail", "rawError",
                 "CONTROLLER_ERROR_PRIVATE_SENTINEL", "SERVER_ERROR_PRIVATE_SENTINEL",
                 "controllerError", "serverErrorTail", "modelMessages", "threadId",
             ):

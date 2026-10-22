@@ -181,6 +181,9 @@ def write_diagnostics(directory, iterations, client, status='continue'):
     authentication_load = getattr(client, 'authentication_load', None)
     if isinstance(authentication_load, dict):
         result['authenticationLoad'] = authentication_load
+    refresh_log = getattr(client, 'authentication_refresh_log', None)
+    if isinstance(refresh_log, dict):
+        result['authenticationRefreshLog'] = refresh_log
     account_read = getattr(client, 'account_read_diagnostic', None)
     if account_read is not None:
         result['accountRead'] = account_read
@@ -213,6 +216,39 @@ def authentication_load_summary(command, env):
     elif 'Not logged in' in message:
         outcome = 'not_loaded'
     return {'outcome': outcome, 'accountType': account_type, 'exitCode': result.returncode}
+
+
+def authentication_refresh_log_summary(path):
+    summary = {'outcome': 'no_failure_recorded', 'reason': 'unknown', 'httpStatus': 'unknown'}
+    try:
+        text = path.read_text(errors='replace')
+    except FileNotFoundError:
+        return {**summary, 'outcome': 'unavailable'}
+    except OSError:
+        return {**summary, 'outcome': 'read_error'}
+    reasons = set()
+    statuses = set()
+    for line in text.splitlines():
+        line = re.sub(r'\x1b\[[0-9;]*m', '', line).lower()
+        if 'failed to refresh token' not in line:
+            continue
+        summary['outcome'] = 'failure_recorded'
+        for pattern, reason in [
+            (r'\brefresh_token_expired\b|refresh token has expired', 'expired'),
+            (r'\brefresh_token_reused\b|refresh token was already used', 'reused'),
+            (r'\brefresh_token_invalidated\b|refresh token was revoked', 'revoked'),
+            (r'\binvalid_grant\b', 'invalid_grant'),
+        ]:
+            if re.search(pattern, line):
+                reasons.add(reason)
+        # Require a status field or error prefix; timestamp digits are not HTTP evidence.
+        for match in re.finditer(r'\bstatus=(\d{3})\b|failed to refresh token:\s*(\d{3})\b', line):
+            code = match.group(1) or match.group(2)
+            statuses.add({'401': 'unauthorized', '400': 'bad_request'}.get(code, 'other'))
+    for field, values in [('reason', reasons), ('httpStatus', statuses)]:
+        if values:
+            summary[field] = next(iter(values)) if len(values) == 1 else 'multiple'
+    return summary
 
 
 def account_read_summary(response):
@@ -401,15 +437,20 @@ def run_model_goal(directory, prompt_path):
         client.authentication_refresh = 'requested'
         client.authentication_failure = None
         client.account_read_diagnostic = None
+        refresh_log_path = directory / 'app-server.stderr.log'
+        client.authentication_refresh_log = {
+            'beforeRefresh': authentication_refresh_log_summary(refresh_log_path)}
         write_diagnostics(directory, [], client, 'authenticating')
         try:
             # Request managed refresh explicitly before workspace routing begins.
             account_response = client.request('account/read', {'refreshToken': True})
         except Exception:
+            client.authentication_refresh_log['afterRefresh'] = authentication_refresh_log_summary(refresh_log_path)
             client.authentication_failure = 'account_read_rpc'
             client.authentication_refresh = 'failed'
             write_diagnostics(directory, [], client, 'interrupted')
             raise RuntimeError('Codex account/read RPC failed') from None
+        client.authentication_refresh_log['afterRefresh'] = authentication_refresh_log_summary(refresh_log_path)
         client.account_read_diagnostic = account_read_summary(account_response)
         if not client.account_read_diagnostic['responseIsDict']:
             client.authentication_failure = 'account_response_invalid'
