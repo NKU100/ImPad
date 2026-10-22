@@ -103,6 +103,9 @@ android {
         }
         release {
             isDebuggable = false
+            optimization {
+                enable = true
+            }
             if (hasStableSigningKey) {
                 signingConfig = signingConfigs.getByName("stable")
             }

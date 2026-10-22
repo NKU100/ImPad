@@ -54,6 +54,9 @@ class RuleExecutionFingerprintTest {
         assertTrue(manifest.strategySources.any { it.path.endsWith("QqHookInstaller.kt") })
         assertFalse(manifest.moduleSources.any { it.path == "compatibility/resolution-modes.json" })
         assertTrue(manifest.moduleSources.any { it.path.endsWith("RuleExecutionFingerprint.kt") })
+        assertTrue(manifest.moduleSources.any {
+            it.path == "app/src/release/keepRules/impad-module-entry.keep"
+        })
         assertEquals(manifest.sourceTreeSha256, digestSources(manifest.moduleSources))
         assertEquals(64, report.ruleImplementationSha256.length)
         assertEquals(64, report.sharedResolverImplementationSha256.length)
