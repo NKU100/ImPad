@@ -4,8 +4,19 @@ import {readFile, readdir, mkdir, writeFile, copyFile, statfs, rename} from 'nod
 import path from 'node:path';
 import {pathToFileURL} from 'node:url';
 
+export function adaptationArguments(env = process.env) {
+  const appId = env.APP_ID;
+  if (!['qq', 'wechat', 'wecom'].includes(appId)) {
+    throw new Error('APP_ID must be one of qq, wechat, or wecom.');
+  }
+  return ['-m', env.CODEX_CONTROLLER_MODULE || 'scripts.ci.codex_adaptation', 'model',
+    '--app-id', appId, '--directory', env.CODEX_TASK_DIR, '--prompt', env.ADAPTATION_PROMPT];
+}
+
 // Runs in the trusted action process; runtime upload credentials never enter the model environment.
 export async function run(core) {
+  const appId = process.env.APP_ID;
+  const adaptationArgs = adaptationArguments(process.env);
   const controller = process.env.CONTROLLER_ROOT;
   const task = process.env.CODEX_TASK_DIR;
   const prompt = process.env.ADAPTATION_PROMPT;
@@ -21,8 +32,7 @@ export async function run(core) {
   let acknowledged = 0;
   let nextDiagnostics = 0;
   let diagnosticsUpload = null;
-  const child = spawn('python3', ['-m', process.env.CODEX_CONTROLLER_MODULE || 'scripts.ci.codex_adaptation', 'model',
-    '--directory', task, '--prompt', prompt], {cwd: controller, stdio: 'inherit', env: {...process.env, CODEX_CHECKPOINT_HANDSHAKE: 'true'}});
+  const child = spawn('python3', adaptationArgs, {cwd: controller, stdio: 'inherit', env: {...process.env, CODEX_CHECKPOINT_HANDSHAKE: 'true'}});
   const finished = new Promise(resolve => {
     child.once('error', error => resolve({error: String(error)}));
     child.once('exit', (code, received) => resolve({code, signal: received}));
@@ -61,7 +71,7 @@ export async function run(core) {
     const report = JSON.parse(await readFile(path.join(task, 'candidate-report.json'), 'utf8'));
     const diagnostics = JSON.parse(await readFile(path.join(task, 'goal-diagnostics.json'), 'utf8'));
     const checkpointStatus = ['running', 'verified', 'blocked', 'interrupted'].includes(diagnostics.status) ? diagnostics.status : 'interrupted';
-    const artifactName = `${process.env.ARTIFACT_PREFIX || 'impad'}-${process.env.APP_ID || 'wechat'}-codex-adaptation-live-${process.env.GITHUB_RUN_ATTEMPT || '1'}-${checkpointSequence}-${report.identity.apkSha256.toLowerCase()}-${checkpointStatus}`;
+    const artifactName = `${process.env.ARTIFACT_PREFIX || 'impad'}-${appId}-codex-adaptation-live-${process.env.GITHUB_RUN_ATTEMPT || '1'}-${checkpointSequence}-${report.identity.apkSha256.toLowerCase()}-${checkpointStatus}`;
     await artifacts.uploadArtifact(artifactName, files, output, {retentionDays: 90});
     if (process.env.ADAPTATION_ISSUE !== '0') execFileSync('python3', ['-m', 'scripts.ci.codex_task', 'checkpoint', '--app-id', process.env.APP_ID,
       '--report', path.join(task, 'candidate-report.json'), '--directory', task,
@@ -138,7 +148,7 @@ export async function run(core) {
       await copyFile(path.join(chunks, name), target);
       files.push(target);
     }
-    await artifacts.uploadArtifact(`${process.env.ARTIFACT_PREFIX || 'impad'}-${process.env.APP_ID || 'wechat'}-codex-live-${process.env.GITHUB_RUN_ATTEMPT}-${sequence}`, files, root, {retentionDays: 14});
+    await artifacts.uploadArtifact(`${process.env.ARTIFACT_PREFIX || 'impad'}-${appId}-codex-live-${process.env.GITHUB_RUN_ATTEMPT}-${sequence}`, files, root, {retentionDays: 14});
     names.forEach(name => uploaded.add(name));
     core.info(`Saved live diagnostics ${sequence}; ${names.length} encrypted conversation chunks.`);
   }
