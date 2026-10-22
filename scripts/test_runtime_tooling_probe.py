@@ -114,12 +114,14 @@ class RuntimeToolingProbeTest(unittest.TestCase):
             relay.dispatch(['install', '-r', 'app.apk'], relay.workspace / 'subdir', 'request')
             relay.dispatch(['push', 'one.bin', 'two.bin', '/sdcard/'], relay.workspace / 'subdir', 'request')
             relay.dispatch(['pull', '/sdcard/result.bin', 'out/result.bin'], relay.workspace / 'subdir', 'request')
+            relay.dispatch(['pull', '/sdcard/result.bin', 'out/result.bin/'], relay.workspace / 'subdir', 'request')
 
-        self.assertEqual([relay.workspace] * 3, [cwd for _, cwd, _ in calls])
+        self.assertEqual([relay.workspace] * 4, [cwd for _, cwd, _ in calls])
         self.assertEqual(str(relay.workspace / 'subdir/app.apk'), calls[0][0][-1])
         self.assertEqual([str(relay.workspace / 'subdir/one.bin'),
                           str(relay.workspace / 'subdir/two.bin'), '/sdcard/'], calls[1][0][-3:])
         self.assertEqual(str(relay.workspace / 'subdir/out/result.bin'), calls[2][0][-1])
+        self.assertEqual(str(relay.workspace / 'subdir/out/result.bin') + '/', calls[3][0][-1])
 
     def _fake_adb(self, root, serial):
         log = root / 'fake-adb.jsonl'

@@ -188,8 +188,10 @@ class DeviceRelay:
         elif args[0] == 'push':
             args = [args[0], *(str((cwd / arg).resolve()) for arg in args[1:-1]), args[-1]]
         elif args[0] == 'pull':
-            destination = cwd if len(args) == 2 else (cwd / args[2]).resolve()
-            args = [args[0], args[1], str(destination)]
+            destination = str(cwd if len(args) == 2 else (cwd / args[2]).resolve())
+            if len(args) == 3 and args[2].endswith('/') and not destination.endswith('/'):
+                destination += '/'
+            args = [args[0], args[1], destination]
         return self.execute(prefix + args, self.workspace, request, timeout)
 
     def serve(self):
