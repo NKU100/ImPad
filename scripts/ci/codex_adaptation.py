@@ -98,6 +98,27 @@ def _rules_acceptance(repository, app_id):
     return snapshot, catalog
 
 
+def copy_runtime_failure(report, artifact_root, analysis):
+    failure = report.get('runtimeFailure')
+    if failure is None:
+        return
+    if failure.get('outcome') != 'RUNTIME_INCOMPATIBLE' or not failure.get('evidence'):
+        raise ValueError('Runtime failure export is incomplete')
+    artifact_root = Path(artifact_root).resolve()
+    for item in failure['evidence']:
+        relative = Path(item['path'])
+        if (relative.is_absolute() or '..' in relative.parts
+                or not re.fullmatch(r'[a-f0-9]{64}', str(item.get('sha256', '')))):
+            raise ValueError('Runtime failure evidence reference is malformed')
+        source = (artifact_root / relative).resolve()
+        source.relative_to(artifact_root)
+        if not source.is_file() or sha256(source) != item['sha256']:
+            raise ValueError('Runtime failure evidence changed before adaptation')
+        destination = Path(analysis) / relative
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copyfile(source, destination)
+
+
 def prepare_rules(repository, report_path, candidate_apk, directory):
     report = json.loads(Path(report_path).read_text())
     policy = policy_for_report(report)
@@ -139,6 +160,7 @@ def prepare_rules(repository, report_path, candidate_apk, directory):
     analysis = worktree / 'work/analysis'
     analysis.mkdir(parents=True)
     shutil.copyfile(report_path, analysis / 'candidate-report.json')
+    copy_runtime_failure(report, Path(report_path).parent, analysis)
     static_ref = report.get('staticReport')
     static_path = Path(report_path).parent / static_ref if isinstance(static_ref, str) else None
     if static_path is None or not static_path.is_file():

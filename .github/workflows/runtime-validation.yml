@@ -38,7 +38,10 @@ on:
         value: ${{ jobs.prepare.outputs.candidate_status }}
       candidate_artifact:
         description: Artifact containing the exact candidate report and static inputs
-        value: runtime-candidate-report-input-${{ inputs.app_id }}
+        value: ${{ jobs.result.outputs.adaptation_artifact || format('runtime-candidate-report-input-{0}', inputs.app_id) }}
+      validation_outcome:
+        description: File-verified outcome including confirmed runtime incompatibility
+        value: ${{ jobs.result.outputs.validation_outcome }}
 
 permissions:
   contents: read
@@ -273,6 +276,8 @@ jobs:
     if: needs.prepare.outputs.candidate_status == 'PREPARED'
     runs-on: ubuntu-24.04-arm
     timeout-minutes: 25
+    outputs:
+      probe_conclusion: ${{ steps.probe.outcome }}
     env:
       IMPAD_ADB_BINARY: /usr/bin/adb
       GH_TOKEN: ${{ github.token }}
@@ -284,6 +289,8 @@ jobs:
           path: work/runtime-smoke
       - run: sudo apt-get update -qq && sudo apt-get install -y --no-install-recommends adb kmod tesseract-ocr 7zip
       - name: Independently verify the exact candidate on native ReDroid
+        id: probe
+        continue-on-error: ${{ inputs.operation == 'adapt' }}
         run: python3 -m scripts.ci.redroid_environment_probe --output work/runtime-smoke --app-inputs work/runtime-smoke
       - name: Package stable runtime evidence layout
         if: always()
@@ -321,6 +328,9 @@ jobs:
     needs: [prepare, smoke]
     if: always() && needs.prepare.result == 'success'
     runs-on: ubuntu-latest
+    outputs:
+      validation_outcome: ${{ steps.verdict.outputs.outcome }}
+      adaptation_artifact: ${{ steps.verdict.outputs.adaptation_artifact }}
     env:
       APP_ID: ${{ needs.prepare.outputs.app_id }}
       ARTIFACT_PREFIX: ${{ needs.prepare.outputs.artifact_prefix }}
@@ -341,8 +351,9 @@ jobs:
           name: ${{ needs.prepare.outputs.artifact_prefix }}-${{ needs.prepare.outputs.app_id }}-runtime-smoke
           path: runtime-result/evidence
       - name: Validate pipeline acceptance without publishing support
+        id: verdict
         env:
-          SMOKE_CONCLUSION: ${{ needs.smoke.result }}
+          SMOKE_CONCLUSION: ${{ needs.smoke.outputs.probe_conclusion || needs.smoke.result }}
         run: |
           python3 - <<'PY'
           import json, os, subprocess, sys
@@ -362,6 +373,9 @@ jobs:
                   summary.write('No model, PR, device run, or acceptance write was started.\n')
               expected_handoff = (os.environ.get('OPERATION') == 'adapt'
                                   and os.environ.get('CANDIDATE_STATUS') == 'INCOMPATIBLE')
+              if os.environ.get('GITHUB_OUTPUT'):
+                  with Path(os.environ['GITHUB_OUTPUT']).open('a') as output:
+                      output.write('outcome=INCOMPATIBLE\n')
               raise SystemExit(0 if expected_handoff else 1)
           evidence_root = directory / 'evidence/runtime-smoke'
           smoke_report = evidence_root / 'evidence/smoke-report.json'
@@ -382,11 +396,27 @@ jobs:
                      '--output', str(directory / 'runtime-candidate-report.json')]
           subprocess.run(command, check=True)
           report = json.loads((directory / 'runtime-candidate-report.json').read_text())
+          from scripts.ci.runtime_task import export_runtime_adaptation
+          handoff = export_runtime_adaptation(
+              directory / 'runtime-candidate-report.json', directory / 'candidate-report.json',
+              evidence_root, os.environ['OPERATION'])
+          with Path(os.environ['GITHUB_OUTPUT']).open('a') as output:
+              output.write(f"outcome={report['outcome']}\n")
+              if handoff:
+                  output.write(f"adaptation_artifact=runtime-adaptation-input-{os.environ['APP_ID']}\n")
           with Path(os.environ['GITHUB_STEP_SUMMARY']).open('a') as summary:
               summary.write(f'## Runtime validation result\n\n`{report.get("outcome", report.get("status"))}`\n\n')
               summary.write('Validation did not write the formal acceptance table or publish support.\n')
-          assert report.get('outcome', report.get('status')) in {'VERIFIED', 'RUNTIME_VERIFIED'}, report
+          assert handoff or report.get('outcome', report.get('status')) in {'VERIFIED', 'RUNTIME_VERIFIED'}, report
           PY
+      - name: Export confirmed runtime failure for adaptation
+        if: steps.verdict.outputs.adaptation_artifact != ''
+        uses: actions/upload-artifact@v7
+        with:
+          name: ${{ steps.verdict.outputs.adaptation_artifact }}
+          path: runtime-result/
+          if-no-files-found: error
+          retention-days: 14
       - uses: actions/upload-artifact@v7
         if: always()
         with:

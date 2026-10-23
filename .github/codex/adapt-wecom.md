@@ -2,6 +2,11 @@ Adapt only the exact incompatible WeCom APK and accepted APKs supplied in the
 candidate artifact. The trusted controller has checked official URL, APK bytes,
 identity, acceptance snapshot, and initial shared-rule result.
 
+When the candidate report contains `runtimeFailure`, inspect its referenced raw
+captures under `work/analysis/`. Static matching succeeded, but independent
+replay proved the resolved behavior wrong; static success alone cannot close
+this task.
+
 Inspect the candidate's actual tablet and local login behavior, including caller
 paths and callbacks. Add a new immutable WeCom rule and strategy only when the
 shared catalog cannot resolve the behavior. Register it additively through

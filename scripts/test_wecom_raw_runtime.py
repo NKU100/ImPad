@@ -129,7 +129,7 @@ class WeComPortableRuntimeReplayTest(unittest.TestCase):
         return (candidate_root, candidate_path, module_apk,
                 regression_path, acceptance)
 
-    def _produce_from_fixture_ui_and_log_capture(self, root):
+    def _produce_from_fixture_ui_and_log_capture(self, root, missing_entry=False):
         candidate_root, candidate_path, module_apk, regression_path, acceptance_path = self._write_candidate_bundle(root)
         output = root / 'runtime'
         evidence_dir = output / 'apps/wecom'
@@ -156,6 +156,10 @@ class WeComPortableRuntimeReplayTest(unittest.TestCase):
                 shutil.copyfile(FIXTURE / name, evidence_dir / name)
             else:
                 (evidence_dir / name).write_text('{}\n')
+
+        if missing_entry:
+            (evidence_dir / 'module-on-login.xml').write_bytes(
+                (evidence_dir / 'module-off-login.xml').read_bytes())
 
         source_report = json.loads((FIXTURE / 'target.json').read_text())
         full_logcat = (evidence_dir / 'logcat.txt').read_bytes()
@@ -232,7 +236,7 @@ class WeComPortableRuntimeReplayTest(unittest.TestCase):
                 redirect_stdout(io.StringIO()):
             report = redroid_ui_smoke.probe('wecom', output / 'apps', inputs, module['sha256'])
 
-        self.assertEqual('RUNTIME_SMOKE_VERIFIED', report['status'])
+        self.assertEqual('RUNTIME_REJECTED' if missing_entry else 'RUNTIME_SMOKE_VERIFIED', report['status'])
         self.assertEqual(4, state_index)
         pipeline = redroid_app_smoke.pipeline_report(
             report, candidate, module, output)
@@ -241,6 +245,44 @@ class WeComPortableRuntimeReplayTest(unittest.TestCase):
         smoke_path = report_dir / 'smoke-report.json'
         smoke_path.write_text(json.dumps(pipeline, indent=2) + '\n')
         return candidate_path, module_apk, regression_path, smoke_path, output, acceptance_path, pipeline
+
+    def test_failed_production_probe_reaches_file_verified_runtime_incompatibility(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            candidate_path, module_apk, regression_path, smoke_path, output, acceptance_path, pipeline = \
+                self._produce_from_fixture_ui_and_log_capture(root, missing_entry=True)
+            self.assertTrue(pipeline['evidence'])
+            report = runtime_task.verify_validation_files(
+                candidate_path, module_apk, regression_path, smoke_path, output,
+                'failure', ROOT, acceptance_path, initial_migration=True)
+            self.assertEqual('RUNTIME_INCOMPATIBLE', report['outcome'])
+            self.assertEqual('runtime', report['failedStage'])
+            self.assertNotIn('rejectionReplayError', report['runtime'])
+            nested = candidate_path.parent / 'evidence/runtime-smoke'
+            shutil.copytree(output, nested)
+            replayed = runtime_task.verify_validation_files(
+                candidate_path, module_apk, regression_path, nested / 'evidence/smoke-report.json', nested,
+                'failure', ROOT, acceptance_path, initial_migration=True)
+            replayed.pop('_acceptanceSnapshotObject', None)
+            report_path = candidate_path.parent / 'runtime-candidate-report.json'
+            report_path.write_text(json.dumps(replayed))
+            self.assertTrue(runtime_task.export_runtime_adaptation(
+                report_path, candidate_path, nested, 'adapt'))
+            exported = json.loads(candidate_path.read_text())
+            self.assertEqual('INCOMPATIBLE', exported['status'])
+            from scripts.ci.codex_adaptation import copy_runtime_failure
+            analysis = root / 'agent-analysis'
+            copy_runtime_failure(exported, candidate_path.parent, analysis)
+            self.assertTrue((analysis / 'evidence/runtime-smoke/apps/wecom/module-on-login.xml').is_file())
+            # Restore the original prepared candidate for the identity-mismatch check.
+            candidate_path.write_text(json.dumps(report['candidate']))
+            raw = json.loads(smoke_path.read_text())
+            raw['moduleApkSha256'] = 'f' * 64
+            smoke_path.write_text(json.dumps(raw))
+            rejected = runtime_task.verify_validation_files(
+                candidate_path, module_apk, regression_path, smoke_path, output,
+                'failure', ROOT, acceptance_path, initial_migration=True)
+            self.assertEqual('ERROR', rejected['outcome'])
 
     def test_production_probe_raw_report_verifier_and_evaluator_share_the_saved_ui_capture(self):
         with tempfile.TemporaryDirectory() as temporary:

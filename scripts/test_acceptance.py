@@ -248,6 +248,24 @@ class AcceptanceTest(unittest.TestCase):
         result = evaluate_validation(candidate, module, static, regression, smoke, 'success')
         self.assertEqual('REGRESSION_FAILED', result['outcome'])
 
+    def test_runtime_incompatibility_requires_raw_replay_and_cannot_override_other_gates(self):
+        candidate, module, static, regression, smoke = self.fixture()
+        smoke['status'] = 'RUNTIME_REJECTED'
+        unconfirmed = evaluate_validation(candidate, module, static, regression, smoke, 'failure')
+        self.assertEqual('ERROR', unconfirmed['outcome'])
+        confirmed = evaluate_validation(candidate, module, static, regression, smoke, 'failure',
+                                        runtime_rejection=True)
+        self.assertEqual('RUNTIME_INCOMPATIBLE', confirmed['outcome'])
+        regression['status'] = 'FAILED'
+        failed = evaluate_validation(candidate, module, static, regression, smoke, 'failure',
+                                     runtime_rejection=True)
+        self.assertEqual('REGRESSION_FAILED', failed['outcome'])
+        regression['status'] = 'PASSED'
+        for conclusion in ('cancelled', 'skipped'):
+            cancelled = evaluate_validation(candidate, module, static, regression, smoke, conclusion,
+                                            runtime_rejection=True)
+            self.assertEqual('CANCELLED', cancelled['outcome'])
+
     def test_evaluator_result_does_not_claim_boolean_trust(self):
         candidate, module, static, regression, smoke = self.fixture()
         result = evaluate_validation(candidate, module, static, regression, smoke, 'success')

@@ -134,6 +134,43 @@ class RuntimeEventParserTest(unittest.TestCase):
             self.assertEqual('RuntimeError: Trusted request AppID policy rejected pair',
                              report['reason'])
 
+    def test_only_healthy_replayed_qq_app_id_mismatch_can_request_adaptation(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            output = root / 'output'
+            report, candidate, module = self.produce_with_run_candidate(root, output)
+            raw_path = output / 'apps/qq/events-enabled.jsonl'
+            events = [json.loads(line) for line in raw_path.read_text().splitlines()]
+            for event in events:
+                if event.get('payload'):
+                    event['payload'] = qq_packet(10, 86104, sorted(request_protocol.SECURITY_COMMANDS)[0]).hex()
+            replay = packet_capture.TcpCapture(report['enabled']['appUid'])
+            for event in events:
+                replay.feed(event)
+            raw_path.write_text(''.join(json.dumps(event) + '\n' for event in events))
+            summary = replay.result()
+            (output / 'apps/qq/capture-enabled.json').write_text(json.dumps(summary))
+            report['enabled'].update(summary)
+            from scripts.ci.apps.qq import runtime_policy
+            report['requestIdentityEvidence'] = runtime_policy.build_request_identity_proof(
+                candidate['requestIdentityExpectation'], report['disabled'], report['enabled'])
+            report['status'] = 'RUNTIME_REJECTED'
+            for reference in report['evidence']:
+                reference['sha256'] = hashlib.sha256((output / reference['path']).read_bytes()).hexdigest()
+            observer = report['disabled']['observerSha256']
+            with patch.object(packet_capture, 'observer_source_digest', return_value=observer):
+                files = runtime_task.verify_runtime_rejection(report, output, candidate, module)
+                self.assertIn('apps/qq/events-enabled.jsonl', files)
+                invalid_baseline = json.loads(json.dumps(report['requestIdentityEvidence']))
+                invalid_baseline['disabled']['frames'][0]['packetAppId'] = 20
+                self.assertFalse(runtime_policy.validate_request_evidence(
+                    invalid_baseline, candidate['identity']['apkSha256'], module['sha256'],
+                    candidate['requestIdentityExpectation'], allow_app_id_mismatch=True))
+                report['enabled']['ownershipVerified'] = False
+                report['requestIdentityEvidence']['enabled']['ownershipVerified'] = False
+                with self.assertRaises(ValueError):
+                    runtime_task.verify_runtime_rejection(report, output, candidate, module)
+
     def test_raw_verifier_rejects_nested_inner_headers_from_synthetic_report(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)

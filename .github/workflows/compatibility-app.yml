@@ -143,7 +143,9 @@ jobs:
     if: >-
       always() && !cancelled() && github.ref == 'refs/heads/main' &&
       inputs.operation == 'adapt' && needs.prepare.result == 'success' &&
-      (needs.rules-analysis.outputs.candidate_status == 'INCOMPATIBLE' ||
+      ((needs.rules-analysis.result == 'success' &&
+        (needs.rules-analysis.outputs.candidate_status == 'INCOMPATIBLE' ||
+         needs.rules-analysis.outputs.validation_outcome == 'RUNTIME_INCOMPATIBLE')) ||
        needs.prepare.outputs.pending_adaptation == 'true')
     runs-on: ubuntu-24.04-arm
     outputs:
@@ -224,7 +226,10 @@ jobs:
 
       - name: Match the latest APK to the unfinished adaptation
         id: candidate-checkpoint
-        if: needs.prepare.outputs.pending_adaptation != 'true' && needs.prepare.outputs.pending_candidate_key != '' && needs.rules-analysis.outputs.candidate_status == 'INCOMPATIBLE'
+        if: >-
+          needs.prepare.outputs.pending_adaptation != 'true' && needs.prepare.outputs.pending_candidate_key != '' &&
+          (needs.rules-analysis.outputs.candidate_status == 'INCOMPATIBLE' ||
+           needs.rules-analysis.outputs.validation_outcome == 'RUNTIME_INCOMPATIBLE')
         env:
           PENDING_CANDIDATE_KEY: ${{ needs.prepare.outputs.pending_candidate_key }}
           CANDIDATE_REPORT: ${{ github.workspace }}/compatibility-report/candidate-report.json

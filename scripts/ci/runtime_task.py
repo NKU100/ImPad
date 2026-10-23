@@ -104,7 +104,7 @@ def _read_json(path, label):
     return value
 
 
-def _validate_qq_raw_evidence(smoke, evidence_root, candidate, module):
+def _validate_qq_raw_evidence(smoke, evidence_root, candidate, module, *, allow_app_id_mismatch=False):
     from scripts.ci.apps.qq import packet_capture, request_protocol, runtime_policy
     from scripts.ci.redroid_app_smoke import extract_qq_lifecycle_evidence, qq_compatible_hook_installed
 
@@ -159,7 +159,8 @@ def _validate_qq_raw_evidence(smoke, evidence_root, candidate, module):
     if smoke.get('requestIdentityEvidence') != proof:
         raise ValueError('QQ request identity proof differs from the raw capture reports')
     if not runtime_policy.validate_request_evidence(
-            proof, candidate['identity']['apkSha256'], module['sha256'], expectation):
+            proof, candidate['identity']['apkSha256'], module['sha256'], expectation,
+            allow_app_id_mismatch=allow_app_id_mismatch):
         raise ValueError('QQ request identity evidence failed the shared policy')
 
     logs = files.get('apps/qq/logcat-enabled.txt')
@@ -410,6 +411,102 @@ def _validate_wechat_raw_evidence(smoke, evidence_root, candidate, module):
     return files
 
 
+def verify_runtime_rejection(smoke, evidence_root, candidate, module):
+    """Prove a behavior mismatch from raw captures before allowing code adaptation."""
+    if smoke.get('status') != 'RUNTIME_REJECTED':
+        raise ValueError('Runtime rejection was not reported')
+    app_id = candidate.get('appId')
+    if app_id == 'qq':
+        from scripts.ci.apps.qq import runtime_policy
+        files = _validate_qq_raw_evidence(
+            smoke, evidence_root, candidate, module, allow_app_id_mismatch=True)
+        if runtime_policy.validate_request_evidence(
+                smoke['requestIdentityEvidence'], candidate['identity']['apkSha256'],
+                module['sha256'], candidate['requestIdentityExpectation']):
+            raise ValueError('Raw QQ requests do not demonstrate a behavior mismatch')
+        return files
+    if app_id not in {'wechat', 'wecom'}:
+        raise ValueError('Runtime rejection replay is unavailable for this application')
+    if app_id == 'wechat':
+        from scripts.ci.apps.wechat import runtime_policy
+    else:
+        from scripts.ci.apps.wecom import runtime_policy
+    entries = smoke.get('evidence')
+    if not isinstance(entries, list) or not entries:
+        raise ValueError('Runtime rejection has no raw evidence references')
+    files = {}
+    for item in entries:
+        if (not isinstance(item, dict) or not isinstance(item.get('path'), str)
+                or not re.fullmatch(r'[a-f0-9]{64}', str(item.get('sha256', '')))):
+            raise ValueError('Runtime rejection evidence reference is malformed')
+        path = _resolve_child(evidence_root, item['path'], 'Runtime rejection evidence')
+        if item['path'] in files or _sha256(path) != item['sha256']:
+            raise ValueError('Runtime rejection evidence is duplicated or changed')
+        files[item['path']] = path
+    prefix = f'apps/{app_id}/'
+    def read(name):
+        if prefix + name not in files:
+            raise ValueError(f'Runtime rejection evidence is missing: {name}')
+        return files[prefix + name].read_text()
+
+    policy = get_policy(app_id)
+    package = policy.package_name
+    if candidate.get('identity', {}).get('packageName') != package:
+        raise ValueError('Runtime rejection candidate package differs from policy')
+    installed = json.loads(read('installed-identities.json'))
+    runtime_policy.derive_installed_identities(
+        installed, package, candidate['identity']['apkSha256'],
+        'io.github.nku100.impad', module['sha256'])
+    for stage, enabled in (('initial', None), ('disabled', False), ('enabled', True), ('final', True)):
+        state = runtime_policy.derive_manager_state(
+            json.loads(read(f'manager-state-{stage}.json')), 'io.github.nku100.impad', package)
+        if enabled is not None and state['moduleEnabled'] is not enabled:
+            raise ValueError('Runtime rejection module toggle state is invalid')
+    processes, logcat = read('processes.txt'), read('logcat.txt')
+    scoped = runtime_policy.scoped_module_log_lines(logcat, processes, package)
+    if read('app-hook-logs.txt') != scoped:
+        raise ValueError('Runtime rejection scoped logs differ from raw process evidence')
+    runtime_policy.derive_hook_evidence(processes, scoped, candidate, module, installed['module'])
+    for label in ('module-off-login', 'module-on-login'):
+        activity, hierarchy = read(f'{label}-activity.txt'), read(f'{label}.xml')
+        # Parse ownership and visibility strictly; navigation or missing UI is not a rule failure.
+        nodes = runtime_policy._app_nodes(hierarchy, package)
+        component = runtime_policy._top_resumed_component(activity, package)
+        if (not runtime_policy._activity_ends_with(component, runtime_policy.login_input_activity)
+                or not runtime_policy.login_input_ready(activity, hierarchy, package)
+                or not any(node.get('visible') != 'false' for node in nodes)):
+            raise ValueError('Runtime rejection did not capture the application login screen')
+        if any(node.get('visible') != 'false' and runtime_policy.tablet_entry_visible(node.get('text', ''))
+               for node in nodes):
+            raise ValueError('Raw UI does not demonstrate the missing tablet-entry failure')
+    return files
+
+
+def export_runtime_adaptation(report_path, candidate_path, evidence_root, operation):
+    """Export a verified failure for the existing incompatible-candidate controller."""
+    report_path, candidate_path = Path(report_path).resolve(), Path(candidate_path).resolve()
+    report = _read_json(report_path, 'Runtime validation')
+    if operation != 'adapt' or report.get('outcome') != 'RUNTIME_INCOMPATIBLE':
+        return False
+    candidate = _read_json(candidate_path, 'Candidate')
+    if candidate != report.get('candidate') or candidate.get('status') != 'PREPARED':
+        raise ValueError('Runtime failure does not match the prepared candidate')
+    evidence_root = Path(evidence_root).resolve()
+    references = [{'path': report_path.relative_to(candidate_path.parent).as_posix(),
+                   'sha256': _sha256(report_path)}]
+    for item in report['runtime']['evidence']:
+        path = _resolve_child(evidence_root, item['path'], 'Runtime rejection evidence')
+        if _sha256(path) != item['sha256']:
+            raise ValueError('Runtime failure evidence changed before export')
+        references.append({'path': path.relative_to(candidate_path.parent).as_posix(),
+                           'sha256': item['sha256']})
+    candidate.update(status='INCOMPATIBLE', runtimeFailure={
+        'outcome': 'RUNTIME_INCOMPATIBLE', 'diagnostics': report['diagnostics'],
+        'evidence': references})
+    candidate_path.write_text(json.dumps(candidate, indent=2) + '\n')
+    return True
+
+
 def verify_validation_files(candidate_path, module_apk, regression_path, smoke_path,
                             evidence_root, conclusion, repository, acceptance_path,
                             initial_migration=False, acceptance_snapshot=None):
@@ -527,7 +624,14 @@ def verify_validation_files(candidate_path, module_apk, regression_path, smoke_p
     if not isinstance(smoke, dict):
         raise ValueError('Runtime report has an invalid schema')
     files = {}
-    if smoke.get('status') == 'RUNTIME_SMOKE_VERIFIED' and candidate.get('appId') == 'qq':
+    runtime_rejection = False
+    if smoke.get('status') == 'RUNTIME_REJECTED':
+        try:
+            files = verify_runtime_rejection(smoke, evidence_root, candidate, module)
+            runtime_rejection = True
+        except (KeyError, TypeError, ValueError, OSError) as error:
+            smoke['rejectionReplayError'] = str(error)
+    elif smoke.get('status') == 'RUNTIME_SMOKE_VERIFIED' and candidate.get('appId') == 'qq':
         files = _validate_qq_raw_evidence(smoke, evidence_root, candidate, module)
     elif smoke.get('status') == 'RUNTIME_SMOKE_VERIFIED' and candidate.get('appId') == 'wecom':
         files = _validate_wecom_raw_evidence(smoke, evidence_root, candidate, module)
@@ -551,7 +655,8 @@ def verify_validation_files(candidate_path, module_apk, regression_path, smoke_p
     if smoke.get('status') == 'RUNTIME_SMOKE_VERIFIED':
         smoke['_verifiedEvidenceFiles'] = {path: _sha256(path) for path in files.values()}
 
-    result = evaluate_validation(candidate, module, static, regression, smoke, conclusion)
+    result = evaluate_validation(candidate, module, static, regression, smoke, conclusion,
+                                 runtime_rejection=runtime_rejection)
     result['candidate'].pop('_root', None)
     result['runtime'].pop('_verifiedEvidenceFiles', None)
     try:
@@ -573,7 +678,7 @@ def verify_validation_files(candidate_path, module_apk, regression_path, smoke_p
     return result
 
 
-def evaluate_validation(candidate, module, static, regression, smoke, conclusion):
+def evaluate_validation(candidate, module, static, regression, smoke, conclusion, *, runtime_rejection=False):
     """Pure decision over parsed controller inputs; file verification belongs to the caller."""
     candidate = candidate if isinstance(candidate, dict) else {}
     module = module if isinstance(module, dict) else {}
@@ -723,7 +828,9 @@ def evaluate_validation(candidate, module, static, regression, smoke, conclusion
         result.update(outcome='ERROR', failedStage='regression',
                       diagnostics=['Regression status is missing or invalid'])
         return result
-    if conclusion != 'success' or smoke.get('status') != 'RUNTIME_SMOKE_VERIFIED':
+    confirmed_rejection = (runtime_rejection and conclusion in {'success', 'failure'}
+                           and smoke.get('status') == 'RUNTIME_REJECTED')
+    if not confirmed_rejection and (conclusion != 'success' or smoke.get('status') != 'RUNTIME_SMOKE_VERIFIED'):
         result.update(outcome='ERROR', failedStage='runtime',
                       diagnostics=['Runtime behavior evidence is absent or rejected'])
         return result
@@ -737,6 +844,10 @@ def evaluate_validation(candidate, module, static, regression, smoke, conclusion
     if not exact:
         result.update(outcome='ERROR', failedStage='runtime',
                       diagnostics=['Runtime evidence does not match the tested APK/module/source'])
+        return result
+    if confirmed_rejection:
+        result.update(outcome='RUNTIME_INCOMPATIBLE', failedStage='runtime',
+                      diagnostics=[smoke.get('reason', 'Raw runtime captures prove a behavior mismatch')])
         return result
     if policy.app_id == 'qq':
         from scripts.ci.apps.qq.runtime_policy import validate_request_evidence
