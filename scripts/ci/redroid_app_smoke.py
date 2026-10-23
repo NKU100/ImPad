@@ -158,7 +158,7 @@ def pipeline_report(report, candidate, module_identity=None, evidence_root=None)
         elif expected is not None:
             result[report_field] = expected
 
-    if result.get('status') == 'RUNTIME_SMOKE_VERIFIED':
+    if result.get('status') in {'RUNTIME_SMOKE_VERIFIED', 'RUNTIME_REJECTED'}:
         if any(not isinstance(result.get(field), str)
                or not re.fullmatch(r'[a-f0-9]{64}', result[field])
                for field in module_fields):
@@ -412,7 +412,7 @@ class AppSmoke:
             except Exception as diagnostic:
                 report['diagnosticError'] = str(diagnostic)
         finally:
-            if report.get('status') == 'RUNTIME_SMOKE_VERIFIED':
+            if report.get('status') in {'RUNTIME_SMOKE_VERIFIED', 'RUNTIME_REJECTED'}:
                 report['evidence'] = [
                     {'path': path.relative_to(self.probe.output).as_posix(),
                      'sha256': hashlib.sha256(path.read_bytes()).hexdigest()}

@@ -2,6 +2,11 @@ Adapt only the exact incompatible QQ APK and accepted APKs supplied in the
 candidate artifact. The trusted controller has checked official URL, APK bytes,
 identity, acceptance snapshot, and initial shared-rule result.
 
+When the candidate report contains `runtimeFailure`, inspect its referenced raw
+captures under `work/analysis/`. Static matching succeeded, but independent
+replay proved the resolved behavior wrong; static success alone cannot close
+this task.
+
 Inspect the candidate's real tablet/device-type behavior and caller path before
 changing rules. Add a new immutable QQ rule and strategy only when the shared
 catalog cannot resolve the behavior. Register it additively in `RuleCatalog`;

@@ -81,7 +81,7 @@ def build_request_identity_proof(expectation, disabled, enabled):
             'disabled': disabled, 'enabled': enabled}
 
 
-def validate_request_evidence(proof, apk_sha256, module_sha256, expectation):
+def validate_request_evidence(proof, apk_sha256, module_sha256, expectation, *, allow_app_id_mismatch=False):
     from scripts.ci.apps.qq.packet_capture import CAPTURE_KIND, observer_source_digest
     digest = lambda value: isinstance(value, str) and re.fullmatch(r'[a-f0-9]{64}', value) is not None
     if (not isinstance(proof, dict) or set(proof) != PROOF_FIELDS
@@ -136,7 +136,9 @@ def validate_request_evidence(proof, apk_sha256, module_sha256, expectation):
         for frame in frames:
             if (not isinstance(frame, dict) or set(frame) != FRAME_EVIDENCE_FIELDS
                     or not isinstance(frame.get('command'), str) or frame['command'] not in SECURITY_COMMANDS
-                    or type(frame.get('packetAppId')) is not int or frame['packetAppId'] != expected
+                    or type(frame.get('packetAppId')) is not int
+                    or not 0 < frame['packetAppId'] <= 0x7fffffff
+                    or ((not allow_app_id_mismatch or not enabled) and frame['packetAppId'] != expected)
                     or type(frame.get('sequence')) is not int or not 0 <= frame['sequence'] <= 0xffffffff
                     or type(frame.get('firstObservedMonotonicNs')) is not int
                     or frame['firstObservedMonotonicNs'] <= 0):

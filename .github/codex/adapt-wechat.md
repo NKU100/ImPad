@@ -9,8 +9,11 @@ prove that the login path reaches a selected method.
 
 Inspect the candidate's real tablet decision and alternate-device login path,
 including callers, early returns, caches, method shapes, and callback behavior.
-Add an immutable WeChat rule and strategy only when the shared catalog cannot
-resolve the candidate. Keep the required `tablet` and `login` targets complete,
+If `candidate-report.json` contains `runtimeFailure`, inspect its referenced raw
+evidence under `work/analysis/`: static matching succeeded but independent
+runtime replay proved a behavior mismatch. Add an immutable WeChat rule and
+strategy when resolution is missing or the resolved behavior is proven wrong.
+Keep the required `tablet` and `login` targets complete,
 use forward-only version routing, and add focused DEX fixtures for missing,
 ambiguous, and semantically similar false matches. Never copy obfuscated names
 or descriptors from historical data into rule features.
