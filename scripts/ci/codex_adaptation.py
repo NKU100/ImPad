@@ -329,8 +329,7 @@ def _validate_rules(directory, state, policy, worktree):
     regression_root = runtime_root / 'regression'
     regression_rows = run_regression(
         policy.app_id, regression_root,
-        worktree / f'compatibility/{policy.app_id}/acceptance.json',
-        worktree / '.cache' / f'{policy.app_id}-apks', repository=worktree)
+        cache=worktree / '.cache' / f'{policy.app_id}-apks', repository=worktree)
     if not regression_rows or any(row.get('status') != 'PASSED' for row in regression_rows):
         raise ValueError('REGRESSION_FAILED: one or more fixed accepted representatives failed')
 
