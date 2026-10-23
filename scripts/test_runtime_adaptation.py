@@ -53,13 +53,125 @@ class RuntimeAdaptationTest(unittest.TestCase):
         (directory / 'candidate-report.json').write_text(json.dumps(candidate))
         return candidate
 
+    @staticmethod
+    def passed_regression(app_id, reports, **kwargs):
+        rows = [{'status': 'PASSED'}]
+        reports.mkdir(parents=True, exist_ok=True)
+        (reports / 'results.json').write_text(json.dumps(rows))
+        return rows
+
     def mock_static_runtime_helpers(self, apk):
         return (
             patch.object(runtime, 'prepare_module', return_value={'sha256': sha256(apk)}),
             patch.object(runtime, 'verify_module_identity'),
-            patch.object(runtime, 'run_regression', return_value=[]),
+            patch.object(runtime, 'run_regression', side_effect=self.passed_regression),
             patch.object(runtime, 'evaluate_validation', return_value={'outcome': 'VERIFIED'}),
         )
+
+    def test_runtime_passes_full_reports_to_the_real_validation_gate(self):
+        for scenario in ('valid', 'missing-selection', 'wrong-catalog', 'empty-regression'):
+            with self.subTest(scenario=scenario), tempfile.TemporaryDirectory() as temporary:
+                root = Path(temporary)
+                task, workspace, device = root / 'task', root / 'checkout', root / 'device'
+                task.mkdir(); device.mkdir()
+                apk = workspace / 'app/build/outputs/apk/debug/app-debug.apk'
+                apk.parent.mkdir(parents=True); apk.write_bytes(b'module')
+                candidate_apk = device / 'wechat.apk'; candidate_apk.write_bytes(b'official')
+                artifact_root = workspace / 'work/runtime-smoke'
+                candidate = self.checker_candidate(artifact_root, 'wechat', candidate_apk)
+                policy = get_policy('wechat')
+                identity = dict(candidate['identity'], packageName=policy.package_name,
+                                signerSha256=policy.signer_sha256, abi='arm64-v8a',
+                                versionName='8.0.79', versionCode=3200)
+                rule_id, strategy_id = 'wechat_tablet_login_002', 'wechat_tablet_login_behavior_002'
+                plan = {'selection': 'UNIQUE', 'ruleId': rule_id, 'strategyId': strategy_id,
+                        'targets': {
+                            'tablet': {'descriptor': 'Lfixture/Entry;->isTablet()Z',
+                                       'shape': {'parameters': [], 'returnType': 'boolean', 'isStatic': True}},
+                            'login': {'descriptor': 'Lfixture/Entry;->open()V',
+                                      'shape': {'parameters': [], 'returnType': 'void', 'isStatic': True}},
+                        }}
+                route = {'appId': 'wechat', 'candidates': [rule_id]}
+                route_sha = hashlib.sha256(json.dumps(
+                    route, sort_keys=True, separators=(',', ':')).encode()).hexdigest()
+                module = {'sha256': sha256(apk), 'sourceTreeSha256': 'b' * 64,
+                          'ruleCatalogSha256': 'a' * 64, 'routeSha256': route_sha,
+                          'routeConfigurationSha256': 'c' * 64,
+                          'fingerprintFileSha256': 'd' * 64, 'dependencyLockSha256': 'e' * 64,
+                          'route': route}
+                static_path = artifact_root / candidate['staticReport']
+                static = json.loads(static_path.read_text())
+                static.update(identity=identity, analysisScope='STATIC_ONLY',
+                              routeCandidates=[rule_id],
+                              selection={'status': 'SELECTED', 'selectedRuleId': rule_id,
+                                         'strategyId': strategy_id, 'targets': plan['targets']},
+                              ruleCatalog={'schemaVersion': 1, 'appId': 'wechat',
+                                           'ruleCatalogSha256': 'a' * 64,
+                                           'definitions': [{'ruleId': rule_id, 'strategyId': strategy_id,
+                                                            'requiredTargetIds': ['tablet', 'login']}],
+                                           'bindings': [{'ruleId': rule_id, 'min': 3200, 'max': None}],
+                                           'strategyIds': [strategy_id]},
+                              executionIdentity={key: module[key] for key in (
+                                  'ruleCatalogSha256', 'sourceTreeSha256', 'routeConfigurationSha256',
+                                  'fingerprintFileSha256', 'dependencyLockSha256')})
+                if scenario == 'missing-selection':
+                    static.pop('selection')
+                elif scenario == 'wrong-catalog':
+                    static['ruleCatalog']['ruleCatalogSha256'] = 'f' * 64
+                static_path.write_text(json.dumps(static))
+                candidate.update(identity=identity, expectedPlan=plan,
+                                 sourceUrl=policy.official_apk_prefix + 'fixture.apk',
+                                 staticReportSha256=sha256(static_path), ruleCatalogSha256='a' * 64,
+                                 route=dict(route, samplingMode='DIRECT'), routeSha256=route_sha)
+                (artifact_root / 'candidate-report.json').write_text(json.dumps(candidate))
+                (task / 'state.json').write_text(json.dumps({
+                    'appId': 'wechat', 'worktree': str(workspace), 'report': candidate,
+                    'runtime': {'root': str(device), 'socket': str(root / 'socket'),
+                                'serial': 'emulator-5554'}}))
+
+                def regression(app_id, reports, **kwargs):
+                    self.assertEqual(workspace, kwargs.get('repository'))
+                    rows = [] if scenario == 'empty-regression' else [{'status': 'PASSED'}]
+                    reports.mkdir(parents=True)
+                    (reports / 'results.json').write_text(json.dumps(rows))
+                    return rows
+
+                def probe(device_root, evidence, candidate_report):
+                    raw = evidence / 'logcat.txt'; raw.write_text('fixture runtime evidence')
+                    report = {'status': 'RUNTIME_SMOKE_VERIFIED', 'appId': 'wechat',
+                              'packageName': policy.package_name, 'abi': 'arm64-v8a',
+                              'apkSha256': identity['apkSha256'], 'moduleApkSha256': module['sha256'],
+                              'moduleSourceTreeSha256': module['sourceTreeSha256'],
+                              'ruleCatalogSha256': module['ruleCatalogSha256'],
+                              'routeSha256': route_sha, 'dependencyLockSha256': module['dependencyLockSha256'],
+                              'evidence': [{'path': raw.name, 'sha256': sha256(raw)}]}
+                    (evidence / 'smoke-report.json').write_text(json.dumps(report))
+                    return report
+
+                with patch.dict('os.environ'), \
+                     patch.object(runtime, 'prepare_module', return_value=module), \
+                     patch.object(runtime, 'verify_module_identity'), \
+                     patch.object(runtime, 'run_regression', side_effect=regression), \
+                     patch.object(runtime, 'probe_candidate', side_effect=probe), \
+                     patch.object(runtime.smoke, 'snapshot'), patch.object(runtime.smoke, 'collect_logs'), \
+                     patch.object(runtime.smoke, 'adb', return_value=MagicMock(stdout=b'ok', stderr=b'')):
+                    if scenario == 'valid':
+                        runtime.verify_runtime(task)
+                        validation = json.loads((task / 'validation-report.json').read_text())
+                        self.assertEqual('VERIFIED', validation['outcome'])
+                        self.assertEqual(static, validation['static'])
+                        self.assertEqual(sha256(device / 'regression/results.json'),
+                                         validation['stageEvidence']['regression']['sha256'])
+                        self.assertEqual(sha256(device / 'iteration-001/smoke-report.json'),
+                                         validation['stageEvidence']['runtime']['sha256'])
+                    else:
+                        expected_error = {
+                            'missing-selection': 'Shared static check did not pass',
+                            'wrong-catalog': 'Static plan does not match',
+                            'empty-regression': 'Fixed acceptance regression failed',
+                        }[scenario]
+                        with self.assertRaisesRegex(ValueError, expected_error):
+                            runtime.verify_runtime(task)
 
     def test_initializer_refuses_a_physical_or_additional_device_before_setup(self):
         for devices in ['List of devices attached\n127.0.0.1:16556\tdevice\n',
@@ -386,7 +498,7 @@ class RuntimeAdaptationTest(unittest.TestCase):
                 stack.enter_context(patch.object(runtime, 'prepare_module',
                                                  side_effect=lambda path, *_: {'sha256': sha256(path)}))
                 stack.enter_context(patch.object(runtime, 'verify_module_identity'))
-                stack.enter_context(patch.object(runtime, 'run_regression', return_value=[]))
+                stack.enter_context(patch.object(runtime, 'run_regression', side_effect=self.passed_regression))
                 stack.enter_context(patch.object(runtime, 'evaluate_validation', return_value={'outcome': 'VERIFIED'}))
                 stack.enter_context(patch.object(runtime.smoke, 'adb', return_value=MagicMock(stdout=b'ok', stderr=b'')))
                 stack.enter_context(patch.object(runtime.smoke, 'configure_manager'))

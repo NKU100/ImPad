@@ -221,13 +221,12 @@ def verify_runtime(directory):
         if module_identity['sha256'] != module_sha:
             raise ValueError('Module identity was prepared for different APK bytes')
         (root / 'module-identity.json').write_text(json.dumps(module_identity, indent=2) + '\n')
-        regression_rows = run_regression(policy.app_id, root / 'regression')
-        if any(row.get('status') != 'PASSED' for row in regression_rows):
+        regression_rows = run_regression(policy.app_id, root / 'regression', repository=workspace)
+        if not regression_rows or any(row.get('status') != 'PASSED' for row in regression_rows):
             raise ValueError('Fixed acceptance regression failed; runtime acceptance is blocked')
-        regression = {'status': 'PASSED', 'records': regression_rows}
-        static = {'status': 'PASSED', 'identity': candidate['identity'],
-                  'expectedPlan': candidate['expectedPlan'], 'inputHashes': static_report['inputHashes'],
-                  'module': module_identity}
+        regression_path = root / 'regression/results.json'
+        regression = {'status': 'PASSED', 'records': regression_rows,
+                      'evidence': {'path': str(regression_path), 'sha256': sha256(regression_path)}}
         smoke.adb('install', '-r', '-g', str(runtime_apk), timeout=240)
         result = smoke.adb('install', '-r', str(module_apk), timeout=120)
         (smoke.EVIDENCE / 'module-install.txt').write_bytes(result.stdout + result.stderr)
@@ -243,7 +242,8 @@ def verify_runtime(directory):
         raise
     evidence = workspace / 'work/analysis/runtime' / smoke.EVIDENCE.name
     shutil.copytree(smoke.EVIDENCE, evidence, dirs_exist_ok=True)
-    report = json.loads((smoke.EVIDENCE / 'smoke-report.json').read_text())
+    smoke_report_path = smoke.EVIDENCE / 'smoke-report.json'
+    report = json.loads(smoke_report_path.read_text())
     report.setdefault('moduleApkSha256', module_sha)
     (directory / 'runtime-report.json').write_text(json.dumps(report, indent=2) + '\n')
     if (report['moduleApkSha256'] != module_sha or sha256(module_apk) != module_sha
@@ -260,7 +260,8 @@ def verify_runtime(directory):
         if sha256(artifact_path) != item['sha256'].lower():
             raise ValueError('Static report APK input changed during runtime acceptance')
     verify_module_identity(module_identity, module_apk, workspace)
-    validation = evaluate_validation(candidate, module_identity, static, regression, report,
+    report['evidenceReport'] = {'path': str(smoke_report_path), 'sha256': sha256(smoke_report_path)}
+    validation = evaluate_validation(candidate, module_identity, static_report, regression, report,
                                      'success' if report.get('status') == 'RUNTIME_SMOKE_VERIFIED' else 'failure')
     (directory / 'validation-report.json').write_text(json.dumps(validation, indent=2) + '\n')
     if validation['outcome'] != 'VERIFIED':
