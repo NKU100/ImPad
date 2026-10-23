@@ -9,14 +9,92 @@ from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
 from scripts.ci.acceptance import RoutingReviewRequired
+from scripts.ci.app_policy import get_policy
 from scripts.ci.codex_adaptation import (
     candidate_key, eligible_candidate, gradle_command, run_bounded,
     prepare_rules, sha256, validate_existing_tests, validate_paths,
-    _worktree_tree,
+    _worktree_tree, _validate_rules,
 )
 
 
 class CodexAdaptationTest(unittest.TestCase):
+    def test_validation_runs_fixed_regression_in_the_candidate_repository(self):
+        class ReachedBuild(Exception):
+            pass
+
+        for historical_matches in (True, False):
+            with self.subTest(historical_matches=historical_matches), tempfile.TemporaryDirectory() as temporary:
+                root = Path(temporary).resolve()
+                worktree = root / 'checkout'
+                worktree.mkdir()
+                subprocess.run(['git', 'init', '-q', str(worktree)], check=True)
+                (worktree / '.gitignore').write_text('work/\n.cache/\n')
+                subprocess.run(['git', 'add', '.gitignore'], cwd=worktree, check=True)
+                subprocess.run(['git', '-c', 'user.name=Test', '-c', 'user.email=test@example.invalid',
+                                'commit', '-qm', 'ignore generated inputs'], cwd=worktree, check=True)
+                base = subprocess.check_output(['git', 'rev-parse', 'HEAD'], cwd=worktree, text=True).strip()
+                cache = worktree / '.cache/wechat-apks'
+                cache.mkdir(parents=True)
+                accepted = copy.deepcopy(self.record)
+                payload = b'fixed accepted APK'
+                digest = hashlib.sha256(payload).hexdigest()
+                (cache / f'{digest}.apk').write_bytes(payload)
+                accepted['identity']['apkSha256'] = digest
+                accepted['source'] = {'url': 'https://dldir1v6.qq.com/weixin/android/fixed.apk'}
+                accepted['expectedPlan'] = {'ruleId': 'legacy', 'strategyId': 'legacy-strategy', 'targets': {}}
+                accepted.update(ruleOrder=1, firstForRule=True, firstRecordId=accepted['recordId'])
+                report = copy.deepcopy(self.report)
+                candidate = worktree / 'work/apks'
+                candidate.mkdir(parents=True)
+                candidate_bytes = b'exact candidate APK'
+                candidate_digest = hashlib.sha256(candidate_bytes).hexdigest()
+                report['identity']['apkSha256'] = candidate_digest
+                (candidate / f'candidate-{candidate_digest}.apk').write_bytes(candidate_bytes)
+                bindings = [{'ruleId': 'legacy', 'min': 3040, 'max': 3040},
+                            {'ruleId': 'new', 'min': 3220, 'max': None}]
+                static = {'selection': {'status': 'SELECTED', 'selectedRuleId': 'new'},
+                          'ruleCatalog': {'bindings': bindings}}
+                static_path = worktree / 'work/runtime-smoke/static.json'
+                static_path.parent.mkdir(parents=True)
+                static_path.write_text(json.dumps(static))
+                state = {'base': base, 'existing_tests': {}, 'report': report,
+                         'baseBindings': [{'ruleId': 'legacy', 'min': 3040, 'max': None}],
+                         'acceptanceRecords': [accepted]}
+                acceptance_path = worktree / 'compatibility/wechat/acceptance.json'
+                snapshot = SimpleNamespace(records=[accepted], sha256='f' * 64)
+
+                def read_snapshot(path, app_id, initial_migration):
+                    self.assertEqual(acceptance_path, path)
+                    self.assertEqual('wechat', app_id)
+                    self.assertIs(initial_migration, False)
+                    return snapshot
+
+                def check(repository, apk, apk_digest, log, app_id):
+                    self.assertEqual(worktree, repository)
+                    self.assertEqual(cache / f'{digest}.apk', apk)
+                    self.assertEqual(digest, apk_digest)
+                    log.with_suffix('.json').write_text('{}')
+                    plan = accepted['expectedPlan']
+                    return {'identity': accepted['identity'], 'selection': {
+                        'selectedRuleId': plan['ruleId'] if historical_matches else 'wrong',
+                        'strategyId': plan['strategyId'], 'targets': plan['targets']}}
+
+                with patch('scripts.ci.candidate_selection.prepare_candidate_from_adaptation_report',
+                           return_value={'staticReport': 'static.json'}), \
+                     patch('scripts.ci.codex_adaptation.validate_rule_changes'), \
+                     patch('scripts.ci.static_regression.read_acceptance_snapshot', side_effect=read_snapshot), \
+                     patch('scripts.ci.static_regression.check_apk', side_effect=check), \
+                     patch('scripts.ci.candidate_selection.write_local_runtime_assets'), \
+                     patch('scripts.ci.codex_adaptation.run_bounded', side_effect=ReachedBuild):
+                    if historical_matches:
+                        with self.assertRaises(ReachedBuild):
+                            _validate_rules(root, state, get_policy('wechat'), worktree)
+                    else:
+                        with self.assertRaisesRegex(ValueError, 'REGRESSION_FAILED'):
+                            _validate_rules(root, state, get_policy('wechat'), worktree)
+                rows = json.loads((static_path.parent / 'regression/results.json').read_text())
+                self.assertEqual('PASSED' if historical_matches else 'FAILED', rows[0]['status'])
+
     def test_proposed_tree_uses_private_index_and_preserves_real_staging(self):
         with tempfile.TemporaryDirectory() as temporary:
             repository = Path(temporary)
