@@ -243,9 +243,12 @@ object WeChatTabletLoginRule : RuleQuery {
     val catalog: RuleCatalog by lazy {
         RuleCatalog(
             appId = "wechat",
-            queries = listOf(this),
-            bindings = listOf(VersionBinding(ruleId = RULE_ID, min = 3040, max = null)),
-            strategyIds = setOf(STRATEGY_ID),
+            queries = listOf(this, WeChatTabletLoginRule002),
+            bindings = listOf(
+                VersionBinding(ruleId = RULE_ID, min = 3040, max = 3040),
+                VersionBinding(ruleId = WeChatTabletLoginRule002.definition.ruleId, min = 3200, max = null),
+            ),
+            strategyIds = setOf(STRATEGY_ID, WeChatTabletLoginRule002.definition.strategyId),
         )
     }
 
