@@ -63,7 +63,8 @@ def run_regression(app_id, reports, cache=None, repository=None):
     summary = []
     snapshot = None
     try:
-        snapshot = read_acceptance_snapshot(acceptance_path, policy.app_id, False)
+        snapshot = read_acceptance_snapshot(acceptance_path, policy.app_id, False,
+                                            repository=repository)
         records = select_representatives(snapshot.records)
         if not records:
             raise ValueError('Fixed acceptance regression requires at least one representative')

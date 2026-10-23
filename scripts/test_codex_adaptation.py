@@ -63,8 +63,9 @@ class CodexAdaptationTest(unittest.TestCase):
                 acceptance_path = worktree / 'compatibility/wechat/acceptance.json'
                 snapshot = SimpleNamespace(records=[accepted], sha256='f' * 64)
 
-                def read_snapshot(path, app_id, initial_migration):
+                def read_snapshot(path, app_id, initial_migration, repository):
                     self.assertEqual(acceptance_path, path)
+                    self.assertEqual(worktree, repository)
                     self.assertEqual('wechat', app_id)
                     self.assertIs(initial_migration, False)
                     return snapshot

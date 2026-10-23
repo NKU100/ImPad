@@ -1,5 +1,6 @@
 import hashlib
 import json
+import os
 import tempfile
 import unittest
 from pathlib import Path
@@ -10,6 +11,63 @@ from scripts.ci.static_regression import check_apk, ensure_apk, main, run_regres
 
 
 class StaticRegressionTest(unittest.TestCase):
+    def test_explicit_repository_loads_catalog_and_checks_cache_outside_cwd(self):
+        from scripts.test_acceptance import AcceptanceTest
+
+        candidate, module, static, _, _ = AcceptanceTest().fixture()
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary).resolve()
+            repository = root / 'candidate-checkout'
+            cache = repository / '.cache/qq-apks'
+            cache.mkdir(parents=True)
+            payload = b'fixed accepted APK'
+            digest = hashlib.sha256(payload).hexdigest()
+            apk = cache / f'{digest}.apk'
+            apk.write_bytes(payload)
+            candidate['identity']['apkSha256'] = digest
+            record = {
+                'recordId': 'fixed-first', 'appId': 'qq', 'status': 'VERIFIED',
+                'identity': candidate['identity'], 'expectedPlan': candidate['expectedPlan'],
+                'source': {'type': 'official', 'url': candidate['sourceUrl'],
+                           'apkFiles': [{'role': 'base', 'path': 'base.apk', 'sha256': digest}]},
+                'module': module, 'route': module['route'], 'ruleCatalogSha256': 'd' * 64,
+                'ruleOrder': 1, 'firstForRule': True, 'firstRecordId': 'fixed-first',
+                'stageEvidence': {name: {'path': name + '.json', 'sha256': 'e' * 64}
+                                  for name in ('static', 'regression', 'runtime')},
+            }
+            acceptance = repository / 'compatibility/qq/acceptance.json'
+            acceptance.parent.mkdir(parents=True)
+            acceptance.write_text(json.dumps({'schemaVersion': 1, 'appId': 'qq', 'records': [record]}))
+            (repository / 'checker-fixture.json').write_text(json.dumps(static))
+            wrapper = repository / 'gradlew'
+            wrapper.write_text(
+                '#!/usr/bin/env python3\n'
+                'import json, shlex, sys\n'
+                'from pathlib import Path\n'
+                'fixture = json.loads(Path("checker-fixture.json").read_text())\n'
+                'arguments = shlex.split(sys.argv[-1].removeprefix("--args="))\n'
+                'assert arguments[1:3] == ["--app-id", "qq"]\n'
+                'if arguments[0] == "catalog":\n'
+                '    result = fixture["ruleCatalog"]\n'
+                'else:\n'
+                '    assert arguments[0] == "check-rules"\n'
+                '    result = fixture\n'
+                'Path(arguments[arguments.index("--report") + 1]).write_text(json.dumps(result))\n'
+            )
+            wrapper.chmod(0o755)
+            outside = root / 'outside'; outside.mkdir()
+            original_cwd = Path.cwd()
+            try:
+                os.chdir(outside)
+                rows = run_regression('qq', root / 'reports', cache=cache, repository=repository)
+            finally:
+                os.chdir(original_cwd)
+            self.assertEqual('PASSED', rows[0]['status'], rows)
+            self.assertEqual('fixed-first', rows[0]['recordId'])
+            self.assertEqual(digest, rows[0]['identity']['apkSha256'])
+            self.assertEqual(hashlib.sha256(acceptance.read_bytes()).hexdigest(),
+                             rows[0]['acceptanceSnapshotSha256'])
+
     def test_checker_source_has_only_the_shared_rules_entrypoint(self):
         source = Path('scripts/ci/static_regression.py').read_text()
         self.assertIn("'check-rules'", source)
