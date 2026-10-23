@@ -1,5 +1,9 @@
 # 已验证版本与验证范围
 
+以下记录对应各自的精确应用构建和模块 APK。正式发布附件的验收情况见对应版本的发布说明，不同模块 APK 的验证结果不可互相替代。
+
+## 三应用基线验收
+
 以下三个精确应用构建已通过同一份 ImPad 模块 APK 的 GitHub-hosted ARM64 ReDroid 运行验收。模块 APK SHA-256 为 `d8cdaf1aba2d19503c9a9a2679195456657faae1b5fae8e9d52e2c5ba1b88691`，源码提交为 `8690ed5162ba71c1d756f9e57793c774f2501de7`，127 项模块源码树 SHA-256 为 `654e389fd9b35a1362d6d9c79d2f07f8cd249f141fdfff59c74cff1b70f25aae`。模块由[构建 run 39554279828](https://github.com/NKU100/ImPad/actions/runs/39554279828)生成；该构建 artifact 为 `impad-module-apk`。
 
 | 应用构建 | 官方 APK SHA-256 | 独立运行验收 | 已验证行为 |
@@ -9,6 +13,14 @@
 | 企业微信 5.0.8 / 70675 | `59b3e620a3cf1d1f8740ea320e05fd821bb811040b36f69aa307e7fc8a2ca26d` | [39557803980](https://github.com/NKU100/ImPad/actions/runs/39557803980) | `wecom_local_001` 唯一匹配；manager 关闭/启用状态及 scope 已验证；稳定显示 `LoginQrCodeForAndroidPad`；Tinker READY，native 从本模块 APK 加载，3 个 hook 在兼容性和 native 就绪后安装；production verifier `VERIFIED`。 |
 
 每次运行还通过 `APPLICATION_ACCEPTANCE_VERIFIED`、`RUNTIME_SMOKE_VERIFIED` 和 tooling 4/4。三项静态固定回归均为 `PASSED`，`initialMigration=false`。各候选的官方 APK URL 分别为 [QQ](https://downv6.qq.com/qqweb/QQ_1/android_apk/9.3.1_877e277185fb829c.apk)、[微信](https://dldir1v6.qq.com/weixin/android/weixin8069android3040_0x2800455a_arm64.apk) 和[企业微信](https://dldir1.qq.com/wework/work_weixin/WeCom_android_5.0.8.70675_arm64_100001.apk)。
+
+## 微信 8.0.79 独立验收
+
+官方微信 8.0.79（3200，ARM64）的 APK SHA-256 为 `f2a725bc04302ad218a563533ae79356e66b64aa711b275bc919a8d432f7e15d`，对应[官方 APK](https://dldir1v6.qq.com/weixin/android/weixin8079android3200_0x28004f30_arm64_1.apk)。
+
+[独立验收 run 39969057551](https://github.com/NKU100/ImPad/actions/runs/39969057551) 验证的模块源码提交为 `8383e1251ca84436d1c3043c0561f3fb2f09341c`，模块 APK SHA-256 为 `f0899067dde74bb5d02c629f34c9fbfda6583e92c54efd70cda84f20fcd07c6b`。共享检查唯一选中 `wechat_tablet_login_002 / wechat_tablet_login_behavior_002`；模块关闭时平板入口隐藏，开启后入口出现、两个 Hook 已安装，`LoginAsExDeviceUI` 页面保持稳定，production verifier 为 `VERIFIED`。
+
+## 适用范围与限制
 
 验收未使用真实账号、未扫描二维码、未提交登录。结果不证明真实账号登录、服务器接受或双设备会话共存，也不覆盖所有设备、Android 版本或所有热补丁行为。Tinker readiness 和 native 加载只证明上述精确构建在被测流程中的观测结果，不等于对后续任意热补丁变更的兼容保证。
 
