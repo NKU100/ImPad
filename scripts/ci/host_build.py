@@ -23,7 +23,7 @@ def main():
     signal.signal(signal.SIGTERM, interrupted)
     try:
         validate(directory)
-        print('Independent static checks, regression checks, tests and APK build passed. Install app/build/outputs/apk/debug/app-debug.apk to debug runtime. Runtime acceptance is still required.')
+        print('Independent static checks, fixed acceptance regression, debug and release app unit tests, compatibility module tests, metadata validation and debug APK build passed. Install app/build/outputs/apk/debug/app-debug.apk for runtime validation. Independent runtime acceptance is still required.')
         return 0
     except Exception as error:
         print(verification_error(directory, error), file=sys.stderr)

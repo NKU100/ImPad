@@ -7,6 +7,13 @@ import unittest
 
 
 class HostBuildTest(unittest.TestCase):
+    def test_managed_build_rejects_caller_supplied_gradle_tasks(self):
+        script = Path('scripts/ci/host-build.sh').resolve()
+        result = subprocess.run(['bash', str(script), ':app:testReleaseUnitTest'],
+                                capture_output=True, text=True)
+        self.assertEqual(2, result.returncode)
+        self.assertIn('does not accept arguments', result.stderr)
+
     def test_build_script_changes_are_rejected_before_host_execution(self):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary); task = root / 'task'; task.mkdir()

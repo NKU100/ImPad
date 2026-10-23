@@ -22,11 +22,16 @@ acceptance records. Do not recreate deprecated profile or `targets.json` files;
 they are absent from the current tree. Do not edit acceptance tables or
 registration code during adaptation.
 
-Run the shared checker, fixed acceptance regression, focused rule/runtime tests,
-metadata validation, and module build through the managed build path. If a
-ReDroid task is attached, inspect only that isolated task and the exact APK and
-module identities it provides. Never log in, scan a QR code, or claim server-side
-login success. Static uniqueness alone is not runtime proof.
+Call only the no-argument `impad-build` entry point. The controller runs the
+shared checker and fixed acceptance regression, then the fixed Gradle gate:
+`:app:testDebugUnitTest`, `:app:testReleaseUnitTest`, `:compat-core:test`,
+`:compat-rules:test`, `:compat-checker:test`, `:app:verifyModuleMetadata`, and
+`:app:assembleDebug`. Do not invoke Gradle directly or pass tasks or flags to
+`impad-build`; it has no caller-controlled task interface. The debug APK is the
+runtime candidate. If a ReDroid task is attached, inspect only that isolated
+task and the exact APK and module identities it provides. Never log in, scan a
+QR code, or claim server-side login success. Static uniqueness alone is not
+runtime proof.
 
 Only change the app-specific rule, strategy/runtime glue, and focused tests
 allowed by the current task controller. Preserve all existing regression tests.

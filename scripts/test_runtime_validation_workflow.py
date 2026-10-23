@@ -102,6 +102,12 @@ def _workflow_if(expression, context):
 
 
 class RuntimeValidationWorkflowTest(unittest.TestCase):
+    def test_adaptation_prepares_app_release_tests_before_offline_gate(self):
+        steps = parsed_workflows()['compatibility-app.yml']['jobs']['adapt']['steps']
+        preparation = next(step for step in steps
+                           if step.get('name') == 'Prepare static validation dependencies')
+        self.assertIn(':app:testReleaseUnitTest', preparation['run'])
+
     def test_module_artifact_pairing_is_resolved_by_the_prepare_shell_steps(self):
         runtime = parsed_workflows()['runtime-validation.yml']
         steps = runtime['jobs']['prepare']['steps']

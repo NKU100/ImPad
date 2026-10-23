@@ -303,7 +303,7 @@ jobs:
           echo "WECHATPAD_DEBUG_KEYSTORE=$WECHATPAD_DEBUG_KEYSTORE" >> "$GITHUB_ENV"
           bash scripts/ci/prepare_arm64_sdk_host.sh
           sdkmanager 'cmdline-tools;latest' 'platforms;android-37.2' 'build-tools;37.0.0' 'ndk;29.0.14206865'
-          ./gradlew --no-daemon :app:testDebugUnitTest :compat-core:test :compat-checker:test :app:assembleDebug
+          ./gradlew --no-daemon :app:testDebugUnitTest :app:testReleaseUnitTest :compat-core:test :compat-checker:test :app:assembleDebug
 
       - name: Set up Node.js
         if: steps.claim.outputs.claimed == 'true'

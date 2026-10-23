@@ -215,7 +215,8 @@ def run_bounded(command, cwd, env, log, timeout=None):
 
 def gradle_command(app_id, runtime_assets=None):
     command = ["./gradlew", "--offline", "--no-daemon",
-               ":app:testDebugUnitTest", ":compat-core:test", ":compat-rules:test",
+               ":app:testDebugUnitTest", ":app:testReleaseUnitTest",
+               ":compat-core:test", ":compat-rules:test",
                ":compat-checker:test", ":app:verifyModuleMetadata", ":app:assembleDebug"]
     if app_id == 'wecom':
         command[3:3] = ['--no-parallel', '--max-workers=2']

@@ -178,12 +178,14 @@ class CodexAdaptationTest(unittest.TestCase):
             with self.subTest(path=path), self.assertRaisesRegex(ValueError, 'outside'):
                 validate_paths([path], 'wechat')
 
-    def test_gradle_validation_build_has_no_candidate_asset_mode(self):
+    def test_gradle_validation_build_runs_fixed_release_gate_without_candidate_asset_mode(self):
         command = gradle_command('wechat')
-        self.assertIn(':app:testDebugUnitTest', command)
-        self.assertIn(':compat-rules:test', command)
-        self.assertIn(':app:verifyModuleMetadata', command)
-        self.assertIn(':app:assembleDebug', command)
+        self.assertEqual([
+            './gradlew', '--offline', '--no-daemon',
+            ':app:testDebugUnitTest', ':app:testReleaseUnitTest',
+            ':compat-core:test', ':compat-rules:test', ':compat-checker:test',
+            ':app:verifyModuleMetadata', ':app:assembleDebug',
+        ], command)
         self.assertFalse(any('runtimeLocalAssets' in argument for argument in command))
 
     def test_existing_tests_are_hash_protected(self):
