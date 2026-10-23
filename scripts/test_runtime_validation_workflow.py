@@ -102,6 +102,42 @@ def _workflow_if(expression, context):
 
 
 class RuntimeValidationWorkflowTest(unittest.TestCase):
+    def test_final_adaptation_validation_shell_parses_with_real_controller_for_every_app(self):
+        steps = parsed_workflows()['compatibility-app.yml']['jobs']['adapt']['steps']
+        validation = next(step for step in steps
+                          if step.get('name') == 'Validate adaptation through shared checker and build')
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            wrapper = root / 'python3'
+            wrapper.write_text(textwrap.dedent(f'''\
+                #!{sys.executable}
+                import os, sys
+                sys.path.insert(0, {str(Path(__file__).resolve().parents[1])!r})
+                from scripts.ci import codex_adaptation
+                parse_args = codex_adaptation.argparse.ArgumentParser.parse_args
+                def capture_args(parser, args=None, namespace=None):
+                    parsed = parse_args(parser, args, namespace)
+                    assert parsed.app_id == os.environ['APP_ID']
+                    print('APP_ID:' + parsed.app_id)
+                    return parsed
+                codex_adaptation.argparse.ArgumentParser.parse_args = capture_args
+                codex_adaptation.validate = lambda directory: print('DIRECTORY:' + str(directory))
+                sys.argv = [sys.argv[2], *sys.argv[3:]]
+                codex_adaptation.main()
+            '''))
+            wrapper.chmod(0o755)
+            for app_id in ('wechat', 'qq', 'wecom'):
+                with self.subTest(app_id=app_id):
+                    task = root / f'{app_id} task'
+                    result = subprocess.run(['bash', '-e', '-c', validation['run']],
+                                            env=dict(os.environ, APP_ID=app_id,
+                                                     CONTROLLER_ROOT=str(root), CODEX_TASK_DIR=str(task),
+                                                     PATH=str(root) + os.pathsep + os.environ['PATH']),
+                                            capture_output=True, text=True)
+                    self.assertEqual(0, result.returncode, result.stderr)
+                    self.assertIn('APP_ID:' + app_id, result.stdout)
+                    self.assertIn('DIRECTORY:' + str(task.resolve()), result.stdout)
+
     def test_adaptation_prepares_app_release_tests_before_offline_gate(self):
         steps = parsed_workflows()['compatibility-app.yml']['jobs']['adapt']['steps']
         preparation = next(step for step in steps

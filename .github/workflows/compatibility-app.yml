@@ -482,7 +482,7 @@ jobs:
           (steps.restore-checkpoint.outputs.needs_model == 'false' || steps.adaptation.outputs.adaptation_ready == 'true')
         run: |
           cd "$CONTROLLER_ROOT"
-          python3 -m scripts.ci.codex_adaptation validate --directory "$CODEX_TASK_DIR"
+          python3 -m scripts.ci.codex_adaptation --app-id "$APP_ID" validate --directory "$CODEX_TASK_DIR"
 
       - name: Export validated runtime inputs
         if: >-
