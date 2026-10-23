@@ -1,6 +1,8 @@
 import json
+import hashlib
 import os
 from pathlib import Path
+import subprocess
 import tempfile
 import unittest
 from types import SimpleNamespace
@@ -8,6 +10,7 @@ from unittest.mock import patch, MagicMock
 from contextlib import ExitStack
 
 from scripts.ci import runtime_adaptation as runtime
+from scripts.ci import candidate_selection, codex_adaptation, codex_goal
 from scripts.ci.codex_adaptation import sha256
 from scripts.ci.app_policy import get_policy
 
@@ -22,24 +25,33 @@ class RuntimeAdaptationTest(unittest.TestCase):
 
     @staticmethod
     def checker_candidate(directory, app_id, candidate_apk):
+        directory.mkdir(parents=True, exist_ok=True)
         digest = sha256(candidate_apk)
+        input_path = directory / 'apk-inputs' / f'0-{digest}.apk'
+        input_path.parent.mkdir(parents=True, exist_ok=True)
+        input_path.write_bytes(Path(candidate_apk).read_bytes())
         static = {
             'appId': app_id,
-            'inputHashes': [{'path': str(candidate_apk), 'sha256': digest}],
+            'inputHashes': [{'path': input_path.relative_to(directory).as_posix(), 'sha256': digest}],
             'routeCandidates': ['Lfixture/Entry;->open()V'],
             'ruleCatalogSha256': 'a' * 64,
             'executionIdentity': {'ruleCatalogSha256': 'a' * 64},
         }
         static_path = directory / 'static-check.json'
         static_path.write_text(json.dumps(static))
-        return {
+        candidate = {
+            'schemaVersion': 1,
             'appId': app_id,
+            'status': 'PREPARED',
             'identity': {'apkSha256': digest},
             'expectedPlan': {'selection': 'UNIQUE', 'ruleId': f'{app_id}_fixture'},
-            'apkFiles': [{'path': str(candidate_apk), 'sha256': digest}],
-            'staticReport': str(static_path),
+            'apkFiles': [{'path': input_path.relative_to(directory).as_posix(), 'role': 'base',
+                          'sha256': digest}],
+            'staticReport': static_path.relative_to(directory).as_posix(),
             'staticReportSha256': sha256(static_path),
         }
+        (directory / 'candidate-report.json').write_text(json.dumps(candidate))
+        return candidate
 
     def mock_static_runtime_helpers(self, apk):
         return (
@@ -142,7 +154,7 @@ class RuntimeAdaptationTest(unittest.TestCase):
             apk = workspace / 'app/build/outputs/apk/debug/app-debug.apk'
             apk.parent.mkdir(parents=True); apk.write_bytes(b'module')
             wechat = device / 'wechat.apk'; wechat.write_bytes(b'official')
-            candidate = self.checker_candidate(directory, 'wechat', wechat)
+            candidate = self.checker_candidate(workspace / 'work/runtime-smoke', 'wechat', wechat)
             state = {'appId': 'wechat', 'worktree': str(workspace), 'report': candidate,
                      'runtime': {'root': str(device), 'socket': str(root / 'socket'), 'serial': 'emulator-5554'}}
             (directory / 'state.json').write_text(json.dumps(state))
@@ -179,7 +191,7 @@ class RuntimeAdaptationTest(unittest.TestCase):
                 staged.parent.mkdir(); staged.write_bytes(b'preparation module')
                 preparation_sha = sha256(staged)
                 candidate = device / f'{app_id}.apk'; candidate.write_bytes(b'official candidate')
-                candidate_report = self.checker_candidate(directory, app_id, candidate)
+                candidate_report = self.checker_candidate(workspace / 'work/runtime-smoke', app_id, candidate)
                 state = {'appId': app_id, 'worktree': str(workspace),
                          'report': candidate_report,
                          'runtime': {'root': str(device), 'socket': str(root / 'socket'),
@@ -223,15 +235,249 @@ class RuntimeAdaptationTest(unittest.TestCase):
             apk = workspace / 'app/build/outputs/apk/debug/app-debug.apk'
             apk.parent.mkdir(parents=True); apk.write_bytes(b'module')
             candidate_apk = device / 'wecom.apk'; candidate_apk.write_bytes(b'candidate')
-            state = {'appId': 'wecom', 'worktree': str(workspace),
-                     'report': {'appId': 'wecom', 'identity': {'apkSha256': sha256(candidate_apk)}},
+            original_report = {'appId': 'wecom', 'identity': {'apkSha256': sha256(candidate_apk)}}
+            state = {'appId': 'wecom', 'worktree': str(workspace), 'report': original_report,
                      'runtime': {'root': str(device), 'socket': str(root / 'socket'),
                                  'serial': 'emulator-5554'}}
+            artifact = workspace / 'work/runtime-smoke'
+            artifact.mkdir(parents=True)
+            (artifact / 'candidate-report.json').write_text(json.dumps({
+                'schemaVersion': 1, 'appId': 'wecom', 'status': 'PREPARED',
+                'identity': original_report['identity']}))
             (directory / 'state.json').write_text(json.dumps(state))
             with patch.dict('os.environ'), patch.object(runtime.smoke, 'adb', return_value=MagicMock()) as adb, \
                  patch.object(runtime.smoke, 'configure_manager'), patch.object(runtime.smoke, 'snapshot'), \
                  patch.object(runtime.smoke, 'collect_logs'):
                 with self.assertRaisesRegex(ValueError, 'shared static checker report identity'):
+                    runtime.verify_runtime(directory)
+            adb.assert_not_called()
+
+    def test_runtime_verifies_the_refreshed_candidate_artifact_not_initial_state_report(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            directory, workspace, device = root / 'task', root / 'checkout', root / 'artifact'
+            directory.mkdir(); workspace.mkdir(); device.mkdir()
+            apk = workspace / 'app/build/outputs/apk/debug/app-debug.apk'
+            apk.parent.mkdir(parents=True); apk.write_bytes(b'adapted module')
+            candidate_apk = device / 'wechat.apk'; candidate_apk.write_bytes(b'exact candidate')
+            device.mkdir(parents=True, exist_ok=True)
+            prepared = self.checker_candidate(workspace / 'work/runtime-smoke', 'wechat', candidate_apk)
+            original = dict(prepared, status='INCOMPATIBLE')
+            original.pop('expectedPlan')
+            state = {'appId': 'wechat', 'worktree': str(workspace), 'report': original,
+                     'runtime': {'root': str(device), 'socket': str(root / 'socket'),
+                                 'serial': 'emulator-5554'}}
+            (directory / 'state.json').write_text(json.dumps(state))
+
+            def probe(device_root, evidence, candidate_report):
+                self.assertEqual('PREPARED', candidate_report['status'])
+                self.assertEqual(prepared['staticReport'], candidate_report['staticReport'])
+                (runtime.smoke.EVIDENCE / 'smoke-report.json').write_text(json.dumps({
+                    'status': 'RUNTIME_SMOKE_VERIFIED', 'apkSha256': sha256(candidate_apk),
+                    'moduleApkSha256': sha256(apk)}))
+                return {'status': 'RUNTIME_SMOKE_VERIFIED'}
+
+            with ExitStack() as stack:
+                stack.enter_context(patch.dict('os.environ'))
+                stack.enter_context(patch.object(runtime.smoke, 'adb', return_value=MagicMock(stdout=b'ok', stderr=b'')))
+                stack.enter_context(patch.object(runtime.smoke, 'configure_manager'))
+                stack.enter_context(patch.object(runtime, 'probe_candidate', side_effect=probe))
+                for helper_patch in self.mock_static_runtime_helpers(apk):
+                    stack.enter_context(helper_patch)
+                runtime.verify_runtime(directory)
+
+    def test_goal_verification_refreshes_candidate_and_consumes_relative_artifact_paths(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            task, repository = root / 'task', root / 'repository'
+            task.mkdir(); repository.mkdir()
+            subprocess.run(['git', 'init', '-q'], cwd=repository, check=True)
+            (repository / '.gitignore').write_text('work/\n.cache/\napp/build/\n')
+            subprocess.run(['git', 'add', '.gitignore'], cwd=repository, check=True)
+            subprocess.run(['git', '-c', 'user.name=Test', '-c', 'user.email=test@example.invalid',
+                            'commit', '-qm', 'fixture'], cwd=repository, check=True)
+            base = subprocess.check_output(['git', 'rev-parse', 'HEAD'], cwd=repository, text=True).strip()
+
+            policy = get_policy('wechat')
+            candidate_bytes = b'official candidate fixture'
+            candidate_digest = hashlib.sha256(candidate_bytes).hexdigest()
+            candidate_apk = repository / 'work/apks' / f'candidate-{candidate_digest}.apk'
+            candidate_apk.parent.mkdir(parents=True)
+            candidate_apk.write_bytes(candidate_bytes)
+            runtime_root = repository / 'work/runtime-smoke'
+            runtime_root.mkdir(parents=True)
+            device_root = task / 'device'
+            device_root.mkdir()
+            (device_root / 'wechat.apk').write_bytes(candidate_bytes)
+            identity = {
+                'packageName': policy.package_name, 'versionName': '8.0.79', 'versionCode': 3200,
+                'abi': policy.supported_abis[0], 'apkSha256': candidate_digest,
+                'signerSha256': policy.signer_sha256,
+            }
+            original = {
+                'schemaVersion': 1, 'appId': 'wechat', 'status': 'INCOMPATIBLE',
+                'identity': identity,
+                'sourceUrl': policy.official_apk_prefix + 'fixture.apk',
+            }
+            state = {
+                'appId': 'wechat', 'base': base, 'agent_base': base,
+                'worktree': str(repository), 'report': original,
+                'existing_tests': {}, 'baseBindings': [{'ruleId': 'legacy', 'min': 3040, 'max': None}],
+                'acceptanceRecords': [], 'acceptanceSnapshotSha256': 'f' * 64,
+                'apks': [(3200, str(candidate_apk), candidate_digest)],
+                'runtime': {'root': str(device_root), 'socket': str(root / 'private-adb.sock'),
+                            'serial': 'emulator-5554'},
+            }
+            (task / 'state.json').write_text(json.dumps(state))
+            (repository / 'work/analysis').mkdir(parents=True)
+            (repository / 'work/analysis/adaptation-summary.json').write_text(json.dumps({
+                'completed': [], 'blockers': [], 'nextActions': [], 'questions': [],
+            }))
+
+            bindings = [{'ruleId': 'legacy', 'min': 3040, 'max': 3040},
+                        {'ruleId': 'wechat_tablet_login_002', 'min': 3200, 'max': None}]
+            static = {
+                'appId': 'wechat', 'analysisScope': 'STATIC_ONLY', 'identity': identity,
+                'selection': {'status': 'SELECTED', 'selectedRuleId': 'wechat_tablet_login_002',
+                              'strategyId': 'wechat_tablet_login_behavior_001',
+                              'targets': {'tablet': {'descriptor': 'Lfixture/Entry;->open()V'}}},
+                'routeCandidates': ['Lfixture/Entry;->open()V'],
+                'ruleCatalogSha256': 'a' * 64, 'ruleCatalog': {'bindings': bindings},
+                'executionIdentity': {'ruleCatalogSha256': 'a' * 64},
+                'inputHashes': [{'path': str(candidate_apk), 'sha256': candidate_digest}],
+            }
+
+            def checker(app_id, apk, report_path, repository=None):
+                self.assertEqual('wechat', app_id)
+                self.assertEqual(candidate_digest, sha256(apk))
+                checked = dict(static, inputHashes=[{'path': str(apk), 'sha256': candidate_digest}])
+                report_path.write_text(json.dumps(checked))
+                return checked
+
+            module_apk = repository / 'app/build/outputs/apk/debug/app-debug.apk'
+            module_apk.parent.mkdir(parents=True)
+            module_apk.write_bytes(b'built module fixture')
+
+            def build(*args, **kwargs):
+                self.assertTrue((repository / 'work/runtime-smoke/static-check.json').exists())
+
+            def probe(device_root, evidence, candidate_report):
+                self.assertEqual('PREPARED', candidate_report['status'])
+                self.assertFalse(Path(candidate_report['staticReport']).is_absolute())
+                self.assertFalse(Path(candidate_report['apkFiles'][0]['path']).is_absolute())
+                self.assertFalse(Path(json.loads((runtime_root / candidate_report['staticReport']).read_text())
+                                     ['inputHashes'][0]['path']).is_absolute())
+                (runtime.smoke.EVIDENCE / 'smoke-report.json').write_text(json.dumps({
+                    'status': 'RUNTIME_SMOKE_VERIFIED', 'apkSha256': candidate_digest,
+                    'moduleApkSha256': sha256(module_apk),
+                }))
+                return {'status': 'RUNTIME_SMOKE_VERIFIED'}
+
+            with ExitStack() as stack:
+                stack.enter_context(patch.dict('os.environ'))
+                stack.enter_context(patch.object(candidate_selection, '_run_rules_checker', side_effect=checker))
+                stack.enter_context(patch.object(codex_adaptation, 'validate_rule_changes'))
+                stack.enter_context(patch('scripts.ci.acceptance.propose_forward_binding', return_value=bindings))
+                stack.enter_context(patch.object(codex_adaptation, 'run_regression', return_value=[{'status': 'PASSED'}]))
+                stack.enter_context(patch.object(candidate_selection, 'write_local_runtime_assets'))
+                stack.enter_context(patch.object(codex_adaptation, 'run_bounded', side_effect=build))
+                stack.enter_context(patch.object(candidate_selection, 'prepare_module',
+                                                 side_effect=lambda path, *_: {'sha256': sha256(path)}))
+                stack.enter_context(patch.object(runtime, 'prepare_module',
+                                                 side_effect=lambda path, *_: {'sha256': sha256(path)}))
+                stack.enter_context(patch.object(runtime, 'verify_module_identity'))
+                stack.enter_context(patch.object(runtime, 'run_regression', return_value=[]))
+                stack.enter_context(patch.object(runtime, 'evaluate_validation', return_value={'outcome': 'VERIFIED'}))
+                stack.enter_context(patch.object(runtime.smoke, 'adb', return_value=MagicMock(stdout=b'ok', stderr=b'')))
+                stack.enter_context(patch.object(runtime.smoke, 'configure_manager'))
+                stack.enter_context(patch.object(runtime, 'probe_candidate', side_effect=probe))
+                codex_goal.verify(task)
+
+            refreshed = json.loads((runtime_root / 'candidate-report.json').read_text())
+            final = json.loads((task / 'candidate-report.json').read_text())
+            persisted = json.loads((task / 'state.json').read_text())
+            self.assertEqual('PREPARED', refreshed['status'])
+            self.assertFalse(Path(refreshed['staticReport']).is_absolute())
+            self.assertFalse(Path(refreshed['apkFiles'][0]['path']).is_absolute())
+            self.assertEqual('STATIC_VERIFIED_PENDING_RUNTIME', final['status'])
+            self.assertEqual('INCOMPATIBLE', persisted['report']['status'])
+            self.assertEqual(identity, persisted['report']['identity'])
+            self.assertEqual('RUNTIME_SMOKE_VERIFIED',
+                             json.loads((task / 'runtime-report.json').read_text())['status'])
+
+    def test_runtime_candidate_artifact_references_cannot_escape_candidate_root(self):
+        cases = ('static-report', 'candidate-apk', 'static-input', 'candidate-report-symlink',
+                 'candidate-apk-symlink', 'absolute-static-report')
+        for case in cases:
+            with self.subTest(reference=case), tempfile.TemporaryDirectory() as temporary:
+                root = Path(temporary)
+                directory, workspace, artifact = root / 'task', root / 'checkout', root / 'artifact'
+                directory.mkdir(); workspace.mkdir(); artifact.mkdir()
+                module = workspace / 'app/build/outputs/apk/debug/app-debug.apk'
+                module.parent.mkdir(parents=True); module.write_bytes(b'module')
+                candidate_apk = artifact / 'wechat.apk'; candidate_apk.write_bytes(b'candidate')
+                candidate = self.checker_candidate(workspace / 'work/runtime-smoke', 'wechat', candidate_apk)
+                if case == 'static-report':
+                    candidate['staticReport'] = '../outside-static.json'
+                    message = 'Static report path escapes the candidate artifact root'
+                elif case == 'candidate-apk':
+                    candidate['apkFiles'][0]['path'] = '../outside.apk'
+                    message = 'Candidate APK path escapes the candidate artifact root'
+                elif case == 'candidate-apk-symlink':
+                    outside = root / 'outside.apk'; outside.write_bytes(b'outside candidate')
+                    (workspace / 'work/runtime-smoke/escape.apk').symlink_to(outside)
+                    candidate['apkFiles'][0]['path'] = 'escape.apk'
+                    message = 'Candidate APK path escapes the candidate artifact root'
+                elif case == 'candidate-report-symlink':
+                    outside = root / 'outside-report.json'
+                    outside.write_text(json.dumps(candidate))
+                    candidate_report = workspace / 'work/runtime-smoke/candidate-report.json'
+                    candidate_report.unlink()
+                    candidate_report.symlink_to(outside)
+                    message = 'Prepared candidate report escapes the candidate artifact root'
+                elif case == 'absolute-static-report':
+                    candidate['staticReport'] = str((root / 'outside-static.json').resolve())
+                    message = 'Static report path must be relative to the candidate artifact root'
+                else:
+                    static_path = workspace / 'work/runtime-smoke' / candidate['staticReport']
+                    static = json.loads(static_path.read_text())
+                    static['inputHashes'][0]['path'] = '../outside-input.apk'
+                    static_path.write_text(json.dumps(static))
+                    candidate['staticReportSha256'] = sha256(static_path)
+                    message = 'Static checker APK input path escapes the candidate artifact root'
+                candidate_artifact = workspace / 'work/runtime-smoke'
+                if case != 'candidate-report-symlink':
+                    (candidate_artifact / 'candidate-report.json').write_text(json.dumps(candidate))
+                original = dict(candidate, status='INCOMPATIBLE')
+                state = {'appId': 'wechat', 'worktree': str(workspace), 'report': original,
+                         'runtime': {'root': str(artifact), 'socket': str(root / 'socket'),
+                                     'serial': 'emulator-5554'}}
+                (directory / 'state.json').write_text(json.dumps(state))
+                with patch.dict('os.environ'), patch.object(runtime.smoke, 'snapshot'), \
+                     patch.object(runtime.smoke, 'collect_logs'), patch.object(runtime.smoke, 'adb') as adb:
+                    with self.assertRaisesRegex(ValueError, message):
+                        runtime.verify_runtime(directory)
+                adb.assert_not_called()
+
+    def test_runtime_rejects_a_prepared_report_for_a_different_candidate(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            directory, workspace, artifact = root / 'task', root / 'checkout', root / 'artifact'
+            directory.mkdir(); workspace.mkdir(); artifact.mkdir()
+            module = workspace / 'app/build/outputs/apk/debug/app-debug.apk'
+            module.parent.mkdir(parents=True); module.write_bytes(b'module')
+            candidate_apk = artifact / 'wechat.apk'; candidate_apk.write_bytes(b'exact candidate')
+            prepared = self.checker_candidate(workspace / 'work/runtime-smoke', 'wechat', candidate_apk)
+            original = dict(prepared, status='INCOMPATIBLE')
+            prepared['identity'] = dict(prepared['identity'], apkSha256='b' * 64)
+            (workspace / 'work/runtime-smoke/candidate-report.json').write_text(json.dumps(prepared))
+            state = {'appId': 'wechat', 'worktree': str(workspace), 'report': original,
+                     'runtime': {'root': str(artifact), 'socket': str(root / 'socket'),
+                                 'serial': 'emulator-5554'}}
+            (directory / 'state.json').write_text(json.dumps(state))
+            with patch.dict('os.environ'), patch.object(runtime.smoke, 'snapshot'), \
+                 patch.object(runtime.smoke, 'collect_logs'), patch.object(runtime.smoke, 'adb') as adb:
+                with self.assertRaisesRegex(ValueError, 'differs from the exact shared-checker candidate'):
                     runtime.verify_runtime(directory)
             adb.assert_not_called()
 

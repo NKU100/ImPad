@@ -340,6 +340,12 @@ def _validate_rules(directory, state, policy, worktree):
     prepared['module'] = prepare_module(module_apk, static, worktree)
     prepared['status'] = 'PREPARED'
     write_candidate(prepared, runtime_root)
+    candidate_report_path = runtime_root / 'candidate-report.json'
+    with tempfile.NamedTemporaryFile(mode='w', encoding='utf-8', dir=runtime_root,
+                                     prefix='.candidate-report-', suffix='.tmp', delete=False) as temporary:
+        temporary.write(json.dumps(prepared, indent=2) + '\n')
+        temporary_report_path = Path(temporary.name)
+    temporary_report_path.replace(candidate_report_path)
     (worktree / 'work/analysis/candidate-report.json').write_text(
         json.dumps(prepared, indent=2) + '\n')
 
