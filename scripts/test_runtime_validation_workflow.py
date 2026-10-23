@@ -102,6 +102,31 @@ def _workflow_if(expression, context):
 
 
 class RuntimeValidationWorkflowTest(unittest.TestCase):
+    def test_incompatible_analysis_hands_off_only_for_adaptation(self):
+        result_job = parsed_workflows()['runtime-validation.yml']['jobs']['result']
+        validation = next(step for step in result_job['steps']
+                          if step.get('name') == 'Validate pipeline acceptance without publishing support')
+        for operation, status, exit_code in (
+            ('adapt', 'INCOMPATIBLE', 0), ('verify', 'INCOMPATIBLE', 1), ('adapt', 'ERROR', 1),
+        ):
+            with self.subTest(operation=operation, status=status), tempfile.TemporaryDirectory() as temporary:
+                root = Path(temporary)
+                (root / 'runtime-result').mkdir()
+                result = subprocess.run(['bash', '-e', '-c', validation['run']], cwd=root,
+                                        env=dict(os.environ, OPERATION=operation,
+                                                 CANDIDATE_STATUS=status,
+                                                 GITHUB_STEP_SUMMARY=str(root / 'summary.md')),
+                                        capture_output=True, text=True)
+                self.assertEqual(exit_code, result.returncode, result.stderr)
+                report = json.loads((root / 'runtime-result/runtime-candidate-report.json').read_text())
+                self.assertEqual('INCOMPATIBLE', report['outcome'])
+                self.assertNotEqual('VERIFIED', report['outcome'])
+        smoke_download = next(step for step in result_job['steps']
+                              if step.get('uses', '').startswith('actions/download-artifact')
+                              and step.get('with', {}).get('path') == 'runtime-result/evidence')
+        self.assertEqual("needs.prepare.outputs.candidate_status == 'PREPARED'", smoke_download.get('if'))
+        self.assertEqual('${{ inputs.operation }}', result_job['env']['OPERATION'])
+
     def test_final_adaptation_validation_shell_parses_with_real_controller_for_every_app(self):
         steps = parsed_workflows()['compatibility-app.yml']['jobs']['adapt']['steps']
         validation = next(step for step in steps

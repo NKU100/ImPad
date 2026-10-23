@@ -325,6 +325,7 @@ jobs:
       APP_ID: ${{ needs.prepare.outputs.app_id }}
       ARTIFACT_PREFIX: ${{ needs.prepare.outputs.artifact_prefix }}
       CANDIDATE_STATUS: ${{ needs.prepare.outputs.candidate_status }}
+      OPERATION: ${{ inputs.operation }}
     steps:
       - uses: actions/checkout@v7
         with:
@@ -334,6 +335,7 @@ jobs:
           name: runtime-candidate-report-input-${{ needs.prepare.outputs.app_id }}
           path: runtime-result
       - uses: actions/download-artifact@v8
+        if: needs.prepare.outputs.candidate_status == 'PREPARED'
         continue-on-error: true
         with:
           name: ${{ needs.prepare.outputs.artifact_prefix }}-${{ needs.prepare.outputs.app_id }}-runtime-smoke
@@ -358,7 +360,9 @@ jobs:
               with Path(os.environ['GITHUB_STEP_SUMMARY']).open('a') as summary:
                   summary.write('## Runtime validation result\n\n`INCOMPATIBLE`\n\n')
                   summary.write('No model, PR, device run, or acceptance write was started.\n')
-              raise SystemExit(1)
+              expected_handoff = (os.environ.get('OPERATION') == 'adapt'
+                                  and os.environ.get('CANDIDATE_STATUS') == 'INCOMPATIBLE')
+              raise SystemExit(0 if expected_handoff else 1)
           evidence_root = directory / 'evidence/runtime-smoke'
           smoke_report = evidence_root / 'evidence/smoke-report.json'
           acceptance_path = Path(f"compatibility/{os.environ['APP_ID']}/acceptance.json")
