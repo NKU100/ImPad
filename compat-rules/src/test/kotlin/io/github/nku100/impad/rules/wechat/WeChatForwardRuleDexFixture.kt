@@ -37,6 +37,8 @@ internal object WeChatForwardRuleDexFixture {
         val widthThreshold: Int = 600,
         val widthControlsResult: Boolean = true,
         val loginCallsTabletHelper: Boolean = true,
+        val wrapperForwardsResult: Boolean = true,
+        val loginBooleanControlsVisibility: Boolean = true,
     )
 
     fun apk(options: Options = Options()): File {
@@ -49,7 +51,7 @@ internal object WeChatForwardRuleDexFixture {
                 add(tabletClass(owner, options))
             }
             options.loginOwners.forEach { owner ->
-                add(loginClass(owner, options.tabletOwners.first(), options.loginCallsTabletHelper))
+                add(loginClass(owner, options.tabletOwners.first(), options))
             }
         }
         ZipOutputStream(path.outputStream().buffered()).use { zip ->
@@ -158,7 +160,7 @@ internal object WeChatForwardRuleDexFixture {
         body += Code(ImmutableInstruction11x(Opcode.RETURN, 3))
 
         val detector = staticMethod(owner, "decide", listOf(WIDTH_ACCESSOR), "Z", 8, assemble(body))
-        val wrapperCode = listOf(
+        val wrapperCode = mutableListOf(
             ImmutableInstruction21c(Opcode.NEW_INSTANCE, 0, ImmutableTypeReference(WIDTH_ACCESSOR_DESCRIPTOR)),
             ImmutableInstruction35c(
                 Opcode.INVOKE_DIRECT, 1, 0, 0, 0, 0, 0,
@@ -171,6 +173,9 @@ internal object WeChatForwardRuleDexFixture {
             ImmutableInstruction11x(Opcode.MOVE_RESULT, 0),
             ImmutableInstruction11x(Opcode.RETURN, 0),
         )
+        if (!options.wrapperForwardsResult) {
+            wrapperCode.add(wrapperCode.lastIndex, ImmutableInstruction11n(Opcode.CONST_4, 0, 0))
+        }
         val wrapper = staticMethod(owner, "isTablet", emptyList(), "Z", 1, wrapperCode)
         return ImmutableClassDef(
             owner,
@@ -233,22 +238,27 @@ internal object WeChatForwardRuleDexFixture {
         )
     }
 
-    private fun loginClass(owner: String, tabletOwner: String, callsTabletHelper: Boolean): ImmutableClassDef {
-        val code = buildList<Instruction> {
-            add(ImmutableInstruction21c(Opcode.CONST_STRING, 0, ImmutableStringReference(LOGIN_TRACE_OWNER)))
-            add(ImmutableInstruction21c(Opcode.CONST_STRING, 0, ImmutableStringReference(LOGIN_TRACE_METHOD)))
-            if (callsTabletHelper) {
-                add(ImmutableInstruction35c(
+    private fun loginClass(owner: String, tabletOwner: String, options: Options): ImmutableClassDef {
+        val code = buildList<Node> {
+            add(Code(ImmutableInstruction21c(Opcode.CONST_STRING, 0, ImmutableStringReference(LOGIN_TRACE_OWNER))))
+            add(Code(ImmutableInstruction21c(Opcode.CONST_STRING, 0, ImmutableStringReference(LOGIN_TRACE_METHOD))))
+            if (options.loginCallsTabletHelper) {
+                add(Code(ImmutableInstruction35c(
                     Opcode.INVOKE_STATIC, 0, 0, 0, 0, 0, 0,
                     ImmutableMethodReference(tabletOwner, "isTablet", emptyList(), "Z"),
-                ))
+                )))
+                if (options.loginBooleanControlsVisibility) {
+                    add(Code(ImmutableInstruction11x(Opcode.MOVE_RESULT, 0)))
+                    add(Branch21(Opcode.IF_NEZ, 0, "done"))
+                }
             }
-            add(ImmutableInstruction11n(Opcode.CONST_4, 1, 0))
-            add(ImmutableInstruction35c(
+            add(Code(ImmutableInstruction11n(Opcode.CONST_4, 1, 0)))
+            add(Code(ImmutableInstruction35c(
                 Opcode.INVOKE_VIRTUAL, 2, 2, 1, 0, 0, 0,
                 ImmutableMethodReference(VIEW_DESCRIPTOR, "setVisibility", listOf("I"), "V"),
-            ))
-            add(ImmutableInstruction10x(Opcode.RETURN_VOID))
+            )))
+            add(Label("done"))
+            add(Code(ImmutableInstruction10x(Opcode.RETURN_VOID)))
         }
         val method = ImmutableMethod(
             owner,
@@ -261,7 +271,7 @@ internal object WeChatForwardRuleDexFixture {
             ACC_PUBLIC or ACC_STATIC,
             emptySet(),
             emptySet(),
-            ImmutableMethodImplementation(4, code, emptyList(), emptyList()),
+            ImmutableMethodImplementation(4, assemble(code), emptyList(), emptyList()),
         )
         return ImmutableClassDef(owner, ACC_PUBLIC, "Ljava/lang/Object;", emptyList(), null, emptySet(), emptyList(), listOf(method))
     }

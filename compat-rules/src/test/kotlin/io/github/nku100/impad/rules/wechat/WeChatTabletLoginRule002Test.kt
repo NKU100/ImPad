@@ -129,6 +129,21 @@ class WeChatTabletLoginRule002Test {
         }
     }
 
+    @Test
+    fun discardedTabletResultsCannotLinkTheLoginPath() {
+        for (options in listOf(
+            WeChatForwardRuleDexFixture.Options(wrapperForwardsResult = false),
+            WeChatForwardRuleDexFixture.Options(loginBooleanControlsVisibility = false),
+        )) {
+            withApk(WeChatForwardRuleDexFixture.apk(options)) { apk ->
+                RuleSession.open(listOf(apk)).use { session ->
+                    val missing = assertIs<RuleResolution.Missing>(WeChatTabletLoginRule002.resolve(session))
+                    assertEquals(mapOf("tablet" to 1, "login" to 0), missing.candidateCounts)
+                }
+            }
+        }
+    }
+
     private fun loadLockedLinuxNative() {
         if (System.getProperty("impad.dexkit.native.loaded") == "true") return
         check(System.getProperty("os.name").contains("linux", ignoreCase = true)) {

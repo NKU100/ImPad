@@ -36,7 +36,7 @@ object WeChatTabletLoginRule002 : RuleQuery {
         val logins = if (helpers.size == 1) {
             session.findMethods(
                 MethodQuery(requiredStrings = setOf(LOGIN_TRACE_METHOD), staticOnly = true, returnType = "void"),
-            ).filter { isLoginEntry(it, helpers.single()) }
+            ).filter { isLoginEntry(session, it, helpers.single()) }
         } else {
             emptyList()
         }
@@ -299,16 +299,20 @@ object WeChatTabletLoginRule002 : RuleQuery {
             MethodQuery(declaredClass = tablet.className, parameterTypes = emptyList(), staticOnly = true, returnType = "boolean"),
         ).filter { helper ->
             helper.isStatic && helper.parameterTypes.isEmpty() && helper.returnType == "boolean" &&
-                helper.invokes.count { it.matches(tablet) } == 1
+                helper.invokes.count { it.matches(tablet) } == 1 &&
+                WeChatLoginControlFlow.forwardsBooleanResult(session.readInstructions(helper), tablet.reference())
         }
 
-    private fun isLoginEntry(method: RuleMethod, tabletHelper: RuleMethod): Boolean =
+    private fun isLoginEntry(session: RuleSession, method: RuleMethod, tabletHelper: RuleMethod): Boolean =
         method.isStatic && method.parameterTypes.size == 2 && method.parameterTypes.first() == VIEW &&
             method.parameterTypes[1] !in PRIMITIVE_TYPES && method.returnType == "void" &&
             method.strings.contains(LOGIN_TRACE_OWNER) && method.invokes.any {
                 it.className == VIEW && it.name == SET_VISIBILITY &&
                     it.parameterTypes == listOf("int") && it.returnType == "void"
-            } && method.invokes.count { it.matches(tabletHelper) } == 1
+            } && method.invokes.count { it.matches(tabletHelper) } == 1 &&
+            WeChatLoginControlFlow.controlsVisibility(session.readInstructions(method), tabletHelper.reference())
+
+    private fun RuleMethod.reference() = RuleInstructionReference(className, methodName(), parameterTypes, returnType)
 
     private fun RuleMethodReference.matches(method: RuleMethod): Boolean =
         className == method.className && name == method.methodName() &&
