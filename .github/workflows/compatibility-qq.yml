@@ -14,7 +14,7 @@ on:
           - verify
           - adapt
       apk_url:
-        description: Exact official QQ APK URL; empty uses official discovery
+        description: Exact HTTPS APK or XAPK URL with trusted app signature; empty uses official discovery
         type: string
         default: ''
       module_run_id:

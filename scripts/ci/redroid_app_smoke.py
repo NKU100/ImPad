@@ -2,6 +2,7 @@
 from contextlib import contextmanager
 import hashlib
 import json
+from scripts.ci.apk_inputs import resolve_apk_inputs, verify_installed_apk_hashes
 import os
 from pathlib import Path
 import re
@@ -72,6 +73,12 @@ def extract_qq_lifecycle_evidence(logs, owner_pids, request_times):
         'timingEvidence': {'qfixReadyBeforeNative': bool(qfix_before_native),
                            'hookInstalledBeforeRequest': bool(hook_before_request)},
     }
+
+
+def install_candidate(adb, root, candidate):
+    paths = resolve_apk_inputs(candidate, root)
+    command = 'install-multiple' if len(paths) > 1 else 'install'
+    adb.adb(command, '-r', *(str(path) for path in paths), timeout=180)
 
 
 def qq_compatible_hook_installed(logs: str, owner_pids):
@@ -223,12 +230,13 @@ class AppSmoke:
         # All APKs are checked against preparation evidence before installation.
         for app, profile in self.inputs.items():
             checked_digest(self.root / (app + '.apk'), profile['identity']['apkSha256'])
+            resolve_apk_inputs(profile, self.root)
         manager = subprocess.check_output(['7z', 'e', '-so', str(self.probe.output / 'assets/lsposed.zip'), 'manager.apk'], timeout=60)
         (self.root / 'manager.apk').write_bytes(manager)
         for name in ('manager.apk', 'module/app-debug.apk'):
             smoke.adb('install', '-r', str(self.root / name), timeout=120)
-        for app in self.inputs:
-            smoke.adb('install', '-r', str(self.root / (app + '.apk')), timeout=180)
+        for profile in self.inputs.values():
+            install_candidate(smoke, self.root, profile)
         smoke.adb('push', str(self.root / 'ui-hierarchy.jar'), '/data/local/tmp/ui-hierarchy.jar')
         smoke.configure_app_id('qq')
         smoke.adb('shell', 'am', 'start', '-n', 'org.lsposed.manager/.ui.activity.MainActivity')
@@ -282,6 +290,7 @@ class AppSmoke:
             raise RuntimeError('Installed QQ APK mismatch')
         if runtime_probe.installed_hash(smoke, smoke.MODULE) != self.module_hash:
             raise RuntimeError('Installed module APK mismatch')
+        self.capture_installed_splits(profile, label, 'before')
         listing = smoke.adb('shell', 'cmd', 'package', 'list', 'packages', '-U', smoke.APP_PACKAGE).stdout.decode()
         uids = re.findall(r'^package:com\.tencent\.mobileqq uid:([0-9]+)$', listing, re.M)
         if len(uids) != 1 or not 10000 <= int(uids[0]) <= 0x7fffffff:
@@ -343,10 +352,18 @@ class AppSmoke:
             raise RuntimeError('App identity or module state changed during capture')
         if smoke.su('sha256sum ' + remote).stdout.decode().split()[0] != binary_hash:
             raise RuntimeError('Collector changed during capture')
+        self.capture_installed_splits(profile, label, 'after')
         return dict(result, moduleEnabled=enabled, scopeVerified=True,
                     observerSha256=metadata['observerSha256'], collectorBinarySha256=binary_hash,
                     ndkVersion=metadata['ndkVersion'], apkSha256=profile['identity']['apkSha256'],
                     appUid=uid, moduleApkSha256=self.module_hash, processName='com.tencent.mobileqq:MSF')
+
+    def capture_installed_splits(self, profile, label, stage):
+        if len(profile.get('apkFiles', [])) > 1:
+            installed = runtime_probe.installed_identity(smoke, smoke.APP_PACKAGE)
+            verify_installed_apk_hashes(installed, profile['apkFiles'])
+            (smoke.EVIDENCE / f'installed-apks-{label}-{stage}.json').write_text(
+                json.dumps(installed, indent=2) + '\n')
 
     def qq(self, profile):
         smoke.configure_app_id('qq')

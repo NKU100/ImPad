@@ -17,6 +17,44 @@ from scripts.ci.candidate_selection import (
 
 
 class CandidateSelectionTest(unittest.TestCase):
+    def test_automatic_discovery_keeps_official_download_policy(self):
+        from types import SimpleNamespace
+        from scripts.ci.candidate_selection import prepare_discovered_candidate
+        url = 'https://dldir1v6.qq.com/weixin/android/weixin8079.apk'
+        strategy = SimpleNamespace(discover=lambda policy: SimpleNamespace(url=url))
+        with patch('scripts.ci.candidate_selection.prepare_candidate', return_value={}) as prepare, \
+             patch('scripts.ci.candidate_selection.importlib.import_module', return_value=strategy):
+            prepare_discovered_candidate('wechat', Path('work/test-discovery'))
+        prepare.assert_called_once_with('wechat', url, Path('work/test-discovery'), allow_external=False)
+
+    def test_external_xapk_passes_every_original_apk_to_shared_checker(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary).resolve()
+            bundle = root / 'download.apk'
+            with zipfile.ZipFile(bundle, 'w') as archive:
+                archive.writestr('com.tencent.wework.apk', b'base')
+                archive.writestr('config.arm64_v8a.apk', b'native')
+                archive.writestr('manifest.json', json.dumps({'package_name': 'com.tencent.wework'}))
+            digest = hashlib.sha256(b'base').hexdigest()
+            identity = self._wecom_identity(digest)
+
+            def check(app_id, apk, report_path, repository=None, abi_splits=()):
+                self.assertEqual([b'native'], [path.read_bytes() for path in abi_splits])
+                report = self._wecom_static_report(identity, apk)
+                report['inputHashes'] += [{'path': str(path), 'sha256': hashlib.sha256(path.read_bytes()).hexdigest()}
+                                          for path in abi_splits]
+                return report
+
+            url = 'https://mirror.example/download?id=123'
+            with patch('scripts.ci.candidate_selection.remote_metadata', return_value={}), \
+                 patch('scripts.ci.candidate_selection.download_candidate',
+                       return_value=(bundle, hashlib.sha256(bundle.read_bytes()).hexdigest(), False, {})), \
+                 patch('scripts.ci.candidate_selection._run_rules_checker', side_effect=check):
+                candidate = prepare_candidate('wecom', url, root / 'prepared')
+            self.assertEqual(2, len(candidate['apkFiles']))
+            self.assertEqual(hashlib.sha256(bundle.read_bytes()).hexdigest(), candidate['sourceArchiveSha256'])
+            self._assert_wecom_candidate(root / 'prepared', candidate, identity)
+
     @staticmethod
     def _wecom_identity(digest):
         return {'packageName': 'com.tencent.wework', 'versionName': '5.0.8',

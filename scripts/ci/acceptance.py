@@ -12,6 +12,7 @@ from pathlib import Path
 
 from scripts.ci.app_policy import get_policy
 from scripts.ci.discover_latest_wechat import validate_official_apk_url
+from scripts.ci.download_url import validate_download_url
 
 SCHEMA_VERSION = 1
 _DIGEST = re.compile(r"[a-f0-9]{64}")
@@ -391,9 +392,16 @@ def load_records_bytes(raw_bytes: bytes, app_id: str, initial_migration: bool,
                 _validate_target(target_id, target)
         source = record.get("source", {})
         try:
-            if not isinstance(source, dict) or source.get("type") != "official":
-                raise ValueError("Acceptance source is not official")
-            validate_official_apk_url(source.get("url", ""), policy.official_apk_prefix)
+            if not isinstance(source, dict) or source.get('type') not in {'official', 'signed-download'}:
+                raise ValueError('Acceptance source type is invalid')
+            if source['type'] == 'official':
+                validate_official_apk_url(source.get('url', ''), policy.official_apk_prefix)
+            else:
+                validate_download_url(source.get('url', ''))
+            if source.get('archiveSha256') is not None and not _DIGEST.fullmatch(str(source['archiveSha256'])):
+                raise ValueError('Acceptance source archive hash is invalid')
+            if source['type'] == 'signed-download' and not source.get('archiveSha256'):
+                raise ValueError('Signed download acceptance requires a pinned archive hash')
         except ValueError as error:
             raise ValueError("Acceptance record official APK source is invalid") from error
         apk_files = source.get("apkFiles", [])
@@ -573,14 +581,24 @@ def make_record(candidate: dict, module: dict, validation: dict, *, candidate_pa
     order = derive_record_order(snapshot, plan['ruleId'], record_id, identity['apkSha256'])
     runtime = rebuilt['runtime']
     evidence = runtime['evidence']
+    try:
+        validate_official_apk_url(candidate['sourceUrl'], get_policy(candidate['appId']).official_apk_prefix)
+        source_type = 'official'
+    except ValueError:
+        validate_download_url(candidate['sourceUrl'])
+        source_type = 'signed-download'
+    source = {'type': source_type, 'url': candidate['sourceUrl'], 'apkFiles': candidate['apkFiles']}
+    if candidate.get('sourceArchiveSha256'):
+        source['archiveSha256'] = candidate['sourceArchiveSha256']
+    elif source_type == 'signed-download':
+        raise ValueError('Signed download acceptance requires a pinned archive hash')
     record = {
         "recordId": record_id,
         "schemaVersion": SCHEMA_VERSION,
         "appId": candidate["appId"],
         "status": "VERIFIED",
         "identity": identity,
-        "source": {"type": "official", "url": candidate["sourceUrl"],
-                   "apkFiles": candidate["apkFiles"]},
+        "source": source,
         "expectedPlan": plan,
         "route": candidate.get("route", {}),
         "module": module,

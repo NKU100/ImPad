@@ -12,8 +12,10 @@ import tempfile
 from pathlib import Path
 
 from scripts.ci.app_policy import get_policy, policy_for_report, validate_rule_changes
-from scripts.ci.discover_latest_wechat import append_github_output, validate_official_apk_url
-from scripts.ci.static_regression import ensure_apk, run_regression
+from scripts.ci.discover_latest_wechat import append_github_output
+from scripts.ci.download_url import validate_download_url
+from scripts.ci.static_regression import ensure_apk, record_apk_inputs, run_regression
+from scripts.ci.apk_inputs import resolve_apk_inputs
 
 
 MODEL = "gpt-6-luna"
@@ -37,7 +39,7 @@ def eligible_candidate(report, records, app_id=None):
         return False
     candidate_key(report)
     identity = report['identity']
-    validate_official_apk_url(report.get('sourceUrl', ''), policy.official_apk_prefix)
+    validate_download_url(report.get('sourceUrl', ''))
     if (identity.get('packageName') != policy.package_name
             or identity.get('abi') not in policy.supported_abis
             or identity.get('signerSha256', '').lower() != policy.signer_sha256):
@@ -125,7 +127,7 @@ def prepare_rules(repository, report_path, candidate_apk, directory):
     if sha256(candidate_apk) != report['identity']['apkSha256'].lower():
         raise ValueError('Candidate APK does not match the exact incompatible report')
     source_url = report.get('sourceUrl', '')
-    validate_official_apk_url(source_url, policy.official_apk_prefix)
+    validate_download_url(source_url)
     snapshot, catalog = _rules_acceptance(repository, policy.app_id)
     if not eligible_candidate(report, snapshot.records, policy.app_id):
         raise ValueError('Candidate is not an incompatible, forward-routable rule adaptation input')
@@ -156,6 +158,8 @@ def prepare_rules(repository, report_path, candidate_apk, directory):
         destination = apk_dir / f"{identity['versionCode']}-{old_digest}.apk"
         shutil.copyfile(cached, destination)
         apks.append((identity['versionName'], str(destination.relative_to(worktree)), old_digest))
+        for split in record_apk_inputs(accepted, Path(repository) / '.cache' / f'{policy.app_id}-apks', cached)[1:]:
+            shutil.copyfile(split, apk_dir / split.name)
 
     analysis = worktree / 'work/analysis'
     analysis.mkdir(parents=True)
@@ -326,6 +330,12 @@ def _validate_rules(directory, state, policy, worktree):
     runtime_root.mkdir(parents=True, exist_ok=True)
     staged_apk = runtime_root / f'{policy.app_id}-{candidate_digest}.apk'
     shutil.copyfile(candidate_apk, staged_apk)
+    analysis_root = worktree / 'work/analysis'
+    exact_inputs = resolve_apk_inputs(candidate_report, analysis_root) if candidate_report.get('apkFiles') else []
+    for item, path in zip(candidate_report.get('apkFiles', []), exact_inputs):
+        destination = runtime_root / item['path']
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copyfile(path, destination)
     pending = dict(candidate_report, status='STATIC_VERIFIED_PENDING_RUNTIME')
     adaptation_report = runtime_root / 'adaptation-report.json'
     adaptation_report.write_text(json.dumps(pending, indent=2) + '\n')
@@ -381,6 +391,7 @@ def _validate_rules(directory, state, policy, worktree):
         'status': 'STATIC_VERIFIED_PENDING_RUNTIME',
         'identity': identity,
         'sourceUrl': candidate_report['sourceUrl'],
+        'apkFiles': prepared['apkFiles'],
         'expectedPlan': plan,
         'route': prepared['route'],
         'ruleCatalogSha256': prepared['ruleCatalogSha256'],
@@ -396,6 +407,8 @@ def _validate_rules(directory, state, policy, worktree):
         'validatedPatchSha256': '',
         'validatedBaseCommit': base,
     }
+    if candidate_report.get('sourceArchiveSha256'):
+        report['sourceArchiveSha256'] = candidate_report['sourceArchiveSha256']
     for path in new_files:
         subprocess.run(['git', 'add', '--', path], cwd=worktree, check=True)
     subprocess.run(['git', 'diff', '--check', base], cwd=worktree, check=True)

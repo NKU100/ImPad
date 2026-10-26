@@ -214,7 +214,7 @@ class WeComPortableRuntimeReplayTest(unittest.TestCase):
         native_line = next(line for line in _wecom_logcat(candidate, module).splitlines()
                            if 'event=native_loaded' in line)
         module_path = native_line.split('sourceApkPath=', 1)[1].split()[0]
-        inputs = {'wecom': {'identity': identity, 'signerVerified': True,
+        inputs = {'wecom': {'identity': identity, 'apkFiles': candidate['apkFiles'], 'signerVerified': True,
                             'candidateReport': candidate, 'moduleIdentity': module}}
         installed = {
             'app': {'packageName': PACKAGE, 'baseApkPath': '/data/app/wecom/base.apk',

@@ -5,7 +5,7 @@ from pathlib import Path
 import tempfile
 
 from scripts.ci.app_policy import get_policy
-from scripts.ci.discover_latest_wechat import validate_official_apk_url
+from scripts.ci.download_url import validate_download_url
 
 
 FAILURE_STATUSES = {
@@ -29,7 +29,7 @@ def write_candidate_failure_report(
     if status not in FAILURE_STATUSES:
         raise ValueError(f"{status} is not a failure status")
     if source_url:
-        validate_official_apk_url(source_url, get_policy(app_id).official_apk_prefix)
+        validate_download_url(source_url)
     if not reason.strip():
         raise ValueError("failure reason must not be empty")
 

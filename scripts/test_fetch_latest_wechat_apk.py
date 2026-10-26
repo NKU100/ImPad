@@ -6,7 +6,8 @@ from pathlib import Path
 from unittest.mock import patch
 
 from scripts.ci.app_policy import get_policy
-from scripts.ci.fetch_latest_wechat_apk import download_candidate, remote_metadata
+from scripts.ci.fetch_latest_wechat_apk import download_candidate, remote_metadata, request_urlopen
+from urllib.request import Request
 
 
 class Response:
@@ -54,6 +55,32 @@ class AppScopedDownloadTest(unittest.TestCase):
         with patch('scripts.ci.fetch_latest_wechat_apk.urlopen', return_value=response):
             with self.assertRaisesRegex(ValueError, 'redirected outside'):
                 remote_metadata(self.url, policy=self.policy)
+
+    def test_allow_external_accepts_synthetic_url_and_keeps_content_hash_cache(self):
+        url = 'https://mirror.synthetic.invalid/file.xapk?token=x'
+        response = Response(url)
+        with tempfile.TemporaryDirectory() as temporary, patch(
+            'scripts.ci.fetch_latest_wechat_apk.request_urlopen', return_value=response
+        ), patch('scripts.ci.download_url.socket.getaddrinfo', return_value=[(None, None, None, None, ('93.184.216.34', 443))]):
+            path, digest, reused, _ = download_candidate(
+                url, Path(temporary), '', {}, self.policy, allow_external=True
+            )
+            self.assertEqual(f'{digest}.apk', path.name)
+            self.assertFalse(reused)
+
+    def test_default_remote_metadata_stays_strict(self):
+        with patch('scripts.ci.fetch_latest_wechat_apk.urlopen') as open_url:
+            with self.assertRaises(ValueError):
+                remote_metadata('https://outside.invalid/file.apk', self.policy)
+            open_url.assert_not_called()
+
+    def test_external_initial_request_rejects_private_dns_before_open(self):
+        request = Request('https://private.example/file.xapk')
+        with patch('scripts.ci.download_url.socket.getaddrinfo', return_value=[(None, None, None, None, ('192.168.1.10', 443))]), \
+                patch('scripts.ci.fetch_latest_wechat_apk.build_opener') as build_opener:
+            with self.assertRaisesRegex(ValueError, 'public'):
+                request_urlopen(request, timeout=30, allow_external=True)
+            build_opener.assert_not_called()
 
 
 if __name__ == '__main__':

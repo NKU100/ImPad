@@ -12,7 +12,7 @@ on:
         type: string
         default: verify
       apk_url:
-        description: Exact official APK URL; empty uses app-specific discovery
+        description: Exact HTTPS APK or XAPK URL with trusted app signature; empty uses official discovery
         type: string
         default: ''
       module_run_id:
@@ -361,12 +361,13 @@ jobs:
         run: |
           set -euo pipefail
           expected_sha256="$(jq -r .identity.apkSha256 compatibility-report/candidate-report.json)"
-          source_url="$(jq -r .sourceUrl compatibility-report/candidate-report.json)"
-          python3 -m scripts.ci.fetch_latest_wechat_apk \
-            --app-id "$APP_ID" --url "$source_url" --cache-dir "$WECHAT_APK_CACHE_DIR" \
-            --expected-sha256 "$expected_sha256" \
-            --github-output "$RUNNER_TEMP/candidate-cache-output" \
-            --report "$RUNNER_TEMP/candidate-cache-report.md"
+          python3 - <<'PYDOWNLOAD'
+          import json, os
+          from pathlib import Path
+          from scripts.ci.candidate_selection import revalidate_candidate_download
+          report = json.loads(Path('compatibility-report/candidate-report.json').read_text())
+          revalidate_candidate_download(report, Path(os.environ['WECHAT_APK_CACHE_DIR']))
+          PYDOWNLOAD
           cd "$CONTROLLER_ROOT"
           python3 -m scripts.ci.codex_adaptation --app-id "$APP_ID" prepare \
             --repository "$GITHUB_WORKSPACE" \
@@ -487,6 +488,11 @@ jobs:
           digest = report['identity']['apkSha256']
           shutil.copyfile(checkout / 'work/apks' / f'candidate-{digest}.apk', destination / f"{os.environ['APP_ID']}-{digest}.apk")
           shutil.copyfile(task / 'candidate-report.json', destination / 'candidate-report.json')
+          from scripts.ci.apk_inputs import resolve_apk_inputs
+          for item, source in zip(report['apkFiles'], resolve_apk_inputs(report, checkout / 'work/analysis')):
+              target = destination / item['path']
+              target.parent.mkdir(parents=True, exist_ok=True)
+              shutil.copyfile(source, target)
           PYEXPORT
 
       - name: Upload validated module APK
@@ -510,6 +516,7 @@ jobs:
           path: |
             runtime-inputs/${{ needs.prepare.outputs.app_id }}-*.apk
             runtime-inputs/candidate-report.json
+            runtime-inputs/apk-inputs/
           if-no-files-found: error
           retention-days: 7
 

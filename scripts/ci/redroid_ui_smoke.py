@@ -58,6 +58,9 @@ def probe(app, root, inputs, module_hash):
                 'app': runtime_probe.installed_identity(s, s.APP_PACKAGE),
                 'module': runtime_probe.installed_identity(s, s.MODULE),
             }
+            policy_runtime.derive_installed_identities(
+                installed, s.APP_PACKAGE, inputs[app]['identity']['apkSha256'], s.MODULE,
+                module_hash, apk_files=inputs[app]['apkFiles'])
             if installed['app']['baseApkSha256'] != inputs[app]['identity']['apkSha256']:
                 raise RuntimeError('Installed app APK differs from the verified input')
             if installed['module']['baseApkSha256'] != module_hash:

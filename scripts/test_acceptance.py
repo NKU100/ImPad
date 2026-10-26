@@ -15,6 +15,34 @@ from scripts.ci.runtime_task import evaluate_validation, verify_cli
 
 
 class AcceptanceTest(unittest.TestCase):
+    def test_signed_mirror_acceptance_requires_pinned_archive_and_public_https(self):
+        candidate, module, static, _, _ = self.fixture()
+        record = {
+            'recordId': 'mirror-record', 'schemaVersion': 1, 'appId': 'qq', 'status': 'VERIFIED',
+            'identity': candidate['identity'], 'expectedPlan': candidate['expectedPlan'],
+            'route': module['route'], 'module': module, 'ruleCatalogSha256': module['ruleCatalogSha256'],
+            'ruleOrder': 1, 'firstForRule': True, 'firstRecordId': 'mirror-record',
+            'source': {'type': 'signed-download', 'url': 'https://mirror.example/bundle?id=42',
+                       'archiveSha256': 'f' * 64, 'apkFiles': candidate['apkFiles']},
+            'stageEvidence': {name: {'path': name + '.json', 'sha256': str(index) * 64}
+                              for index, name in enumerate(('static', 'regression', 'runtime'), 1)},
+        }
+        with tempfile.TemporaryDirectory() as temporary:
+            path = Path(temporary) / 'acceptance.json'
+
+            def load(row):
+                path.write_text(json.dumps({'schemaVersion': 1, 'appId': 'qq', 'records': [row]}))
+                with patch('scripts.ci.acceptance.load_rule_catalog', return_value=static['ruleCatalog']):
+                    return load_records(path, 'qq', initial_migration=False)
+
+            self.assertEqual('mirror-record', load(record)[0]['recordId'])
+            for field, value in (('archiveSha256', None), ('url', 'http://mirror.example/a'),
+                                 ('url', 'https://127.0.0.1/a'), ('type', 'official')):
+                damaged = copy.deepcopy(record)
+                damaged['source'][field] = value
+                with self.subTest(field=field, value=value), self.assertRaises(ValueError):
+                    load(damaged)
+
     def test_only_explicit_initial_migration_accepts_missing_empty_table(self):
         with tempfile.TemporaryDirectory() as temporary:
             path = Path(temporary) / 'acceptance.json'

@@ -5,12 +5,24 @@ import json
 import re
 import shlex
 import subprocess
+import shutil
 from pathlib import Path
 
 from scripts.ci.acceptance import read_acceptance_snapshot, select_representatives
 from scripts.ci.app_policy import get_policy
 from scripts.ci.discover_latest_wechat import validate_official_apk_url
 from scripts.ci.fetch_latest_wechat_apk import download_candidate, file_sha256, remote_metadata
+from scripts.ci.download_url import validate_download_url
+from scripts.ci.apk_inputs import unpack_apk_inputs
+
+
+def record_apk_inputs(record, cache, base):
+    files = record.get('source', {}).get('apkFiles', [])
+    paths = [Path(base)] + [Path(cache) / (item['sha256'].lower() + '.apk') for item in files[1:]]
+    for item, path in zip(files, paths):
+        if not path.is_file() or file_sha256(path) != item['sha256'].lower():
+            raise ValueError('Fixed base/split APK hash differs from the acceptance record')
+    return paths
 
 
 def ensure_apk(record, cache, app_id):
@@ -18,28 +30,51 @@ def ensure_apk(record, cache, app_id):
     identity = record.get('identity', {})
     if identity.get('packageName') != policy.package_name:
         raise ValueError('Acceptance record package does not match app policy')
-    source_url = record.get('source', {}).get('url')
-    validate_official_apk_url(source_url, policy.official_apk_prefix)
+    source = record.get('source', {})
+    source_url = source.get('url')
+    external = source.get('type') == 'signed-download'
+    if external:
+        validate_download_url(source_url)
+    else:
+        validate_official_apk_url(source_url, policy.official_apk_prefix)
     digest = identity.get('apkSha256', '').lower()
     if not re.fullmatch(r'[a-f0-9]{64}', digest):
         raise ValueError('Acceptance record APK SHA-256 is invalid')
     path = cache / (digest + '.apk')
-    if not path.is_file() or file_sha256(path) != digest:
-        path, _, _, _ = download_candidate(
-            source_url, cache, digest, remote_metadata(source_url, policy), policy,
-        )
+    try:
+        record_apk_inputs(record, cache, path)
+        cached = path.is_file() and file_sha256(path) == digest
+    except ValueError:
+        cached = False
+    if not cached:
+        expected_archive = source.get('archiveSha256', digest)
+        options = {'allow_external': True} if external else {}
+        archive, archive_hash, _, _ = download_candidate(
+            source_url, cache, expected_archive, remote_metadata(source_url, policy, **options), policy, **options)
+        if archive_hash != expected_archive or file_sha256(archive) != expected_archive:
+            raise ValueError('Fixed source archive hash differs from the acceptance record')
+        inputs = unpack_apk_inputs(archive, cache / ('unpacked-' + archive_hash), policy.package_name)
+        expected = [item['sha256'].lower() for item in source.get('apkFiles', [])] or [digest]
+        if [file_sha256(item) for item in inputs] != expected:
+            raise ValueError('Fixed base/split APK hashes differ from the acceptance record')
+        for item, item_hash in zip(inputs, expected):
+            destination = cache / (item_hash + '.apk')
+            if item.resolve() != destination.resolve():
+                shutil.copyfile(item, destination)
     if file_sha256(path) != digest:
         raise ValueError('Regression APK hash does not match the fixed acceptance record')
     return path
 
 
-def check_apk(repository, apk, digest, log, offline=False, app_id='wechat'):
+def check_apk(repository, apk, digest, log, offline=False, app_id='wechat', abi_splits=()):
     apk = apk.resolve()
     if file_sha256(apk) != digest.lower():
         raise ValueError('An APK changed after verification')
     report = log.with_suffix('.json')
-    arguments = shlex.join(['check-rules', '--app-id', app_id, '--apk', str(apk),
-                            '--report', str(report)])
+    inputs = ['check-rules', '--app-id', app_id, '--apk', str(apk), '--report', str(report)]
+    if abi_splits:
+        inputs += ['--abi-splits', ','.join(str(Path(path).resolve()) for path in abi_splits)]
+    arguments = shlex.join(inputs)
     command = ['./gradlew', '--no-daemon']
     if offline:
         command.append('--offline')
@@ -79,9 +114,11 @@ def run_regression(app_id, reports, cache=None, repository=None):
                f"{identity['versionCode']}-{identity['apkSha256']}")
         try:
             apk = ensure_apk(record, cache, policy.app_id)
+            inputs = record_apk_inputs(record, cache, apk)
             log = reports / (key + '.log')
+            options = {'abi_splits': inputs[1:]} if len(inputs) > 1 else {}
             checked = check_apk(repository, apk, identity['apkSha256'], log,
-                                app_id=policy.app_id)
+                                app_id=policy.app_id, **options)
             if checked.get('identity') != identity:
                 raise ValueError('Regression checker identity differs from the fixed acceptance record')
             expected = record.get('expectedPlan', {})

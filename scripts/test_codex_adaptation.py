@@ -50,6 +50,10 @@ class CodexAdaptationTest(unittest.TestCase):
                 candidate_digest = hashlib.sha256(candidate_bytes).hexdigest()
                 report['identity']['apkSha256'] = candidate_digest
                 (candidate / f'candidate-{candidate_digest}.apk').write_bytes(candidate_bytes)
+                analysis = worktree / 'work/analysis'
+                analysis.mkdir()
+                (analysis / 'base.apk').write_bytes(candidate_bytes)
+                report['apkFiles'] = [{'path': 'base.apk', 'role': 'base', 'sha256': candidate_digest}]
                 bindings = [{'ruleId': 'legacy', 'min': 3040, 'max': 3040},
                             {'ruleId': 'new', 'min': 3220, 'max': None}]
                 static = {'selection': {'status': 'SELECTED', 'selectedRuleId': 'new'},
@@ -153,7 +157,7 @@ class CodexAdaptationTest(unittest.TestCase):
         with self.assertRaises(RoutingReviewRequired):
             eligible_candidate(older, [self.record])
 
-    def test_identity_and_official_source_are_revalidated(self):
+    def test_identity_and_public_https_source_are_revalidated(self):
         for field, value in [('packageName', 'org.example.other'),
                              ('signerSha256', 'c' * 64), ('abi', 'x86_64')]:
             report = copy.deepcopy(self.report)
@@ -161,9 +165,11 @@ class CodexAdaptationTest(unittest.TestCase):
             with self.subTest(field=field), self.assertRaises(ValueError):
                 eligible_candidate(report, [self.record])
         report = copy.deepcopy(self.report)
-        report['sourceUrl'] = 'https://example.invalid/candidate.apk'
-        with self.assertRaisesRegex(ValueError, 'official Tencent CDN'):
+        report['sourceUrl'] = 'http://example.invalid/candidate.apk'
+        with self.assertRaisesRegex(ValueError, 'HTTPS'):
             eligible_candidate(report, [self.record])
+        report['sourceUrl'] = 'https://example.invalid/candidate.apk?version=1'
+        self.assertTrue(eligible_candidate(report, [self.record]))
 
     def test_only_app_rule_runtime_and_focused_test_paths_are_allowed(self):
         validate_paths([

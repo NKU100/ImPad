@@ -1,6 +1,7 @@
 import unittest
 
 from scripts.ci.apps.wecom.runtime_policy import (
+    derive_installed_identities,
     hook_diagnostics,
     launcher_component,
     login_input_ready,
@@ -15,6 +16,21 @@ QR_ACTIVITY = "ACTIVITY MANAGER ACTIVITIES\n  topResumedActivity=ActivityRecord{
 
 
 class WeComRuntimePolicyTest(unittest.TestCase):
+    def test_installed_split_hashes_must_match_all_candidate_inputs(self):
+        raw = {'schemaVersion': 1,
+               'app': {'packageName': PACKAGE, 'baseApkPath': '/data/app/wecom/base.apk',
+                       'baseApkSha256': 'a' * 64,
+                       'splitApks': [{'path': '/data/app/wecom/split_config.apk', 'sha256': 'b' * 64}]},
+               'module': {'packageName': 'io.github.nku100.impad',
+                          'baseApkPath': '/data/app/impad/base.apk', 'baseApkSha256': 'c' * 64}}
+        candidate_files = [{'role': 'base', 'sha256': 'a' * 64}, {'role': 'split', 'sha256': 'b' * 64}]
+        derive_installed_identities(raw, PACKAGE, 'a' * 64, 'io.github.nku100.impad', 'c' * 64,
+                                    apk_files=candidate_files)
+        for bad_files in (candidate_files[:1], candidate_files + [{'role': 'split', 'sha256': 'd' * 64}]):
+            with self.subTest(bad_files=bad_files), self.assertRaises(ValueError):
+                derive_installed_identities(raw, PACKAGE, 'a' * 64, 'io.github.nku100.impad', 'c' * 64,
+                                            apk_files=bad_files)
+
     def test_clean_install_uses_exported_launch_activity(self):
         self.assertEqual(launcher_component, "com.tencent.wework/.launch.LaunchSplashActivity")
 

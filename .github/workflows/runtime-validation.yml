@@ -11,7 +11,7 @@ on:
         type: string
         required: true
       apk_url:
-        description: Exact official APK URL; an empty value uses the app policy discovery strategy
+        description: Exact HTTPS APK or XAPK URL with trusted app signature; empty uses official discovery
         type: string
         default: ''
       candidate_mode:
@@ -181,7 +181,7 @@ jobs:
             --app-id "$APP_ID" \
             --apk-url "$APK_URL" \
             --directory work/runtime-smoke
-      - name: Prepare requested official APK URL
+      - name: Prepare requested APK or XAPK URL
         if: inputs.apk_url != '' && inputs.candidate_artifact == '' && inputs.candidate_mode != 'artifact'
         env:
           APK_URL: ${{ inputs.apk_url }}

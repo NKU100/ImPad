@@ -172,18 +172,52 @@ def derive_manager_state(raw, module_package, app_package):
     return {'moduleEnabled': bool(module_row['enabled']), 'scopeVerified': True}
 
 
-def derive_installed_identities(raw, app_package, app_sha256, module_package, module_sha256):
+def derive_installed_identities(raw, app_package, app_sha256, module_package, module_sha256, apk_files=None):
     if not isinstance(raw, dict) or set(raw) != {'schemaVersion', 'app', 'module'} or raw.get('schemaVersion') != 1:
         raise ValueError('Installed APK identity capture has an invalid schema')
     expected = {'app': (app_package, app_sha256), 'module': (module_package, module_sha256)}
     for name, (package_name, digest) in expected.items():
         item = raw.get(name)
-        if (not isinstance(item, dict) or set(item) != {'packageName', 'baseApkPath', 'baseApkSha256'}
+        allowed_keys = {'packageName', 'baseApkPath', 'baseApkSha256'}
+        if name == 'app' and isinstance(item, dict) and 'splitApks' in item:
+            allowed_keys.add('splitApks')
+        if (not isinstance(item, dict) or set(item) != allowed_keys
                 or item.get('packageName') != package_name or item.get('baseApkSha256') != digest
-                or not isinstance(item.get('baseApkPath'), str) or not item['baseApkPath'].startswith('/')
+                or not isinstance(item.get('baseApkPath'), str)
+                or not PurePosixPath(item['baseApkPath']).is_absolute()
+                or '..' in PurePosixPath(item['baseApkPath']).parts
                 or PurePosixPath(item['baseApkPath']).name != 'base.apk'):
             raise ValueError(f'Installed {name} APK identity differs from the verified input')
+        if name == 'module' and 'splitApks' in item:
+            raise ValueError('Installed module APK must not contain splits')
+    _validate_installed_splits(raw['app'], apk_files)
     return raw
+
+
+def _validate_installed_splits(app, apk_files):
+    splits = app.get('splitApks', [])
+    if not isinstance(splits, list):
+        raise ValueError('Installed app split APK list is invalid')
+    paths, hashes = [], []
+    for split in splits:
+        if (not isinstance(split, dict) or set(split) != {'path', 'sha256'}
+                or not isinstance(split['path'], str) or not PurePosixPath(split['path']).is_absolute()
+                or '..' in PurePosixPath(split['path']).parts
+                or PurePosixPath(split['path']).name in {'', '.', '..'}
+                or not re.fullmatch(r'[a-f0-9]{64}', split['sha256'])):
+            raise ValueError('Installed app split APK identity is invalid')
+        paths.append(split['path'])
+        hashes.append(split['sha256'])
+    if len(paths) != len(set(paths)) or len(hashes) != len(set(hashes)):
+        raise ValueError('Installed app split APK identities are duplicated')
+    if apk_files is not None:
+        if not isinstance(apk_files, list) or not apk_files:
+            raise ValueError('Candidate APK files are invalid')
+        expected = [item.get('sha256') for item in apk_files[1:] if isinstance(item, dict)]
+        if (len(expected) != len(apk_files) - 1
+                or any(not isinstance(digest, str) or not re.fullmatch(r'[a-f0-9]{64}', digest) for digest in expected)
+                or len(expected) != len(set(expected)) or set(hashes) != set(expected)):
+            raise ValueError('Installed app split APK hashes differ from the verified input')
 
 
 def scoped_module_log_lines(logcat, process_text, package_name):

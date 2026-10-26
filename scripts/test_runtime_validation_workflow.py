@@ -408,7 +408,7 @@ class RuntimeValidationWorkflowTest(unittest.TestCase):
         self.assertEqual('', reusable['apk_url']['default'])
         runtime = workflows['runtime-validation.yml']
         prepare = runtime['jobs']['prepare']['steps']
-        exact = next(step for step in prepare if step.get('name') == 'Prepare requested official APK URL')
+        exact = next(step for step in prepare if step.get('name') == 'Prepare requested APK or XAPK URL')
         discovery = next(step for step in prepare if step.get('name') == 'Discover official candidate URL')
         self.assertIn("inputs.apk_url != ''", exact['if'])
         self.assertIn("inputs.apk_url == ''", discovery['if'])
@@ -752,7 +752,7 @@ class RuntimeValidationWorkflowTest(unittest.TestCase):
         producer = workflows['compatibility-app.yml']['jobs']['adapt']['steps']
         upload = next(step for step in producer if step.get('name') == 'Upload verified runtime candidate')
         self.assertEqual(['runtime-inputs/${{ needs.prepare.outputs.app_id }}-*.apk',
-                          'runtime-inputs/candidate-report.json'],
+                          'runtime-inputs/candidate-report.json', 'runtime-inputs/apk-inputs/'],
                          [line.strip() for line in upload['with']['path'].splitlines() if line.strip()])
         consumer = workflows['runtime-validation.yml']['jobs']['prepare']['steps']
         downloaded = next(index for index, step in enumerate(consumer)
@@ -801,6 +801,8 @@ class AdaptationArtifactHandoffTest(unittest.TestCase):
 
             candidate_bytes = b'uploaded exact adaptation candidate fixture'
             candidate_sha = hashlib.sha256(candidate_bytes).hexdigest()
+            split_bytes = b'uploaded exact adaptation native split'
+            split_sha = hashlib.sha256(split_bytes).hexdigest()
             policy = get_policy('qq')
             identity = {'packageName': policy.package_name, 'versionName': '9.3.1',
                         'versionCode': 14378, 'abi': 'arm64-v8a', 'apkSha256': candidate_sha,
@@ -842,13 +844,18 @@ class AdaptationArtifactHandoffTest(unittest.TestCase):
                           'identity': identity,
                           'sourceUrl': 'https://downv6.qq.com/qqweb/QQ_1/android_apk/9.3.1.apk',
                           'expectedPlan': plan,
-                          'adaptationSummary': {'fixture': True}}
+                          'adaptationSummary': {'fixture': True},
+                          'apkFiles': [{'path': 'apk-inputs/base.apk', 'role': 'base', 'sha256': candidate_sha},
+                                       {'path': 'apk-inputs/native.apk', 'role': 'split', 'sha256': split_sha}]}
             (task / 'state.json').write_text(json.dumps({'worktree': str(checkout)}))
             (task / 'candidate-report.json').write_text(json.dumps(adaptation))
             (checkout / 'work/analysis/candidate-report.json').write_text(json.dumps(adaptation))
             (checkout / f'work/apks/candidate-{candidate_sha}.apk').write_bytes(candidate_bytes)
 
-            environment = dict(os.environ, CODEX_TASK_DIR=str(task), APP_ID='qq')
+            (checkout / 'work/analysis/apk-inputs').mkdir()
+            (checkout / 'work/analysis/apk-inputs/base.apk').write_bytes(candidate_bytes)
+            (checkout / 'work/analysis/apk-inputs/native.apk').write_bytes(split_bytes)
+            environment = dict(os.environ, CODEX_TASK_DIR=str(task), APP_ID='qq', PYTHONPATH=str(Path.cwd()))
             subprocess.run([sys.executable, '-c', export_match.group(1)], cwd=producer_run,
                            env=environment, text=True, capture_output=True, check=True)
 
@@ -859,8 +866,11 @@ class AdaptationArtifactHandoffTest(unittest.TestCase):
                 self.assertTrue(matches, f'Producer upload input is missing: {pattern}')
                 for source in matches:
                     uploaded_candidate_files.append(source.relative_to(producer_run / 'runtime-inputs').as_posix())
-                    shutil.copyfile(source, consumer_root / source.name)
-            self.assertEqual(['candidate-report.json', f'qq-{candidate_sha}.apk'],
+                    if source.is_dir():
+                        shutil.copytree(source, consumer_root / source.name)
+                    else:
+                        shutil.copyfile(source, consumer_root / source.name)
+            self.assertEqual(['apk-inputs', 'candidate-report.json', f'qq-{candidate_sha}.apk'],
                              sorted(uploaded_candidate_files))
 
             module_specs = [line.strip() for line in module_upload['with']['path'].splitlines() if line.strip()]
@@ -872,11 +882,13 @@ class AdaptationArtifactHandoffTest(unittest.TestCase):
 
             static_path = consumer_root / 'static-check.json'
 
-            def checker(app_id, apk, report_path, repository=None):
+            def checker(app_id, apk, report_path, repository=None, abi_splits=()):
                 self.assertEqual('qq', app_id)
                 self.assertEqual(consumer_root.resolve() / f'qq-{candidate_sha}.apk', Path(apk).resolve())
+                self.assertEqual([split_bytes], [path.read_bytes() for path in abi_splits])
                 report = {'appId': 'qq', 'analysisScope': 'STATIC_ONLY', 'identity': identity,
-                          'inputHashes': [{'path': str(Path(apk).resolve()), 'sha256': candidate_sha}],
+                          'inputHashes': [{'path': str(Path(apk).resolve()), 'sha256': candidate_sha},
+                                          {'path': str(abi_splits[0]), 'sha256': split_sha}],
                           'ruleCatalogSha256': catalog['ruleCatalogSha256'], 'ruleCatalog': catalog,
                           'executionIdentity': execution, 'routeCandidates': [rule_id],
                           'selection': {'status': 'SELECTED', 'selectedRuleId': rule_id,
@@ -905,6 +917,7 @@ class AdaptationArtifactHandoffTest(unittest.TestCase):
             candidate = json.loads(candidate_path.read_text())
             self.assertEqual(1, candidate['schemaVersion'])
             self.assertEqual('PREPARED', candidate['status'])
+            self.assertEqual(2, len(candidate['apkFiles']))
             self.assertEqual(identity, candidate['identity'])
             self.assertEqual('UNIQUE', candidate['expectedPlan']['selection'])
             self.assertEqual(candidate_sha, hashlib.sha256((consumer_root / f'qq-{candidate_sha}.apk').read_bytes()).hexdigest())

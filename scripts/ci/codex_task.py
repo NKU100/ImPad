@@ -167,8 +167,8 @@ def pending(repo, app_id):
 
 def candidate_cache_settings(report):
     policy = policy_for_report(report)
-    from scripts.ci.discover_latest_wechat import validate_official_apk_url
-    validate_official_apk_url(report['sourceUrl'], policy.official_apk_prefix)
+    from scripts.ci.download_url import validate_download_url
+    validate_download_url(report['sourceUrl'])
     digest = hashlib.sha256(report['sourceUrl'].encode('utf-8')).hexdigest()
     return {'cache_dir':f'.cache/{policy.artifact_prefix}-{policy.app_id}-latest/{digest}',
             'cache_key':f'{policy.artifact_prefix}-{policy.app_id}-latest-url-{digest}'}

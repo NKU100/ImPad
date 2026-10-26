@@ -11,6 +11,41 @@ from scripts.ci.runtime_task import runtime_result
 
 
 class CandidateRuntimeTest(unittest.TestCase):
+    def test_qq_split_acceptance_requires_installed_hash_captures(self):
+        import hashlib
+        from scripts.ci.runtime_task import _validate_qq_raw_evidence
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            path = root / 'capture.txt'
+            path.write_bytes(b'capture')
+            smoke = {'evidence': [{'path': path.name, 'sha256': hashlib.sha256(path.read_bytes()).hexdigest()}]}
+            candidate = self.candidate('qq')
+            candidate['apkFiles'].append({'role': 'split', 'path': 'split.apk', 'sha256': 'b' * 64})
+            with self.assertRaisesRegex(ValueError, 'split APK installed identity evidence is missing'):
+                _validate_qq_raw_evidence(smoke, root, candidate, {})
+
+    def test_installs_the_exact_base_and_splits_together_and_rejects_tampering(self):
+        import hashlib
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            report = self.candidate()
+            report['apkFiles'] = []
+            for index, payload in enumerate((b'base', b'native', b'language')):
+                path = root / f'{index}.apk'
+                path.write_bytes(payload)
+                report['apkFiles'].append({'role': 'base' if index == 0 else 'split',
+                                          'path': path.name, 'sha256': hashlib.sha256(payload).hexdigest()})
+            report['identity']['apkSha256'] = report['apkFiles'][0]['sha256']
+            adb = MagicMock()
+            runtime.install_candidate(adb, root, report)
+            self.assertEqual(('install-multiple', '-r', *(str((root / f'{index}.apk').resolve()) for index in range(3))),
+                             adb.adb.call_args.args)
+            adb.reset_mock()
+            (root / '1.apk').write_bytes(b'tampered')
+            with self.assertRaises(ValueError):
+                runtime.install_candidate(adb, root, report)
+            adb.adb.assert_not_called()
+
     def candidate(self, app='wechat', status='PREPARED'):
         identities = {
             'wechat': ('com.tencent.mm', '0fe4ff85c215918396dadc7cd8ce6963339af33d37751a56e54c7206b63a3c7c'),

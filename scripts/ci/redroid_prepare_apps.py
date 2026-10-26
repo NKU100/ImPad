@@ -13,6 +13,7 @@ from scripts.ci.static_regression import check_apk
 from scripts.ci.apps.qq.runtime_probe import manifest_expectation
 from scripts.ci.apps.qq.prepare_probe import prepare
 from scripts.ci.candidate_selection import prepare_module
+from scripts.ci.apk_inputs import resolve_apk_inputs
 
 
 def verify_signer(output, expected):
@@ -75,11 +76,16 @@ def main():
         if len(candidates) != 1:
             raise ValueError('Candidate artifact requires exactly one matching APK')
         apk = candidates[0]
+        apk_inputs = resolve_apk_inputs(candidate, root)
         policy = policy_for_report(candidate, candidate.get('appId'))
-        signer = subprocess.check_output([str(sdk / 'build-tools/37.0.0/apksigner'), 'verify', '--print-certs', str(apk)], timeout=120).decode()
-        (root / (name + '-signer.txt')).write_text(signer)
-        verify_signer(signer, identity['signerSha256'])
-        check_apk(Path.cwd(), apk, identity['apkSha256'], root / (name + '-static.txt'), app_id=app)
+        for index, path in enumerate(apk_inputs):
+            signer = subprocess.check_output([str(sdk / 'build-tools/37.0.0/apksigner'), 'verify', '--print-certs', str(path)], timeout=120).decode()
+            (root / f'{name}-signer-{index}.txt').write_text(signer)
+            verify_signer(signer, policy.signer_sha256)
+        if identity['signerSha256'].lower() != policy.signer_sha256:
+            raise ValueError('Candidate signer differs from the trusted application signer')
+        options = {'abi_splits': apk_inputs[1:]} if len(apk_inputs) > 1 else {}
+        check_apk(Path.cwd(), apk, identity['apkSha256'], root / (name + '-static.txt'), app_id=app, **options)
         if apk.resolve() != (root / (name + '.apk')).resolve():
             shutil.copyfile(apk, root / (name + '.apk'))
         candidate['signerVerified'] = True

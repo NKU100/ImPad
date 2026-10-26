@@ -69,10 +69,20 @@ class WeChatStrictRuntimePolicyTest(unittest.TestCase):
 
         identities = {
             'schemaVersion': 1,
-            'app': {'packageName': PACKAGE, 'baseApkPath': '/data/app/mm/base.apk', 'baseApkSha256': 'a' * 64},
+            'app': {'packageName': PACKAGE, 'baseApkPath': '/data/app/mm/base.apk', 'baseApkSha256': 'a' * 64,
+                    'splitApks': [{'path': '/data/app/mm/split_config.arm64_v8a.apk', 'sha256': 'c' * 64}]},
             'module': {'packageName': MODULE, 'baseApkPath': '/data/app/impad/base.apk', 'baseApkSha256': 'b' * 64},
         }
-        runtime_policy.derive_installed_identities(identities, PACKAGE, 'a' * 64, MODULE, 'b' * 64)
+        runtime_policy.derive_installed_identities(identities, PACKAGE, 'a' * 64, MODULE, 'b' * 64,
+                                                   apk_files=[{'role': 'base', 'sha256': 'a' * 64},
+                                                              {'role': 'split', 'sha256': 'c' * 64}])
+        with self.assertRaises(ValueError):
+            runtime_policy.derive_installed_identities(identities, PACKAGE, 'a' * 64, MODULE, 'b' * 64,
+                                                       apk_files=[{'role': 'base', 'sha256': 'a' * 64},
+                                                                  {'role': 'split', 'sha256': 'd' * 64}])
+        with self.assertRaises(ValueError):
+            runtime_policy.derive_installed_identities(identities, PACKAGE, 'a' * 64, MODULE, 'b' * 64,
+                                                       apk_files=[{'role': 'base', 'sha256': 'a' * 64}])
         identities['module']['baseApkSha256'] = 'c' * 64
         with self.assertRaises(ValueError):
             runtime_policy.derive_installed_identities(identities, PACKAGE, 'a' * 64, MODULE, 'b' * 64)

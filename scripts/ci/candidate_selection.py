@@ -14,15 +14,19 @@ import zipfile
 
 from scripts.ci.acceptance import read_acceptance_snapshot, select_representatives
 from scripts.ci.app_policy import get_policy
+from scripts.ci.apk_inputs import resolve_apk_inputs, unpack_apk_inputs
+from scripts.ci.download_url import validate_download_url
 from scripts.ci.discover_latest_wechat import discover_from_html, fetch_official_page, validate_official_apk_url
 from scripts.ci.fetch_latest_wechat_apk import download_candidate, file_sha256, remote_metadata
 
 
 def _run_rules_checker(app_id: str, apk: Path, report_path: Path,
-                       repository: Path | None = None) -> dict:
+                       repository: Path | None = None, abi_splits=()) -> dict:
     repository = Path(repository or Path(__file__).resolve().parents[2]).resolve()
     arguments = ['check-rules', '--app-id', app_id, '--apk', str(Path(apk).resolve()),
                  '--report', str(Path(report_path).resolve())]
+    if abi_splits:
+        arguments += ['--abi-splits', ','.join(str(Path(path).resolve()) for path in abi_splits)]
     log = Path(report_path).with_suffix('.log')
     with log.open('w') as output:
         subprocess.run(['./gradlew', '--no-daemon', ':compat-checker:run',
@@ -82,7 +86,8 @@ def _candidate_from_static(app_id: str, source_url: str, apk: Path, base_digest:
             raise ValueError('Shared checker base APK input differs from the exact candidate artifact')
         staged = directory / 'apk-inputs' / f'{index}-{digest}.apk'
         staged.parent.mkdir(parents=True, exist_ok=True)
-        shutil.copyfile(source, staged)
+        if source != staged.resolve():
+            shutil.copyfile(source, staged)
         if file_sha256(staged) != digest:
             raise ValueError('Staged candidate APK differs from shared checker input')
         row['path'] = staged.relative_to(directory).as_posix()
@@ -117,19 +122,31 @@ def _candidate_from_static(app_id: str, source_url: str, apk: Path, base_digest:
     return candidate
 
 
-def prepare_candidate(app_id: str, apk_url: str, directory: Path) -> dict:
+def prepare_candidate(app_id: str, apk_url: str, directory: Path, *, allow_external=True) -> dict:
     policy = get_policy(app_id)
-    validate_official_apk_url(apk_url, policy.official_apk_prefix)
+    if allow_external:
+        validate_download_url(apk_url)
+    else:
+        validate_official_apk_url(apk_url, policy.official_apk_prefix)
     directory = Path(directory).resolve()
     directory.mkdir(parents=True, exist_ok=True)
-    metadata = remote_metadata(apk_url, policy)
-    apk, digest, _, _ = download_candidate(apk_url, directory / 'apk-cache', '', metadata, policy)
-    if file_sha256(apk) != digest:
+    metadata = remote_metadata(apk_url, policy, allow_external=allow_external)
+    archive, archive_digest, _, _ = download_candidate(
+        apk_url, directory / 'apk-cache', '', metadata, policy, allow_external=allow_external)
+    if file_sha256(archive) != archive_digest:
         raise ValueError('Official APK changed after download verification')
+    inputs = unpack_apk_inputs(archive, directory / 'unpacked', policy.package_name)
+    apk = inputs[0]
+    digest = file_sha256(apk)
     report_path = directory / 'static-check.json'
-    static = _run_rules_checker(app_id, apk, report_path)
-    return _candidate_from_static(app_id, apk_url, apk, digest.lower(), directory,
-                                  report_path, static)
+    static = (_run_rules_checker(app_id, apk, report_path, abi_splits=inputs[1:])
+              if len(inputs) > 1 else _run_rules_checker(app_id, apk, report_path))
+    if [row.get('sha256') for row in static.get('inputHashes', [])] != [file_sha256(path) for path in inputs]:
+        raise ValueError('Shared checker did not bind every downloaded base/split APK')
+    candidate = _candidate_from_static(app_id, apk_url, apk, digest.lower(), directory,
+                                       report_path, static)
+    candidate['sourceArchiveSha256'] = archive_digest
+    return candidate
 
 
 def prepare_discovered_candidate(app_id: str, directory: Path) -> dict:
@@ -138,7 +155,17 @@ def prepare_discovered_candidate(app_id: str, directory: Path) -> dict:
     discovered = strategy.discover(policy)
     source_url = getattr(discovered, 'url', None)
     validate_official_apk_url(source_url or '', policy.official_apk_prefix)
-    return prepare_candidate(app_id, source_url, directory)
+    return prepare_candidate(app_id, source_url, directory, allow_external=False)
+
+
+def revalidate_candidate_download(report, cache):
+    from scripts.ci.static_regression import ensure_apk, record_apk_inputs
+    record = {'identity': report['identity'],
+              'source': {'type': 'signed-download', 'url': report['sourceUrl'],
+                         'apkFiles': report['apkFiles'],
+                         'archiveSha256': report.get('sourceArchiveSha256', report['identity']['apkSha256'])}}
+    base = ensure_apk(record, Path(cache), report['appId'])
+    return record_apk_inputs(record, Path(cache), base)
 
 
 def prepare_candidate_from_adaptation_report(app_id: str, adaptation_report: Path,
@@ -163,15 +190,22 @@ def prepare_candidate_from_adaptation_report(app_id: str, adaptation_report: Pat
             or not re.fullmatch(r'[a-fA-F0-9]{64}', str(identity.get('apkSha256', '')))):
         raise ValueError('Uploaded adaptation report does not match the RULES candidate contract')
     source_url = adaptation.get('sourceUrl')
-    validate_official_apk_url(source_url or '', policy.official_apk_prefix)
+    validate_download_url(source_url or '')
     digest = identity['apkSha256'].lower()
     apk = directory / f'{app_id}-{digest}.apk'
     if not apk.is_file() or file_sha256(apk) != digest:
         raise ValueError('Exact uploaded candidate APK is missing or differs from its reported identity')
+    inputs = resolve_apk_inputs(adaptation, directory) if adaptation.get('apkFiles') else [apk]
     report_path = directory / 'static-check.json'
-    static = _run_rules_checker(app_id, apk, report_path, repository)
-    return _candidate_from_static(app_id, source_url, apk, digest, directory,
-                                  report_path, static, expected_identity=identity)
+    static = (_run_rules_checker(app_id, apk, report_path, repository, abi_splits=inputs[1:])
+              if len(inputs) > 1 else _run_rules_checker(app_id, apk, report_path, repository))
+    if [row.get('sha256') for row in static.get('inputHashes', [])] != [file_sha256(path) for path in inputs]:
+        raise ValueError('Shared checker did not bind every uploaded base/split APK')
+    candidate = _candidate_from_static(app_id, source_url, apk, digest, directory,
+                                      report_path, static, expected_identity=identity)
+    if adaptation.get('sourceArchiveSha256'):
+        candidate['sourceArchiveSha256'] = adaptation['sourceArchiveSha256']
+    return candidate
 
 
 _MODULE_SOURCE_TREES = (
@@ -338,7 +372,7 @@ def main():
     parser.add_argument('--directory', type=Path, required=True)
     parser.add_argument('--mode', choices=('latest', 'registered'), default='latest')
     parser.add_argument('--apk-sha256', help='Select a registered APK variant by SHA-256')
-    parser.add_argument('--apk-url', help='Check this exact official APK with the shared rules checker')
+    parser.add_argument('--apk-url', help='Check an exact HTTPS APK or XAPK with strict app signature validation')
     parser.add_argument('--adaptation-report', type=Path,
                         help='Recheck the exact APK named by an uploaded adaptation report')
     args = parser.parse_args()

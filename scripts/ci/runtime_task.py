@@ -9,7 +9,7 @@ from pathlib import Path
 import re
 
 from scripts.ci.app_policy import get_policy, policy_for_report
-from scripts.ci.discover_latest_wechat import validate_official_apk_url
+from scripts.ci.download_url import validate_download_url
 
 
 def _sha256(path):
@@ -107,6 +107,7 @@ def _read_json(path, label):
 def _validate_qq_raw_evidence(smoke, evidence_root, candidate, module, *, allow_app_id_mismatch=False):
     from scripts.ci.apps.qq import packet_capture, request_protocol, runtime_policy
     from scripts.ci.redroid_app_smoke import extract_qq_lifecycle_evidence, qq_compatible_hook_installed
+    from scripts.ci.apk_inputs import verify_installed_apk_hashes
 
     entries = smoke.get('evidence')
     if not isinstance(entries, list) or not entries:
@@ -125,6 +126,16 @@ def _validate_qq_raw_evidence(smoke, evidence_root, candidate, module, *, allow_
             raise ValueError('Runtime evidence contains duplicate file references')
         files[key] = path
 
+    if len(candidate.get('apkFiles', [])) > 1:
+        for label in ('disabled', 'enabled'):
+            for stage in ('before', 'after'):
+                key = f'apps/qq/installed-apks-{label}-{stage}.json'
+                if key not in files:
+                    raise ValueError('QQ split APK installed identity evidence is missing')
+                installed = _read_json(files[key], 'QQ installed APK identities')
+                if installed.get('packageName') != candidate['identity']['packageName']:
+                    raise ValueError('QQ installed APK package differs from the candidate')
+                verify_installed_apk_hashes(installed, candidate['apkFiles'])
     expectation = candidate.get('requestIdentityExpectation')
     if not isinstance(expectation, dict) or expectation.get('contract') != request_protocol.CONTRACT:
         raise ValueError('Candidate request identity expectation is missing')
@@ -277,7 +288,7 @@ def _validate_wecom_raw_evidence(smoke, evidence_root, candidate, module):
     installed = _read_json(files['apps/wecom/installed-identities.json'], 'WeCom installed APK identity')
     runtime_policy.derive_installed_identities(
         installed, package, candidate.get('identity', {}).get('apkSha256'),
-        'io.github.nku100.impad', module.get('sha256'))
+        'io.github.nku100.impad', module.get('sha256'), apk_files=candidate.get('apkFiles'))
     if smoke.get('installedIdentities') != installed:
         raise ValueError('WeCom installed APK identity summary differs from its captured raw file')
     if smoke.get('moduleApkSha256') != installed['module']['baseApkSha256']:
@@ -388,7 +399,7 @@ def _validate_wechat_raw_evidence(smoke, evidence_root, candidate, module):
     installed = _read_json(files['apps/wechat/installed-identities.json'], 'WeChat installed APK identity')
     runtime_policy.derive_installed_identities(
         installed, package, candidate.get('identity', {}).get('apkSha256'),
-        'io.github.nku100.impad', module.get('sha256'))
+        'io.github.nku100.impad', module.get('sha256'), apk_files=candidate.get('apkFiles'))
     if smoke.get('installedIdentities') != installed:
         raise ValueError('WeChat installed APK identity summary differs from its captured raw file')
     if smoke.get('moduleApkSha256') != installed['module']['baseApkSha256']:
@@ -456,7 +467,7 @@ def verify_runtime_rejection(smoke, evidence_root, candidate, module):
     installed = json.loads(read('installed-identities.json'))
     runtime_policy.derive_installed_identities(
         installed, package, candidate['identity']['apkSha256'],
-        'io.github.nku100.impad', module['sha256'])
+        'io.github.nku100.impad', module['sha256'], apk_files=candidate.get('apkFiles'))
     for stage, enabled in (('initial', None), ('disabled', False), ('enabled', True), ('final', True)):
         state = runtime_policy.derive_manager_state(
             json.loads(read(f'manager-state-{stage}.json')), 'io.github.nku100.impad', package)
@@ -718,7 +729,7 @@ def evaluate_validation(candidate, module, static, regression, smoke, conclusion
         result.update(outcome='ERROR', failedStage='module', diagnostics=['Module identity is invalid'])
         return result
     try:
-        validate_official_apk_url(candidate.get('sourceUrl', ''), policy.official_apk_prefix)
+        validate_download_url(candidate.get('sourceUrl', ''))
     except ValueError:
         apk_files = []
     if (identity.get('packageName') != policy.package_name

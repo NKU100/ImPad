@@ -17,6 +17,7 @@ from scripts.ci.candidate_selection import prepare_module, verify_module_identit
 from scripts.ci.runtime_task import _resolve_child, evaluate_validation
 from scripts.ci.static_regression import run_regression
 from scripts.ci.adb_relay import normalize_adb_server_socket
+from scripts.ci.apk_inputs import resolve_apk_inputs
 
 
 def configure(directory):
@@ -48,7 +49,18 @@ def initialize(directory, root, serial=SERIAL):
     os.environ['ANDROID_SERIAL'] = serial
     query_target()
     candidate = dict(state['report'], appId=policy.app_id)
-    inputs = {policy.app_id: {'identity': candidate['identity'], 'signerVerified': True}}
+    if candidate.get('apkFiles'):
+        source_root = workspace / 'work/analysis'
+        paths = resolve_apk_inputs(candidate, source_root)
+        for item, path in zip(candidate['apkFiles'], paths):
+            destination = root / item['path']
+            destination.parent.mkdir(parents=True, exist_ok=True)
+            if path.resolve() != destination.resolve():
+                shutil.copyfile(path, destination)
+        apk_files = candidate['apkFiles']
+    else:
+        apk_files = [{'path': candidate_apk.name, 'role': 'base', 'sha256': candidate['identity']['apkSha256']}]
+    inputs = {policy.app_id: {'identity': candidate['identity'], 'apkFiles': apk_files, 'signerVerified': True}}
     if policy.app_id == 'qq':
         from scripts.ci.apps.qq.runtime_probe import manifest_expectation
         inputs[policy.app_id]['requestIdentityExpectation'] = manifest_expectation(candidate_apk, candidate['identity']['apkSha256'])

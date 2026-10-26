@@ -11,6 +11,7 @@ import tempfile
 import time
 import shlex
 import threading
+from pathlib import PurePosixPath
 from contextlib import contextmanager
 import xml.etree.ElementTree as ET
 from scripts.ci.apps.qq.request_protocol import CONTRACT, SECURITY_COMMANDS
@@ -105,13 +106,29 @@ def installed_hash(smoke, package):
 
 def installed_identity(smoke, package):
     rows = smoke.adb('shell', 'pm', 'path', package).stdout.decode().splitlines()
-    base = [row.removeprefix('package:') for row in rows if row.endswith('/base.apk')]
+    if any(not row.startswith('package:') for row in rows):
+        raise ValueError('Installed APK path output is malformed')
+    paths = [row.removeprefix('package:') for row in rows]
+    if any(not PurePosixPath(path).is_absolute() or '..' in PurePosixPath(path).parts
+           or not path.endswith('.apk') for path in paths):
+        raise ValueError('Installed APK path is malformed')
+    base = [path for path in paths if path.endswith('/base.apk')]
     if len(base) != 1:
         raise ValueError('Installed base APK is ambiguous')
-    fields = smoke.adb('shell', 'sha256sum', base[0]).stdout.decode().split()
-    if len(fields) < 2 or fields[1] != base[0] or not re.fullmatch(r'[a-fA-F0-9]{64}', fields[0]):
-        raise ValueError('Installed base APK digest output is malformed')
-    return {'packageName': package, 'baseApkPath': base[0], 'baseApkSha256': fields[0].lower()}
+
+    def installed_digest(path):
+        fields = smoke.adb('shell', 'sha256sum', path).stdout.decode().split()
+        if len(fields) < 2 or fields[1] != path or not re.fullmatch(r'[a-fA-F0-9]{64}', fields[0]):
+            raise ValueError('Installed APK digest output is malformed')
+        return fields[0].lower()
+
+    identity = {'packageName': package, 'baseApkPath': base[0], 'baseApkSha256': installed_digest(base[0])}
+    splits = [path for path in paths if path != base[0]]
+    if len(paths) > 1:
+        if len(set(paths)) != len(paths):
+            raise ValueError('Installed APK paths are duplicated')
+        identity['splitApks'] = [{'path': path, 'sha256': installed_digest(path)} for path in splits]
+    return identity
 
 
 def navigate(smoke):

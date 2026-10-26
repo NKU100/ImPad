@@ -11,6 +11,32 @@ from scripts.ci.static_regression import check_apk, ensure_apk, main, run_regres
 
 
 class StaticRegressionTest(unittest.TestCase):
+    def test_fixed_xapk_restores_and_hash_checks_all_original_splits(self):
+        import zipfile
+        from scripts.ci.static_regression import record_apk_inputs
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            archive = root / 'bundle.xapk'
+            with zipfile.ZipFile(archive, 'w') as output:
+                output.writestr('com.tencent.mm.apk', b'base')
+                output.writestr('config.arm64_v8a.apk', b'split')
+                output.writestr('manifest.json', '{}')
+            hashes = [hashlib.sha256(payload).hexdigest() for payload in (b'base', b'split')]
+            record = {'identity': {'packageName': 'com.tencent.mm', 'apkSha256': hashes[0]},
+                      'source': {'type': 'signed-download', 'url': 'https://mirror.example/download?code=3182',
+                                 'archiveSha256': hashlib.sha256(archive.read_bytes()).hexdigest(),
+                                 'apkFiles': [{'path': f'{index}.apk', 'role': 'base' if index == 0 else 'split',
+                                               'sha256': digest} for index, digest in enumerate(hashes)]}}
+            with patch('scripts.ci.static_regression.remote_metadata', return_value={}), \
+                 patch('scripts.ci.static_regression.download_candidate',
+                       return_value=(archive, record['source']['archiveSha256'], False, {})):
+                base = ensure_apk(record, root / 'cache', 'wechat')
+            files = record_apk_inputs(record, root / 'cache', base)
+            self.assertEqual([b'base', b'split'], [path.read_bytes() for path in files])
+            files[1].write_bytes(b'tampered')
+            with self.assertRaisesRegex(ValueError, 'hash'):
+                record_apk_inputs(record, root / 'cache', base)
+
     def test_explicit_repository_loads_catalog_and_checks_cache_outside_cwd(self):
         from scripts.test_acceptance import AcceptanceTest
 
