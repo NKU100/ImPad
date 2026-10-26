@@ -30,7 +30,7 @@ Oracle ARM64 ReDroid 的四轮运行均未通过；即使复测另一历史运�
 
 ## 指定 APK 的候选检查
 
-完整 `verify` 或 `adapt` 使用 GitHub Actions 中的 **Run app compatibility pipeline**，选择 `app_id`、`operation`，并填写精确官方 APK `apk_url`。指定 URL 必须属于该应用策略允许的官方来源；候选准备按该 URL 固定 APK 字节，不回退到自动发现的最新版本。`verify` 执行共享静态检查、固定代表回归和独立运行 gate，不启动模型、不创建 PR、不写正式验收表。`adapt` 仅在需要新规则时进入隔离适配；新规则使用新的不可变 ID 和临时路由，之后回到同一验证入口及完整 gate。GitHub Actions workflow dispatch 是生产级运行验收入口，本地候选检查不能代替它。
+完整 `verify` 或 `adapt` 使用 GitHub Actions 中的 **Check WeChat compatibility**、**Check QQ compatibility** 或 **Check WeCom compatibility** 对应应用入口，再选择 `operation`。可填写精确官方 APK `apk_url`；留空时由该应用策略发现候选。指定 URL 必须属于该应用策略允许的官方来源；候选准备按该 URL 固定 APK 字节，不回退到自动发现的最新版本。可选的 `module_run_id` 和 `module_artifact` 仅用于 `verify`，留空时使用默认构建。`verify` 执行共享静态检查、固定代表回归和独立运行 gate，不启动模型、不创建 PR、不写正式验收表。`adapt` 仅在需要新规则时进入隔离适配；新规则使用新的不可变 ID 和临时路由，之后回到同一验证入口及完整 gate。GitHub Actions workflow dispatch 是生产级运行验收入口，本地候选检查不能代替它。
 
 本地可用共享候选准备器检查指定 URL 并生成候选报告：
 

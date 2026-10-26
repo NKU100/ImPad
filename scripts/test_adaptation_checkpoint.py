@@ -62,23 +62,22 @@ class AdaptationCheckpointTest(unittest.TestCase):
         self.assertNotIn("needs.adapt.outputs.pr_url != ''", runtime)
 
     def test_common_workflow_locks_before_jobs_and_is_called_by_each_app(self):
-        root = Path(__file__).resolve().parents[1]
-        shared = (root / '.github/workflows/compatibility-app.yml').read_text()
-        header, jobs = shared.split('\njobs:', 1)
-        self.assertIn('\nconcurrency:\n  group: impad-codex-managed-auth\n  cancel-in-progress: false', header)
-        self.assertNotIn('concurrency:', jobs)
-        self.assertIn('  workflow_dispatch:', header)
-        self.assertIn('  workflow_call:', header)
-        dispatch = header.split('  workflow_dispatch:', 1)[1].split('  workflow_call:', 1)[0]
-        self.assertIn('app_id:', dispatch)
-        self.assertIn('required: true', dispatch)
-        self.assertIn('apk_url:', dispatch)
-        self.assertIn('operation:', dispatch)
-        self.assertNotIn('queue: max', shared)
+        from scripts.test_dexkit_gradle_integration import parsed_workflows
+        workflows = parsed_workflows()
+        shared = workflows['compatibility-app.yml']
+        self.assertNotIn('workflow_dispatch', shared['true'])
+        self.assertIn('workflow_call', shared['true'])
+        self.assertEqual('impad-codex-managed-auth', shared['jobs']['adapt']['concurrency']['group'])
+        self.assertEqual('max', shared['jobs']['adapt']['concurrency']['queue'])
+        for job_name, job in shared['jobs'].items():
+            if job_name != 'adapt':
+                self.assertNotIn('concurrency', job)
+        self.assertNotIn('concurrency', workflows['runtime-validation.yml'])
         for app in ('wechat', 'wecom', 'qq'):
-            shell = (root / f'.github/workflows/compatibility-{app}.yml').read_text()
-            self.assertIn('uses: ./.github/workflows/compatibility-app.yml', shell)
-            self.assertNotIn('concurrency:', shell)
+            shell = workflows[f'compatibility-{app}.yml']
+            self.assertEqual('./.github/workflows/compatibility-app.yml', shell['jobs']['compatibility']['uses'])
+            self.assertIn('schedule', shell['true'])
+            self.assertIn('workflow_dispatch', shell['true'])
 
     def test_runtime_validation_is_shared_by_manual_replay_and_adaptation(self):
         root = Path(__file__).resolve().parents[1]
@@ -99,17 +98,17 @@ class AdaptationCheckpointTest(unittest.TestCase):
 
     def test_reusable_runtime_validation_requires_an_explicit_application(self):
         root = Path(__file__).resolve().parents[1]
-        shared = (root / '.github/workflows/compatibility-app.yml').read_text()
+        from scripts.test_dexkit_gradle_integration import parsed_workflows
+        workflows = parsed_workflows()
         validation = (root / '.github/workflows/runtime-validation.yml').read_text()
-        manual_inputs = shared.split('  workflow_dispatch:', 1)[1].split('  workflow_call:', 1)[0]
-        reusable_inputs = validation.split('  workflow_call:', 1)[1].split('\npermissions:', 1)[0]
-        manual_app_id = manual_inputs.split('      app_id:', 1)[1].split('      apk_url:', 1)[0]
-        reusable_app_id = reusable_inputs.split('      app_id:', 1)[1].split('      module_run_id:', 1)[0]
+        shared_inputs = workflows['compatibility-app.yml']['true']['workflow_call']['inputs']
+        reusable_inputs = workflows['runtime-validation.yml']['true']['workflow_call']['inputs']
 
-        self.assertIn('required: true', manual_app_id)
-        self.assertNotIn('default:', manual_app_id)
-        self.assertIn('required: true', reusable_app_id)
-        self.assertNotIn('default: wechat', reusable_app_id)
+        self.assertNotIn('workflow_dispatch', workflows['compatibility-app.yml']['true'])
+        self.assertTrue(shared_inputs['app_id']['required'])
+        self.assertNotIn('default', shared_inputs['app_id'])
+        self.assertTrue(reusable_inputs['app_id']['required'])
+        self.assertNotIn('default', reusable_inputs['app_id'])
         self.assertIn('APP_ID: ${{ inputs.app_id }}', validation)
         self.assertNotIn("inputs.app_id || 'wechat'", validation)
 

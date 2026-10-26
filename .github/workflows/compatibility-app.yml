@@ -1,45 +1,12 @@
 name: Run app compatibility pipeline
 
 on:
-  workflow_dispatch:
-    inputs:
-      app_id:
-        description: Application policy to validate or adapt
-        type: choice
-        required: true
-        options: [wechat, qq, wecom]
-      apk_url:
-        description: Exact official APK URL; empty uses app-specific discovery
-        type: string
-        default: ''
-      module_run_id:
-        description: Optional build run containing the exact module artifact to verify
-        type: string
-        default: ''
-      module_artifact:
-        description: Optional artifact name in module_run_id; empty keeps the runtime default
-        type: string
-        default: ''
-      operation:
-        description: Validate or adapt an incompatible candidate
-        type: choice
-        required: true
-        default: verify
-        options: [verify, adapt]
   workflow_call:
     inputs:
       app_id:
         description: Registered application policy
         type: string
         required: true
-      force_recheck:
-        description: Run the shared checker even for a fixed accepted candidate
-        type: boolean
-        default: false
-      run_codex:
-        description: Continue eligible adaptation with the configured Codex goal
-        type: boolean
-        default: true
       operation:
         description: Verify only or adapt an incompatible candidate
         type: string
@@ -61,8 +28,9 @@ permissions:
   contents: read
 
 concurrency:
-  group: impad-codex-managed-auth
+  group: impad-compatibility-${{ inputs.app_id }}-${{ inputs.operation == 'adapt' && 'adapt' || github.run_id }}
   cancel-in-progress: false
+  queue: max
 
 jobs:
   verify:
@@ -139,6 +107,10 @@ jobs:
 
   adapt:
     name: Adapt unknown build with Codex
+    concurrency:
+      group: impad-codex-managed-auth
+      cancel-in-progress: false
+      queue: max
     needs: [prepare, rules-analysis]
     if: >-
       always() && !cancelled() && github.ref == 'refs/heads/main' &&
@@ -148,6 +120,7 @@ jobs:
          needs.rules-analysis.outputs.validation_outcome == 'RUNTIME_INCOMPATIBLE')) ||
        needs.prepare.outputs.pending_adaptation == 'true')
     runs-on: ubuntu-24.04-arm
+    environment: codex-managed-auth
     outputs:
       pipeline_status: ${{ steps.publish.outputs.pipeline_status || steps.adaptation-failure.outputs.pipeline_status }}
       pr_url: ${{ steps.publish.outputs.pr_url }}
@@ -201,7 +174,15 @@ jobs:
           [[ -n "$CODEX_AUTH_JSON" && -n "$GH_TOKEN" ]] || { echo 'Configure CODEX_AUTH_JSON and CODEX_AUTH_WRITE_TOKEN before starting Codex.'; exit 1; }
           [[ -n "$CODEX_CHECKPOINT_IDENTITY" && -n "$CODEX_CHECKPOINT_RECIPIENT" ]] || { echo 'Configure matching CODEX_CHECKPOINT_IDENTITY secret and CODEX_CHECKPOINT_RECIPIENT variable.'; exit 1; }
           [[ -n "$CODEX_TRACE_RECIPIENT" ]] || { echo 'Configure the CODEX_TRACE_RECIPIENT Actions variable before starting Codex.'; exit 1; }
-          gh api "repos/$GITHUB_REPOSITORY/actions/secrets/public-key" >/dev/null
+          if ! environment_secret="$(gh api "repos/$GITHUB_REPOSITORY/environments/codex-managed-auth/secrets/CODEX_AUTH_JSON")"; then
+            echo 'Environment secret CODEX_AUTH_JSON must exist and be readable in codex-managed-auth; repository-level secrets are not a fallback. CODEX_AUTH_WRITE_TOKEN needs Environments read access to verify it.' >&2
+            exit 1
+          fi
+          [[ "$(jq -r '.name // empty' <<< "$environment_secret")" == CODEX_AUTH_JSON ]] || { echo 'Configure CODEX_AUTH_JSON as a secret in the codex-managed-auth environment.'; exit 1; }
+          if ! gh api "repos/$GITHUB_REPOSITORY/environments/codex-managed-auth/secrets/public-key" >/dev/null; then
+            echo 'CODEX_AUTH_WRITE_TOKEN must have Environments read/write access to manage codex-managed-auth secrets; repository Secrets write permission is insufficient.' >&2
+            exit 1
+          fi
 
       - name: Download the exact candidate bundle
         if: inputs.operation == 'adapt' && needs.rules-analysis.outputs.candidate_artifact != ''
@@ -473,7 +454,7 @@ jobs:
           GH_TOKEN: ${{ secrets.CODEX_AUTH_WRITE_TOKEN }}
         run: |
           set -euo pipefail
-          gh secret set CODEX_AUTH_JSON --repo "$GITHUB_REPOSITORY" < "$CODEX_HOME/auth.json"
+          gh secret set CODEX_AUTH_JSON --repo "$GITHUB_REPOSITORY" --env codex-managed-auth < "$CODEX_HOME/auth.json"
 
       - name: Remove runner authentication before validation
         if: always() && steps.restore-auth.outcome == 'success'

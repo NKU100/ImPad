@@ -17,7 +17,7 @@ ImPad 是通过 LSPosed 为微信、QQ 和企业微信提供平板登录界面�
 
 ## 指定官方 APK 验证或适配
 
-在 GitHub Actions 中运行 **Run app compatibility pipeline**，选择 `app_id` 和 `operation`，并可填写该应用官方来源的精确 `apk_url`。留空时流水线按该应用的官方发现策略选择候选。填写 URL 后会检查指定 APK；不会换成官网最新版。
+在 GitHub Actions 中选择 **Check WeChat compatibility**、**Check QQ compatibility** 或 **Check WeCom compatibility** 对应应用入口，再选择 `operation`。可填写该应用官方来源的精确 `apk_url`；留空时流水线按该应用的官方发现策略选择候选。填写 URL 后会检查指定 APK；不会换成官网最新版。`module_run_id` 和 `module_artifact` 是可选参数，仅用于 `verify`；留空时使用默认构建。
 
 - `verify` 运行候选静态检查、固定代表回归和独立运行验收；不调用模型、不创建 PR，也不写入正式验收登记。
 - `adapt` 允许在候选确实需要适配时提出新规则。新规则使用新的不可变 ID 和候选临时路由，然后回到相同的静态、回归、构建和独立运行 gate；通过前不会成为正式支持。

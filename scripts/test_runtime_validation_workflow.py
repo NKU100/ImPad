@@ -102,6 +102,157 @@ def _workflow_if(expression, context):
 
 
 class RuntimeValidationWorkflowTest(unittest.TestCase):
+    def test_app_entrypoints_pass_only_supported_inputs_without_retired_controls(self):
+        workflows = parsed_workflows()
+        shared_inputs = workflows['compatibility-app.yml']['true']['workflow_call']['inputs']
+        retired = {'force_recheck', 'run_codex'}
+        self.assertTrue(retired.isdisjoint(shared_inputs))
+        self.assertNotIn('workflow_dispatch', workflows['compatibility-app.yml']['true'])
+        for app in ('wechat', 'qq', 'wecom'):
+            with self.subTest(app=app):
+                workflow = workflows[f'compatibility-{app}.yml']
+                inputs = workflow['true']['workflow_dispatch']['inputs']
+                self.assertTrue(retired.isdisjoint(inputs))
+                call = workflow['jobs']['compatibility']
+                self.assertTrue(set(call['with']).issubset(shared_inputs))
+                self.assertTrue(retired.isdisjoint(call['with']))
+                self.assertEqual(app, call['with']['app_id'])
+                self.assertEqual({'verify', 'adapt'}, set(inputs['operation']['options']))
+                self.assertEqual('verify', inputs['operation']['default'])
+                self.assertEqual("${{ github.event_name == 'schedule' && 'adapt' || inputs.operation || 'verify' }}",
+                                 call['with']['operation'])
+                for name in ('module_run_id', 'module_artifact'):
+                    self.assertEqual({'type': 'string', 'default': ''},
+                                     {key: inputs[name][key] for key in ('type', 'default')})
+                    self.assertEqual(f"${{{{ inputs.{name} || '' }}}}", call['with'][name])
+
+    def test_compatibility_concurrency_serializes_only_same_app_adaptations(self):
+        workflows = parsed_workflows()
+        shared = workflows['compatibility-app.yml']
+        self.assertEqual(
+            "impad-compatibility-${{ inputs.app_id }}-${{ inputs.operation == 'adapt' && 'adapt' || github.run_id }}",
+            shared['concurrency']['group'])
+        self.assertFalse(shared['concurrency']['cancel-in-progress'])
+        self.assertEqual('max', shared['concurrency']['queue'])
+        adapt_lock = shared['jobs']['adapt']['concurrency']
+        self.assertEqual('impad-codex-managed-auth', adapt_lock['group'])
+        self.assertFalse(adapt_lock['cancel-in-progress'])
+        self.assertEqual('max', adapt_lock['queue'])
+        for job_name, job in shared['jobs'].items():
+            if job_name == 'adapt':
+                self.assertEqual(adapt_lock, job['concurrency'])
+            else:
+                self.assertNotIn('concurrency', job)
+        self.assertNotIn('concurrency', workflows['runtime-validation.yml'])
+        self.assertIn('workflow_call', workflows['runtime-validation.yml']['true'])
+        self.assertNotIn('workflow_dispatch', workflows['runtime-validation.yml']['true'])
+
+    def test_managed_auth_environment_is_scoped_to_adapt_and_persisted_there(self):
+        workflows = parsed_workflows()
+        shared = workflows['compatibility-app.yml']
+        adapt = shared['jobs']['adapt']
+        self.assertEqual('codex-managed-auth', adapt['environment'])
+        self.assertEqual(['adapt'], [name for name, job in shared['jobs'].items()
+                                     if 'environment' in job])
+
+        steps = adapt['steps']
+        verify_auth = next(step for step in steps
+                           if step.get('name') == 'Verify trusted trigger and authentication configuration')
+        self.assertEqual('${{ secrets.CODEX_AUTH_JSON }}', verify_auth['env']['CODEX_AUTH_JSON'])
+        self.assertEqual('${{ secrets.CODEX_AUTH_WRITE_TOKEN }}', verify_auth['env']['GH_TOKEN'])
+        self.assertIn('environments/codex-managed-auth/secrets/CODEX_AUTH_JSON', verify_auth['run'])
+        self.assertIn("jq -r '.name // empty'", verify_auth['run'])
+        self.assertIn('== CODEX_AUTH_JSON', verify_auth['run'])
+        self.assertIn('environments/codex-managed-auth/secrets/public-key', verify_auth['run'])
+        self.assertNotIn('actions/secrets/public-key', verify_auth['run'])
+
+        persist = next(step for step in steps
+                       if step.get('name') == 'Persist refreshed authentication even after model failure')
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            home = root / 'codex-home'
+            home.mkdir()
+            auth_file = home / 'auth.json'
+            auth_file.write_text('{"fixture":"non-secret-test-payload"}')
+            bin_dir = root / 'bin'
+            bin_dir.mkdir()
+            args_file = root / 'gh-args.json'
+            stdin_file = root / 'gh-stdin'
+            gh = bin_dir / 'gh'
+            gh.write_text(textwrap.dedent(f'''\
+                #!{sys.executable}
+                import json, pathlib, sys
+                pathlib.Path({str(args_file)!r}).write_text(json.dumps(sys.argv[1:]))
+                pathlib.Path({str(stdin_file)!r}).write_bytes(sys.stdin.buffer.read())
+            '''))
+            gh.chmod(0o755)
+            result = subprocess.run(
+                ['bash', '-e', '-c', persist['run']],
+                env=dict(os.environ, PATH=f'{bin_dir}:{os.environ["PATH"]}',
+                         CODEX_HOME=str(home), GH_TOKEN='mock-token',
+                         GITHUB_REPOSITORY='NKU100/ImPad'),
+                capture_output=True, text=True)
+            self.assertEqual(0, result.returncode, result.stderr)
+            self.assertEqual(
+                ['secret', 'set', 'CODEX_AUTH_JSON', '--repo', 'NKU100/ImPad',
+                 '--env', 'codex-managed-auth'],
+                json.loads(args_file.read_text()))
+            self.assertEqual(auth_file.read_bytes(), stdin_file.read_bytes())
+
+    def test_auth_preflight_rejects_repository_fallback_and_reports_environment_permissions(self):
+        shared = parsed_workflows()['compatibility-app.yml']
+        verify_auth = next(step for step in shared['jobs']['adapt']['steps']
+                           if step.get('name') == 'Verify trusted trigger and authentication configuration')
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            bin_dir = root / 'bin'
+            bin_dir.mkdir()
+            calls_file = root / 'api-calls.jsonl'
+            gh = bin_dir / 'gh'
+            gh.write_text(textwrap.dedent(f'''\
+                #!{sys.executable}
+                import json, os, pathlib, sys
+                endpoint = sys.argv[2]
+                with pathlib.Path({str(calls_file)!r}).open('a') as calls:
+                    calls.write(json.dumps(endpoint) + '\\n')
+                mode = os.environ['MOCK_GH_MODE']
+                if endpoint.endswith('/secrets/CODEX_AUTH_JSON'):
+                    if mode == 'missing-secret':
+                        print('HTTP 404: Not Found', file=sys.stderr)
+                        raise SystemExit(1)
+                    print(json.dumps({{'name': 'CODEX_AUTH_JSON'}}))
+                elif endpoint.endswith('/secrets/public-key'):
+                    if mode == 'forbidden-public-key':
+                        print('HTTP 403: Resource not accessible by personal access token', file=sys.stderr)
+                        raise SystemExit(1)
+                    print('{{}}')
+            '''))
+            gh.chmod(0o755)
+            base_env = dict(
+                os.environ, PATH=f'{bin_dir}:{os.environ["PATH"]}',
+                GITHUB_REF='refs/heads/main', GITHUB_EVENT_NAME='workflow_dispatch',
+                GITHUB_REPOSITORY='NKU100/ImPad',
+                CODEX_AUTH_JSON='repository-fallback-test-fixture', GH_TOKEN='mock-token',
+                CODEX_CHECKPOINT_RECIPIENT='recipient', CODEX_CHECKPOINT_IDENTITY='identity',
+                CODEX_TRACE_RECIPIENT='trace')
+
+            for mode, expected_error, expected_endpoint in (
+                ('missing-secret', 'Environment secret CODEX_AUTH_JSON must exist',
+                 '/environments/codex-managed-auth/secrets/CODEX_AUTH_JSON'),
+                ('forbidden-public-key', 'CODEX_AUTH_WRITE_TOKEN must have Environments read/write',
+                 '/environments/codex-managed-auth/secrets/public-key'),
+            ):
+                with self.subTest(mode=mode):
+                    calls_file.unlink(missing_ok=True)
+                    result = subprocess.run(
+                        ['bash', '-e', '-c', verify_auth['run']],
+                        env=dict(base_env, MOCK_GH_MODE=mode), capture_output=True, text=True)
+                    self.assertNotEqual(0, result.returncode)
+                    self.assertIn(expected_error, result.stderr)
+                    self.assertNotIn('repository-fallback-test-fixture', result.stdout + result.stderr)
+                    calls = [json.loads(line) for line in calls_file.read_text().splitlines()]
+                    self.assertEqual(f'repos/NKU100/ImPad{expected_endpoint}', calls[-1])
+
     def test_incompatible_analysis_hands_off_only_for_adaptation(self):
         result_job = parsed_workflows()['runtime-validation.yml']['jobs']['result']
         validation = next(step for step in result_job['steps']
@@ -229,19 +380,16 @@ class RuntimeValidationWorkflowTest(unittest.TestCase):
             self.assertEqual(0, default_path.returncode, default_path.stderr)
             self.assertEqual('', output_value(output))
 
-    def test_manual_and_reusable_verify_entry_accept_and_forward_optional_module_artifact(self):
+    def test_reusable_verify_entry_accepts_and_forwards_optional_module_artifact(self):
         workflows = parsed_workflows()
         shared = workflows['compatibility-app.yml']
-        dispatch_inputs = shared['true']['workflow_dispatch']['inputs']
         reusable_inputs = shared['true']['workflow_call']['inputs']
         verify = shared['jobs']['verify']
 
-        for inputs in (dispatch_inputs, reusable_inputs):
-            with self.subTest(inputs=inputs):
-                for name in ('module_run_id', 'module_artifact'):
-                    self.assertEqual('string', inputs[name]['type'])
-                    self.assertEqual('', inputs[name].get('default', ''))
-                    self.assertFalse(inputs[name].get('required', False))
+        for name in ('module_run_id', 'module_artifact'):
+            self.assertEqual('string', reusable_inputs[name]['type'])
+            self.assertEqual('', reusable_inputs[name].get('default', ''))
+            self.assertFalse(reusable_inputs[name].get('required', False))
         self.assertEqual('verify', verify['with']['operation'])
         self.assertEqual("${{ inputs.module_run_id || '' }}", verify['with']['module_run_id'])
         self.assertEqual("${{ inputs.module_artifact || '' }}", verify['with']['module_artifact'])
@@ -251,14 +399,13 @@ class RuntimeValidationWorkflowTest(unittest.TestCase):
         self.assertNotIn('module_run_id', shared['jobs']['rules-analysis']['with'])
         self.assertNotIn('module_artifact', shared['jobs']['rules-analysis']['with'])
 
-    def test_manual_entry_requires_app_and_carries_exact_url_and_operation(self):
+    def test_reusable_entry_requires_app_and_carries_exact_url_and_operation(self):
         workflows = parsed_workflows()
         shared = workflows['compatibility-app.yml']
-        dispatch = shared['true']['workflow_dispatch']['inputs']
-        self.assertTrue(dispatch['app_id']['required'])
-        self.assertNotIn('default', dispatch['app_id'])
-        self.assertEqual({'verify', 'adapt'}, set(dispatch['operation']['options']))
-        self.assertEqual('', dispatch['apk_url']['default'])
+        reusable = shared['true']['workflow_call']['inputs']
+        self.assertTrue(reusable['app_id']['required'])
+        self.assertNotIn('default', reusable['app_id'])
+        self.assertEqual('', reusable['apk_url']['default'])
         runtime = workflows['runtime-validation.yml']
         prepare = runtime['jobs']['prepare']['steps']
         exact = next(step for step in prepare if step.get('name') == 'Prepare requested official APK URL')

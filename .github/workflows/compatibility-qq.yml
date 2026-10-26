@@ -17,14 +17,14 @@ on:
         description: Exact official QQ APK URL; empty uses official discovery
         type: string
         default: ''
-      force_recheck:
-        description: Run static regression even when the exact APK is already supported
-        type: boolean
-        default: false
-      run_codex:
-        description: Adapt verified unknown builds with gpt-6-luna/xhigh
-        type: boolean
-        default: true
+      module_run_id:
+        description: Optional build run containing the exact module artifact to verify
+        type: string
+        default: ''
+      module_artifact:
+        description: Optional artifact name in module_run_id; empty keeps the runtime default
+        type: string
+        default: ''
 permissions:
   contents: read
 
@@ -40,6 +40,6 @@ jobs:
       app_id: qq
       operation: ${{ github.event_name == 'schedule' && 'adapt' || inputs.operation || 'verify' }}
       apk_url: ${{ inputs.apk_url || '' }}
-      force_recheck: ${{ inputs.force_recheck || false }}
-      run_codex: ${{ github.event_name == 'schedule' || inputs.run_codex }}
+      module_run_id: ${{ inputs.module_run_id || '' }}
+      module_artifact: ${{ inputs.module_artifact || '' }}
     secrets: inherit
