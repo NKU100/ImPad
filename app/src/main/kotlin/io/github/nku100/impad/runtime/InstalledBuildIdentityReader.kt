@@ -33,6 +33,20 @@ data class PackageApkIdentity(
 interface InstalledApkMetadataReader {
     fun installed(packageName: String): PackageApkIdentity
     fun archive(apk: File): PackageApkIdentity?
+    fun archives(apks: List<File>): List<PackageApkIdentity?> = apks.map(::archive)
+}
+
+internal fun packageArchiveInput(apks: List<File>): File {
+    require(apks.isNotEmpty()) { "Installed APK set was empty" }
+    val files = apks.map(File::getCanonicalFile)
+    require(files.distinct().size == files.size) { "Installed APK set contained duplicate paths" }
+    if (files.size == 1) return files.single()
+    val directory = checkNotNull(files.first().parentFile)
+    require(files.all { it.parentFile == directory }) { "Installed APKs did not share a package directory" }
+    val cluster = directory.listFiles().orEmpty().filter { it.isFile && it.name.endsWith(".apk") }
+        .map(File::getCanonicalFile).toSet()
+    require(cluster == files.toSet()) { "Installed APK list did not match the package archive cluster" }
+    return directory
 }
 
 class AndroidInstalledApkMetadataReader(private val packageManager: PackageManager) : InstalledApkMetadataReader {
@@ -44,6 +58,15 @@ class AndroidInstalledApkMetadataReader(private val packageManager: PackageManag
     override fun archive(apk: File): PackageApkIdentity? = packageManager
         .getPackageArchiveInfo(apk.absolutePath, PackageManager.GET_SIGNING_CERTIFICATES)
         ?.toIdentity(null)
+
+    override fun archives(apks: List<File>): List<PackageApkIdentity?> {
+        // Android parses and verifies a split package as a directory; an individual split is not a base APK.
+        val input = packageArchiveInput(apks)
+        val identity = packageManager
+            .getPackageArchiveInfo(input.absolutePath, PackageManager.GET_SIGNING_CERTIFICATES)
+            ?.toIdentity(null)
+        return apks.map { identity }
+    }
 
     private fun android.content.pm.PackageInfo.toIdentity(expectedPackageName: String?): PackageApkIdentity {
         val name = packageName
@@ -90,8 +113,10 @@ class InstalledBuildIdentityReader(
             "Installed package identity was incomplete"
         }
         require(installed.signerSha256.matches(HEX_SHA256)) { "Installed package signer was missing or invalid" }
-        apkFiles.forEach { apk ->
-            val archive = packageMetadata.archive(apk)
+        val archives = packageMetadata.archives(apkFiles)
+        require(archives.size == apkFiles.size) { "Installed archive verification omitted an APK" }
+        apkFiles.zip(archives).forEach { (apk, verified) ->
+            val archive = verified
                 ?: error("Installed APK metadata could not be read: ${apk.name}")
             require(archive == installed) { "Installed APK or split identity did not match PackageManager: ${apk.name}" }
         }

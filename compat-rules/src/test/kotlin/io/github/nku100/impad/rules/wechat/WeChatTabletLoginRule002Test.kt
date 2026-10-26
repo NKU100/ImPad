@@ -13,7 +13,7 @@ import kotlin.test.assertTrue
 
 class WeChatTabletLoginRule002Test {
     @Test
-    fun candidateRuleIsAdditiveAndRoutesOnlyForwardFromVersion3200() {
+    fun candidateRuleCoversPlay3182AndOfficial3200WithoutChangingTheHistoricalRoute() {
         val catalog = RuleCatalog.forApp("wechat")
         val historical = assertNotNull(catalog.definitions.singleOrNull { it.ruleId == HISTORICAL_RULE_ID })
         val future = assertNotNull(catalog.definitions.singleOrNull { it.ruleId == RULE_ID })
@@ -25,12 +25,14 @@ class WeChatTabletLoginRule002Test {
 
         assertEquals(3040L, catalog.bindings.single { it.ruleId == HISTORICAL_RULE_ID }.min)
         assertEquals(3040L, catalog.bindings.single { it.ruleId == HISTORICAL_RULE_ID }.max)
-        assertEquals(3200L, catalog.bindings.single { it.ruleId == RULE_ID }.min)
+        assertEquals(3182L, catalog.bindings.single { it.ruleId == RULE_ID }.min)
         assertEquals(null, catalog.bindings.single { it.ruleId == RULE_ID }.max)
         assertEquals(listOf(HISTORICAL_RULE_ID), VersionRouter.candidates(3039L, catalog.bindings))
         assertEquals(listOf(HISTORICAL_RULE_ID), VersionRouter.candidates(3040L, catalog.bindings))
         assertEquals(listOf(HISTORICAL_RULE_ID, RULE_ID), VersionRouter.candidates(3041L, catalog.bindings))
-        assertEquals(listOf(HISTORICAL_RULE_ID, RULE_ID), VersionRouter.candidates(3199L, catalog.bindings))
+        assertEquals(listOf(HISTORICAL_RULE_ID, RULE_ID), VersionRouter.candidates(3181L, catalog.bindings))
+        assertEquals(listOf(RULE_ID), VersionRouter.candidates(3182L, catalog.bindings))
+        assertEquals(listOf(RULE_ID), VersionRouter.candidates(3199L, catalog.bindings))
         assertEquals(listOf(RULE_ID), VersionRouter.candidates(3200L, catalog.bindings))
         assertEquals(listOf(RULE_ID), VersionRouter.candidates(3201L, catalog.bindings))
     }

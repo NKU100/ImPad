@@ -13,6 +13,34 @@ import org.junit.jupiter.api.Test
 
 class InstalledBuildIdentityReaderTest {
     @Test
+    fun splitArchivesAreVerifiedAsOnePackageCluster() = withFixture { directory, base ->
+        val split = directory.resolve("split_config.apk").toFile()
+        Files.copy(base.toPath(), split.toPath())
+        val files = listOf(base, split)
+        val identity = PackageApkIdentity("com.tencent.mobileqq", "9.3.1", 14378, "a".repeat(64))
+        var verified = false
+        val metadata = object : InstalledApkMetadataReader {
+            override fun installed(packageName: String) = identity
+            override fun archive(apk: java.io.File): PackageApkIdentity? =
+                error("Android rejects split APKs parsed as monolithic archives")
+            override fun archives(apks: List<java.io.File>): List<PackageApkIdentity?> {
+                assertEquals(files, apks)
+                assertEquals(directory.toFile().canonicalFile, packageArchiveInput(apks))
+                verified = true
+                return apks.map { identity }
+            }
+        }
+        val build = InstalledBuildIdentityReader(supportedAbisProvider = { listOf("arm64-v8a") })
+            .readForRules(applicationInfo(directory, base, listOf(split)), metadata)
+        assertEquals(true, verified)
+        assertEquals(2, build.apkFileSha256.size)
+        assertEquals(base.canonicalFile, packageArchiveInput(listOf(base)))
+        val extra = directory.resolve("unexpected.apk").toFile()
+        Files.copy(base.toPath(), extra.toPath())
+        assertFailsWith<IllegalArgumentException> { packageArchiveInput(files) }
+    }
+
+    @Test
     fun readsPackageAbiFilesAndAnInstallFingerprintWithoutHashing() = withFixture { directory, apk ->
         val reader = InstalledBuildIdentityReader(supportedAbisProvider = { listOf("arm64-v8a") })
 
