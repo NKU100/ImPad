@@ -1,0 +1,56 @@
+name: Publish compatibility badges
+
+on:
+  workflow_run:
+    workflows:
+      - Check WeChat compatibility
+      - Check QQ compatibility
+      - Check WeCom compatibility
+    types: [completed]
+
+permissions:
+  actions: read
+  contents: write
+
+concurrency:
+  group: impad-compatibility-badge-${{ github.event.workflow_run.path }}
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    if: >-
+      github.repository == 'NKU100/ImPad' &&
+      (github.event.workflow_run.event == 'schedule' ||
+       github.event.workflow_run.event == 'workflow_dispatch') &&
+      github.event.workflow_run.head_branch == 'main' &&
+      github.event.workflow_run.head_repository.full_name == 'NKU100/ImPad' &&
+      (github.event.workflow_run.path == '.github/workflows/compatibility-wechat.yml' ||
+       github.event.workflow_run.path == '.github/workflows/compatibility-qq.yml' ||
+       github.event.workflow_run.path == '.github/workflows/compatibility-wecom.yml')
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Check out trusted default-branch publisher
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+          persist-credentials: true
+
+      - name: Download terminal evidence without executing it
+        continue-on-error: true
+        uses: actions/download-artifact@v7
+        with:
+          name: impad-compatibility-badge
+          path: work/compatibility-badge-input
+          run-id: ${{ github.event.workflow_run.id }}
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Publish terminal compatibility state
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
+          GH_EVENT_PATH: ${{ github.event_path }}
+        run: >-
+          python3 -m scripts.ci.compatibility_badge publish
+          --event "$GH_EVENT_PATH"
+          --artifact-directory work/compatibility-badge-input

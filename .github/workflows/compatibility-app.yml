@@ -62,6 +62,7 @@ jobs:
       pending_candidate_key: ${{ steps.pending-adaptation.outputs.pending_candidate_key }}
       pending_checkpoint_run_id: ${{ steps.pending-adaptation.outputs.pending_checkpoint_run_id }}
       pending_checkpoint_artifact: ${{ steps.pending-adaptation.outputs.pending_checkpoint_artifact }}
+      badge_check_outcome: ${{ steps.badge-check.outputs.badge_check_outcome }}
     permissions:
       contents: read
       issues: read
@@ -82,14 +83,37 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: python3 -m scripts.ci.codex_task pending --app-id "$APP_ID" --directory "$RUNNER_TEMP"
       - name: Test app discovery, shared candidate preparation, and policy isolation
+        id: contract-tests
         run: |
+          mkdir -p work/build-badge
           case "$APP_ID" in
             wechat) discovery_test=scripts.test_discover_latest_wechat ;;
             wecom) discovery_test=scripts.test_wecom_discovery_policy ;;
             qq) discovery_test=scripts.test_qq_policy ;;
             *) exit 2 ;;
           esac
-          python3 -m unittest "$discovery_test" scripts.test_candidate_selection scripts.test_app_policy scripts.test_codex_adaptation scripts.test_adaptation_checkpoint scripts.test_codex_task scripts.test_runtime_adaptation scripts.test_runtime_task scripts.test_static_regression
+          python3 -m scripts.ci.run_unit_tests \
+            --output work/build-badge/compatibility-tests.json \
+            --tests "$discovery_test" scripts.test_candidate_selection scripts.test_app_policy \
+            scripts.test_codex_adaptation scripts.test_adaptation_checkpoint scripts.test_codex_task \
+            scripts.test_runtime_adaptation scripts.test_runtime_task scripts.test_static_regression
+      - name: Export compatibility test outcome
+        id: badge-check
+        if: always()
+        run: |
+          python3 - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+          from scripts.ci.build_badge import unit_tests_outcome
+
+          path = Path('work/build-badge/compatibility-tests.json')
+          evidence = json.loads(path.read_text()) if path.is_file() else None
+          result = unit_tests_outcome(evidence)
+          outcome = {'passed': 'PASSED', 'failed': 'FAILED', 'unknown': 'UNKNOWN'}[result]
+          with Path(os.environ['GITHUB_OUTPUT']).open('a') as output:
+              output.write(f'badge_check_outcome={outcome}\n')
+          PY
 
   rules-analysis:
     name: Analyze exact candidate with the shared checker
@@ -128,6 +152,15 @@ jobs:
       candidate_ready: ${{ steps.candidate-ready.outputs.ready }}
       issue: ${{ steps.checkpoint-pointer.outputs.issue || steps.interruption-result.outputs.issue || steps.claim.outputs.issue }}
       consumed_comment_id: ${{ steps.checkpoint-pointer.outputs.consumed_comment_id }}
+      badge_attempted: ${{ steps.badge-evidence.outputs.attempted }}
+      badge_static_verified: ${{ steps.badge-evidence.outputs.static_verified }}
+      badge_candidate_status: ${{ steps.badge-evidence.outputs.candidate_status }}
+      badge_version_name: ${{ steps.badge-evidence.outputs.version_name }}
+      badge_version_code: ${{ steps.badge-evidence.outputs.version_code }}
+      badge_candidate_sha256: ${{ steps.badge-evidence.outputs.candidate_sha256 }}
+      badge_regression_outcome: ${{ steps.badge-evidence.outputs.regression_outcome }}
+      badge_check_outcome: ${{ steps.badge-evidence.outputs.check_outcome }}
+      badge_build_outcome: ${{ steps.badge-evidence.outputs.build_outcome }}
     permissions:
       contents: write
       issues: write
@@ -464,6 +497,7 @@ jobs:
         run: rm -f "$CODEX_HOME/auth.json"
 
       - name: Validate adaptation through shared checker and build
+        id: static-validation
         if: >-
           success() && steps.claim.outputs.claimed == 'true' &&
           (steps.restore-checkpoint.outputs.needs_model == 'false' || steps.adaptation.outputs.adaptation_ready == 'true')
@@ -630,6 +664,25 @@ jobs:
             work/runtime-smoke/tooling/tooling-report.json
           if-no-files-found: warn
           retention-days: 14
+
+      - name: Export allowlisted adaptation badge evidence
+        id: badge-evidence
+        if: always()
+        env:
+          CODEX_TASK_DIR: ${{ runner.temp }}/impad-adaptation
+          CLAIMED: ${{ steps.claim.outputs.claimed }}
+          MODEL_OUTCOME: ${{ steps.adaptation.outcome }}
+          NEEDS_MODEL: ${{ steps.restore-checkpoint.outputs.needs_model }}
+          STATIC_VALIDATION_OUTCOME: ${{ steps.static-validation.outcome }}
+        run: >-
+          python3 -m scripts.ci.compatibility_badge adaptation-summary
+          --task-directory "$CODEX_TASK_DIR"
+          --app-id "$APP_ID"
+          --claimed "${CLAIMED:-false}"
+          --model-outcome "$MODEL_OUTCOME"
+          --needs-model "$NEEDS_MODEL"
+          --static-validation-outcome "$STATIC_VALIDATION_OUTCOME"
+          --output "$GITHUB_OUTPUT"
 
   runtime:
     name: Smoke adapted candidate on hosted ReDroid
@@ -926,3 +979,200 @@ jobs:
           path: runtime-result/runtime-candidate-report.json
           retention-days: 14
           if-no-files-found: warn
+
+  compatibility-badge:
+    name: Summarize terminal compatibility result
+    needs: [prepare, verify, rules-analysis, adapt, runtime, runtime-result]
+    if: always()
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    env:
+      APP_ID: ${{ inputs.app_id }}
+      OPERATION: ${{ inputs.operation }}
+      VERIFY_OUTCOME: ${{ needs.verify.outputs.badge_outcome }}
+      VERIFY_CANDIDATE_STATUS: ${{ needs.verify.outputs.badge_candidate_status }}
+      VERIFY_VERSION_NAME: ${{ needs.verify.outputs.badge_version_name }}
+      VERIFY_VERSION_CODE: ${{ needs.verify.outputs.badge_version_code }}
+      VERIFY_CANDIDATE_SHA256: ${{ needs.verify.outputs.badge_candidate_sha256 }}
+      VERIFY_REGRESSION_OUTCOME: ${{ needs.verify.outputs.badge_regression_outcome }}
+      VERIFY_CHECK_OUTCOME: ${{ needs.verify.outputs.badge_check_outcome }}
+      VERIFY_BUILD_OUTCOME: ${{ needs.verify.outputs.badge_build_outcome }}
+      VERIFY_RUNTIME_ENVIRONMENT: ${{ needs.verify.outputs.badge_runtime_environment }}
+      RULES_OUTCOME: ${{ needs.rules-analysis.outputs.badge_outcome }}
+      RULES_CANDIDATE_STATUS: ${{ needs.rules-analysis.outputs.badge_candidate_status }}
+      RULES_VERSION_NAME: ${{ needs.rules-analysis.outputs.badge_version_name }}
+      RULES_VERSION_CODE: ${{ needs.rules-analysis.outputs.badge_version_code }}
+      RULES_CANDIDATE_SHA256: ${{ needs.rules-analysis.outputs.badge_candidate_sha256 }}
+      RULES_REGRESSION_OUTCOME: ${{ needs.rules-analysis.outputs.badge_regression_outcome }}
+      RULES_CHECK_OUTCOME: ${{ needs.rules-analysis.outputs.badge_check_outcome }}
+      RULES_BUILD_OUTCOME: ${{ needs.rules-analysis.outputs.badge_build_outcome }}
+      RULES_RUNTIME_ENVIRONMENT: ${{ needs.rules-analysis.outputs.badge_runtime_environment }}
+      RUNTIME_OUTCOME: ${{ needs.runtime.outputs.badge_outcome }}
+      RUNTIME_CANDIDATE_STATUS: ${{ needs.runtime.outputs.badge_candidate_status }}
+      RUNTIME_VERSION_NAME: ${{ needs.runtime.outputs.badge_version_name }}
+      RUNTIME_VERSION_CODE: ${{ needs.runtime.outputs.badge_version_code }}
+      RUNTIME_CANDIDATE_SHA256: ${{ needs.runtime.outputs.badge_candidate_sha256 }}
+      RUNTIME_REGRESSION_OUTCOME: ${{ needs.runtime.outputs.badge_regression_outcome }}
+      RUNTIME_CHECK_OUTCOME: ${{ needs.runtime.outputs.badge_check_outcome }}
+      RUNTIME_BUILD_OUTCOME: ${{ needs.runtime.outputs.badge_build_outcome }}
+      RUNTIME_ENVIRONMENT: ${{ needs.runtime.outputs.badge_runtime_environment }}
+      PENDING_ADAPTATION: ${{ needs.prepare.outputs.pending_adaptation }}
+      ADAPT_RESULT: ${{ needs.adapt.result }}
+      ADAPT_STATUS: ${{ needs.adapt.outputs.pipeline_status }}
+      CANDIDATE_READY: ${{ needs.adapt.outputs.candidate_ready }}
+      RUNTIME_RESULT_STATUS: ${{ needs.runtime-result.outputs.pipeline_status }}
+      RUNTIME_JOB_RESULT: ${{ needs.runtime.result }}
+      ADAPT_BADGE_ATTEMPTED: ${{ needs.adapt.outputs.badge_attempted }}
+      ADAPT_BADGE_STATIC_VERIFIED: ${{ needs.adapt.outputs.badge_static_verified }}
+      ADAPT_BADGE_CANDIDATE_STATUS: ${{ needs.adapt.outputs.badge_candidate_status }}
+      ADAPT_BADGE_VERSION_NAME: ${{ needs.adapt.outputs.badge_version_name }}
+      ADAPT_BADGE_VERSION_CODE: ${{ needs.adapt.outputs.badge_version_code }}
+      ADAPT_BADGE_CANDIDATE_SHA256: ${{ needs.adapt.outputs.badge_candidate_sha256 }}
+      ADAPT_BADGE_REGRESSION_OUTCOME: ${{ needs.adapt.outputs.badge_regression_outcome }}
+      ADAPT_BADGE_CHECK_OUTCOME: ${{ needs.adapt.outputs.badge_check_outcome }}
+      ADAPT_BADGE_BUILD_OUTCOME: ${{ needs.adapt.outputs.badge_build_outcome }}
+      PREPARE_CHECK_OUTCOME: ${{ needs.prepare.outputs.badge_check_outcome }}
+    steps:
+      - name: Check out trusted report writer
+        if: always()
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ github.sha }}
+      - name: Write compatibility badge report
+        if: always()
+        run: |
+          mkdir -p work/compatibility-badge
+          python3 - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+          from scripts.ci.compatibility_badge import WORKFLOWS
+
+          app = os.environ['APP_ID']
+          operation = os.environ['OPERATION']
+          pending = os.environ.get('PENDING_ADAPTATION') == 'true'
+          candidate_source = ''
+          adaptation_attempted = os.environ.get('ADAPT_BADGE_ATTEMPTED') == 'true'
+          static_verified = os.environ.get('ADAPT_BADGE_STATIC_VERIFIED') == 'true'
+          runtime_status = os.environ.get('RUNTIME_RESULT_STATUS', '')
+          runtime_outcome = os.environ.get('RUNTIME_OUTCOME', '')
+          runtime_environment = os.environ.get('RUNTIME_ENVIRONMENT', 'UNKNOWN')
+          if operation == 'verify':
+              candidate_source = 'verify'
+              prefix = 'VERIFY'
+              outcome = os.environ.get('VERIFY_OUTCOME') or 'ERROR'
+          elif os.environ.get('ADAPT_BADGE_CANDIDATE_SHA256'):
+              candidate_source = 'adaptation'
+              prefix = 'ADAPT_BADGE'
+              if static_verified:
+                  if runtime_outcome == 'RUNTIME_INCOMPATIBLE' and runtime_environment == 'HEALTHY':
+                      outcome = 'RUNTIME_INCOMPATIBLE'
+                  elif runtime_status == 'VERIFIED':
+                      outcome = runtime_outcome if runtime_outcome in {'VERIFIED', 'RUNTIME_VERIFIED'} else 'VERIFIED'
+                  elif runtime_status:
+                      outcome = 'ERROR'
+                  elif os.environ.get('RUNTIME_JOB_RESULT') in {'failure', 'cancelled', 'timed_out'}:
+                      outcome = 'ERROR'
+                  elif os.environ.get('RUNTIME_JOB_RESULT', '') in {'', 'skipped'}:
+                      outcome = 'PENDING_RUNTIME'
+                  else:
+                      outcome = 'ERROR'
+              elif adaptation_attempted and os.environ.get('ADAPT_STATUS') in {
+                      'BLOCKED', 'INTERRUPTED', 'ADAPTATION_RUNNING'}:
+                  outcome = 'ADAPTATION_INCOMPLETE'
+              else:
+                  outcome = 'ERROR'
+          elif os.environ.get('RUNTIME_CANDIDATE_SHA256'):
+              candidate_source = 'runtime'
+              prefix = 'RUNTIME'
+              outcome = 'VERIFIED' if os.environ.get('RUNTIME_RESULT_STATUS') == 'VERIFIED' else (
+                  os.environ.get('RUNTIME_OUTCOME') or 'ERROR')
+          elif not pending:
+              selected_outcome = os.environ.get('RULES_OUTCOME') or 'ERROR'
+              if operation == 'adapt' and adaptation_attempted:
+                  prefix = ''
+                  outcome = ('ADAPTATION_INCOMPLETE' if os.environ.get('ADAPT_STATUS') in {
+                      'BLOCKED', 'INTERRUPTED', 'ADAPTATION_RUNNING'} else 'ERROR')
+              else:
+                  candidate_source = 'rules-analysis'
+                  prefix = 'RULES'
+                  if operation == 'adapt':
+                      outcome = (selected_outcome
+                                 if os.environ.get('ADAPT_RESULT') == 'skipped'
+                                 and selected_outcome in {'VERIFIED', 'RUNTIME_VERIFIED'}
+                                 else 'ERROR')
+                  elif (os.environ.get('CANDIDATE_READY') == 'true'
+                        and os.environ.get('ADAPT_STATUS') == 'WAITING_RUNTIME'):
+                      outcome = 'PENDING_RUNTIME'
+                  elif os.environ.get('ADAPT_STATUS') in {'BLOCKED', 'INTERRUPTED', 'ADAPTATION_RUNNING'}:
+                      outcome = 'ADAPTATION_INCOMPLETE'
+                  else:
+                      outcome = selected_outcome
+          else:
+              prefix = 'RUNTIME'
+              outcome = ('ADAPTATION_INCOMPLETE'
+                         if os.environ.get('ADAPT_STATUS') in {'BLOCKED', 'INTERRUPTED', 'ADAPTATION_RUNNING'}
+                         else 'ERROR')
+          def value(suffix, default=''):
+              name = ('RUNTIME_ENVIRONMENT' if prefix == 'RUNTIME'
+                      and suffix == 'RUNTIME_ENVIRONMENT' else f'{prefix}_{suffix}')
+              return os.environ.get(name, default)
+          validation_outcome = value('OUTCOME')
+          if outcome in {'PENDING_RUNTIME', 'ADAPTATION_INCOMPLETE'}:
+              validation_outcome = outcome
+          elif outcome in {'VERIFIED', 'RUNTIME_VERIFIED', 'RUNTIME_INCOMPATIBLE'}:
+              validation_outcome = outcome
+          if validation_outcome not in {
+                  'VERIFIED', 'RUNTIME_VERIFIED', 'RUNTIME_INCOMPATIBLE', 'REGRESSION_FAILED',
+                  'NO_MATCH', 'CONFLICT', 'ERROR', 'CANCELLED', 'PENDING_RUNTIME',
+                  'ADAPTATION_INCOMPLETE', 'CANDIDATE_REJECTED', 'UNAVAILABLE'}:
+              validation_outcome = ''
+          registration_complete = os.environ.get('RUNTIME_RESULT_STATUS') == 'VERIFIED'
+          if pending and candidate_source not in {'runtime', 'adaptation'}:
+              candidate_source = ''
+          state = {
+              'operation': operation, 'outcome': outcome,
+              'candidateStatus': value('CANDIDATE_STATUS') or 'UNAVAILABLE',
+              'validationOutcome': validation_outcome,
+              'adaptationAttempted': adaptation_attempted,
+              'registrationStatus': 'REGISTERED' if registration_complete else '',
+              'prReady': registration_complete,
+              'regressionOutcome': ('FAILED' if os.environ.get('RUNTIME_REGRESSION_OUTCOME') == 'FAILED'
+                                    else value('REGRESSION_OUTCOME') or 'UNKNOWN'),
+              'checkOutcome': ('FAILED' if os.environ.get('PREPARE_CHECK_OUTCOME') == 'FAILED'
+                               or os.environ.get('RUNTIME_CHECK_OUTCOME') == 'FAILED'
+                               else value('CHECK_OUTCOME') or os.environ.get('PREPARE_CHECK_OUTCOME') or 'UNKNOWN'),
+              'buildOutcome': ('FAILED' if os.environ.get('RUNTIME_BUILD_OUTCOME') == 'FAILED'
+                               else value('BUILD_OUTCOME') or 'UNKNOWN'),
+              'runtimeEnvironment': runtime_environment if prefix == 'ADAPT_BADGE'
+                                    else value('RUNTIME_ENVIRONMENT') or 'UNKNOWN',
+              'pendingAdaptation': pending, 'candidateSource': candidate_source,
+              'versionName': value('VERSION_NAME') or None,
+              'versionCode': int(value('VERSION_CODE')) if value('VERSION_CODE').isdigit() else None,
+              'candidateSha256': value('CANDIDATE_SHA256') or None,
+          }
+          run = {
+              'appId': app, 'runId': int(os.environ['GITHUB_RUN_ID']),
+              'runNumber': int(os.environ['GITHUB_RUN_NUMBER']),
+              'runAttempt': int(os.environ['GITHUB_RUN_ATTEMPT']),
+              'sha': os.environ['GITHUB_SHA'], 'repository': os.environ['GITHUB_REPOSITORY'],
+              'headRepository': os.environ['GITHUB_REPOSITORY'],
+              'workflowPath': WORKFLOWS[app],
+              'event': os.environ['GITHUB_EVENT_NAME'], 'branch': os.environ['GITHUB_REF_NAME'],
+              'status': 'completed', 'conclusion': os.environ.get('JOB_STATUS', 'unknown'),
+          }
+          Path('work/compatibility-badge/context.json').write_text(
+              json.dumps({'run': run, 'state': state}, separators=(',', ':')) + '\n')
+          PY
+          python3 -m scripts.ci.compatibility_badge write \
+            --context work/compatibility-badge/context.json \
+            --output work/compatibility-badge/compatibility-badge.json
+      - name: Upload terminal compatibility badge report
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: impad-compatibility-badge
+          path: work/compatibility-badge/compatibility-badge.json
+          if-no-files-found: warn
+          retention-days: 14

@@ -42,6 +42,24 @@ on:
       validation_outcome:
         description: File-verified outcome including confirmed runtime incompatibility
         value: ${{ jobs.result.outputs.validation_outcome }}
+      badge_outcome:
+        value: ${{ jobs.result.outputs.badge_outcome || jobs.prepare.outputs.badge_outcome }}
+      badge_candidate_status:
+        value: ${{ jobs.result.outputs.badge_candidate_status || jobs.prepare.outputs.badge_candidate_status }}
+      badge_version_name:
+        value: ${{ jobs.result.outputs.badge_version_name || jobs.prepare.outputs.badge_version_name }}
+      badge_version_code:
+        value: ${{ jobs.result.outputs.badge_version_code || jobs.prepare.outputs.badge_version_code }}
+      badge_candidate_sha256:
+        value: ${{ jobs.result.outputs.badge_candidate_sha256 || jobs.prepare.outputs.badge_candidate_sha256 }}
+      badge_regression_outcome:
+        value: ${{ jobs.result.outputs.badge_regression_outcome || jobs.prepare.outputs.badge_regression_outcome }}
+      badge_check_outcome:
+        value: ${{ jobs.result.outputs.badge_check_outcome || jobs.prepare.outputs.badge_check_outcome }}
+      badge_build_outcome:
+        value: ${{ jobs.result.outputs.badge_build_outcome || jobs.prepare.outputs.badge_build_outcome }}
+      badge_runtime_environment:
+        value: ${{ jobs.result.outputs.badge_runtime_environment || jobs.prepare.outputs.badge_runtime_environment }}
 
 permissions:
   contents: read
@@ -54,6 +72,15 @@ jobs:
       app_id: ${{ steps.policy.outputs.app_id }}
       artifact_prefix: ${{ steps.policy.outputs.artifact_prefix }}
       candidate_status: ${{ steps.candidate-state.outputs.status }}
+      badge_outcome: ${{ steps.badge-evidence.outputs.badge_outcome }}
+      badge_candidate_status: ${{ steps.badge-evidence.outputs.badge_candidate_status }}
+      badge_version_name: ${{ steps.badge-evidence.outputs.badge_version_name }}
+      badge_version_code: ${{ steps.badge-evidence.outputs.badge_version_code }}
+      badge_candidate_sha256: ${{ steps.badge-evidence.outputs.badge_candidate_sha256 }}
+      badge_regression_outcome: ${{ steps.badge-evidence.outputs.badge_regression_outcome }}
+      badge_check_outcome: ${{ steps.badge-evidence.outputs.badge_check_outcome }}
+      badge_build_outcome: ${{ steps.badge-evidence.outputs.badge_build_outcome }}
+      badge_runtime_environment: ${{ steps.badge-evidence.outputs.badge_runtime_environment }}
     env:
       APP_ID: ${{ inputs.app_id }}
       CANDIDATE_MODE: ${{ inputs.candidate_mode || 'latest' }}
@@ -228,10 +255,14 @@ jobs:
           fi
           echo "status=$status" >> "$GITHUB_OUTPUT"
       - name: Build module for the exact checked candidate
+        id: module-build
         if: inputs.module_run_id == '' && steps.candidate-state.outputs.status == 'PREPARED'
         run: |
           test -f work/runtime-smoke/regression/results.json
-          ./gradlew --no-daemon -PruntimeLocalAssets=work/runtime-smoke :app:assembleDebug :app:verifyModuleMetadata
+          mkdir -p work/build-badge
+          rm -f work/build-badge/gradle-failures.json
+          ./gradlew --no-daemon --init-script scripts/ci/gradle_failure_evidence.init.gradle \
+            -PruntimeLocalAssets=work/runtime-smoke :app:assembleDebug :app:verifyModuleMetadata
           mkdir -p work/runtime-smoke/module
           cp app/build/outputs/apk/debug/app-debug.apk work/runtime-smoke/module/app-debug.apk
       - name: Stage reused module without rebuilding or changing its bytes
@@ -266,6 +297,67 @@ jobs:
             work/runtime-smoke/regression/
             work/runtime-smoke/module/app-debug.apk
           retention-days: 7
+      - name: Export preparation badge evidence
+        id: badge-evidence
+        if: always()
+        env:
+          MODULE_BUILD_OUTCOME: ${{ steps.module-build.outcome }}
+        run: |
+          python3 - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+          import re
+          from scripts.ci.build_badge import gradle_failure_outcome
+          from scripts.ci.compatibility_badge import (
+              classify_regression, classify_regression_check,
+          )
+
+          candidate_path = Path('work/runtime-smoke/candidate-report.json')
+          candidate = json.loads(candidate_path.read_text()) if candidate_path.is_file() else {}
+          identity = candidate.get('identity') if isinstance(candidate.get('identity'), dict) else {}
+          candidate_status = candidate.get('status')
+          diagnostic = candidate.get('diagnostic')
+          selection = diagnostic.get('selection') if isinstance(diagnostic, dict) else None
+          regression_path = Path('work/runtime-smoke/regression/results.json')
+          regression = json.loads(regression_path.read_text()) if regression_path.is_file() else {}
+          regression_outcome = classify_regression(regression)
+          check_outcome = ('FAILED' if classify_regression_check(regression) == 'FAILED'
+                           else 'PASSED' if candidate_status == 'PREPARED'
+                           or selection in {'NO_MATCH', 'CONFLICT'} else 'UNKNOWN')
+          build_outcome = 'PASSED' if os.environ.get('MODULE_BUILD_OUTCOME') == 'success' else 'UNKNOWN'
+          evidence_path = Path('work/build-badge/gradle-failures.json')
+          gradle = json.loads(evidence_path.read_text()) if evidence_path.is_file() else None
+          gradle_outcome = gradle_failure_outcome(gradle)
+          if gradle_outcome == 'build_failure':
+              build_outcome = 'FAILED'
+          elif gradle_outcome == 'check_failure':
+              check_outcome = 'FAILED'
+          outcome = ('REGRESSION_FAILED' if regression_outcome == 'FAILED'
+                     else selection if selection in {'NO_MATCH', 'CONFLICT'}
+                     else 'PENDING_RUNTIME' if candidate_status == 'PREPARED'
+                     else 'ERROR')
+          version = identity.get('versionName')
+          if not isinstance(version, str) or not re.fullmatch(r'\d+(?:\.\d+){1,4}', version):
+              version = ''
+          version_code = identity.get('versionCode')
+          if type(version_code) is not int or version_code <= 0:
+              version_code = ''
+          digest = identity.get('apkSha256', '')
+          if not isinstance(digest, str) or not re.fullmatch(r'[0-9a-f]{64}', digest):
+              digest = ''
+          outputs = {
+              'badge_outcome': outcome,
+              'badge_candidate_status': candidate_status if candidate_status in {'PREPARED', 'INCOMPATIBLE'} else 'UNAVAILABLE',
+              'badge_version_name': version, 'badge_version_code': version_code,
+              'badge_candidate_sha256': digest, 'badge_regression_outcome': regression_outcome,
+              'badge_check_outcome': check_outcome, 'badge_build_outcome': build_outcome,
+              'badge_runtime_environment': 'UNKNOWN',
+          }
+          with Path(os.environ['GITHUB_OUTPUT']).open('a') as output:
+              for key, value in outputs.items():
+                  output.write(f'{key}={value}\n')
+          PY
 
   smoke:
     needs: prepare
@@ -327,6 +419,15 @@ jobs:
     outputs:
       validation_outcome: ${{ steps.verdict.outputs.outcome }}
       adaptation_artifact: ${{ steps.verdict.outputs.adaptation_artifact }}
+      badge_outcome: ${{ steps.verdict.outputs.badge_outcome }}
+      badge_candidate_status: ${{ steps.verdict.outputs.badge_candidate_status }}
+      badge_version_name: ${{ steps.verdict.outputs.badge_version_name }}
+      badge_version_code: ${{ steps.verdict.outputs.badge_version_code }}
+      badge_candidate_sha256: ${{ steps.verdict.outputs.badge_candidate_sha256 }}
+      badge_regression_outcome: ${{ steps.verdict.outputs.badge_regression_outcome }}
+      badge_check_outcome: ${{ steps.verdict.outputs.badge_check_outcome }}
+      badge_build_outcome: ${{ steps.verdict.outputs.badge_build_outcome }}
+      badge_runtime_environment: ${{ steps.verdict.outputs.badge_runtime_environment }}
     env:
       APP_ID: ${{ needs.prepare.outputs.app_id }}
       ARTIFACT_PREFIX: ${{ needs.prepare.outputs.artifact_prefix }}
@@ -364,6 +465,12 @@ jobs:
                         'failedStage': 'static', 'candidate': candidate,
                         'diagnostics': ['The shared rule checker did not produce a unique plan.']}
               (directory / 'runtime-candidate-report.json').write_text(json.dumps(report, indent=2) + '\n')
+              from scripts.ci.compatibility_badge import write_runtime_summary
+              regression_path = directory / 'regression/results.json'
+              regression = json.loads(regression_path.read_text()) if regression_path.is_file() else None
+              write_runtime_summary(candidate, None, regression,
+                                    directory / 'compatibility-badge-summary.json',
+                                    os.environ.get('GITHUB_OUTPUT'))
               with Path(os.environ['GITHUB_STEP_SUMMARY']).open('a') as summary:
                   summary.write('## Runtime validation result\n\n`INCOMPATIBLE`\n\n')
                   summary.write('No model, PR, device run, or acceptance write was started.\n')
@@ -411,6 +518,12 @@ jobs:
           handoff = export_runtime_adaptation(
               directory / 'runtime-candidate-report.json', directory / 'candidate-report.json',
               evidence_root, os.environ['OPERATION'])
+          from scripts.ci.compatibility_badge import write_runtime_summary
+          regression_path = directory / 'regression/results.json'
+          regression = json.loads(regression_path.read_text()) if regression_path.is_file() else None
+          write_runtime_summary(candidate, report, regression,
+                                directory / 'compatibility-badge-summary.json',
+                                os.environ.get('GITHUB_OUTPUT'))
           with Path(os.environ['GITHUB_OUTPUT']).open('a') as output:
               output.write(f"outcome={report['outcome']}\n")
               if handoff:

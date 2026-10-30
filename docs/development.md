@@ -28,6 +28,28 @@ QQ owner-contract restoration 的普通 Python 套件为386项、385通过、1�
 
 Oracle ARM64 ReDroid 的四轮运行均未通过；即使复测另一历史运行曾成功的精确 binary/APK 也未通过。Oracle framework 文件与权限一致性未经确认，因此现有证据只说明环境或部署差异仍待定位，不能归因为纯宿主问题。GitHub-hosted ARM64 ReDroid 上上述三次运行均通过；该结果不反向解释 Oracle 失败。
 
+## 应用适配徽章
+
+README 中微信、QQ 和企微各有一个 endpoint 徽章，数据分别来自专用 `compatibility-badge-data` 分支的 `wechat.json`、`qq.json` 和 `wecom.json`。共享 compatibility workflow 在终态汇总结构化输出；独立 `workflow_run` 发布器只接受官方仓库 `main` 上三个应用入口由 `schedule` 或 `workflow_dispatch` 启动的 `completed` 运行。发布器检出默认分支代码，下载报告后只解析有界 JSON，不执行 artifact 内容。
+
+状态依据精确候选和阶段证据分类：
+
+- 绿“已兼容”：候选静态检查、固定历史回归及真实运行验证均通过。版本只取该候选报告。
+- 黄“待合并”：适配候选运行验证通过、正式登记完成，且 PR 已成功标为 ready；不表示已合并。
+- 黄“待验证”：新适配静态检查和固定回归通过，但精确候选的运行验证尚未完成。
+- 橙“需适配”：verify-only 的静态选择报告明确为 `NO_MATCH` 或 `CONFLICT`，尚未尝试适配。
+- 橙“适配未完成”：确有适配尝试，但结构化终态显示阻塞或中断；已有 checkpoint 仍可用于后续恢复。
+- 红“回归失败”：精确历史样本报告明确失败。
+- 红“验证未通过”：严格运行 verifier 在健康环境中确认 `RUNTIME_INCOMPATIBLE`。
+- 红“检查失败”或“构建失败”：只接受结构化检查/构建失败证据。
+- 灰“执行异常”：报告缺失、身份不匹配、超时或失败原因不明；灰“已取消”仅对应取消；灰“暂无记录”表示尚无合格完成运行。
+
+版本名只从绑定的精确候选读取；恢复旧 checkpoint 时不借用本次新发现候选的版本。候选或报告无法验证时不猜版本。公开 JSON 仅保存 app、run ID/attempt、源 SHA、状态、候选版本名/版本码及 APK SHA-256，不保存 URL、token、凭据、自由文本诊断或原始运行 payload。
+
+适配 job 总是单独导出白名单摘要：仅在模型步骤实际运行或精确的静态验证 checkpoint 已恢复时标记适配尝试；新版本和静态成功证据必须来自该 task 的候选报告。runtime job 明确失败或超时时显示执行异常，静态成功和 job 结果缺失本身不会冒充运行验证通过。
+
+发布器逐应用比较 `runNumber` 和 `runAttempt`，并以 compare-and-swap 重试更新对应 JSON，保留另两个应用的文件。`compatibility-badge-data` 分支首次创建前，endpoint 暂无记录且可能不可用；首个合格完成运行发布后才可读取。该数据分支与已有 `build-badge-data/build.json` 完全分开。
+
 ## 主分支构建徽章
 
 README 的“构建”徽章只跟踪官方仓库 `main` 分支 push 触发的 `Build module APK`。单测、固定静态回归、release APK 构建签名和产物上传全部有成功证据时显示绿色（“通过”）；能确认的检查或构建失败显示红色。取消、超时、依赖或样本下载、runner 异常、上传失败以及已完成运行缺少或无法匹配报告显示灰色；没有合格完成运行时 bootstrap 状态为“暂无记录”。

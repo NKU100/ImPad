@@ -3,6 +3,7 @@ import json
 import os
 from pathlib import Path
 import subprocess
+import sys
 import tempfile
 import unittest
 from unittest.mock import MagicMock, patch
@@ -38,6 +39,19 @@ def report(**overrides):
 
 
 class BuildBadgeTest(unittest.TestCase):
+    def test_unit_test_runner_records_selected_test_modules(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            report_path = Path(temporary) / 'unit-tests.json'
+            result = subprocess.run(
+                [sys.executable, '-m', 'scripts.ci.run_unit_tests', '--tests',
+                 'scripts.test_compatibility_badge.CompatibilityBadgeTest.test_exact_verify_success_is_compatible_and_uses_candidate_version',
+                 '--output', str(report_path)],
+                cwd=Path(__file__).resolve().parents[1], capture_output=True, text=True)
+            self.assertEqual(0, result.returncode, result.stderr)
+            evidence = json.loads(report_path.read_text())
+            self.assertEqual(1, evidence['testsRun'])
+            self.assertTrue(evidence['wasSuccessful'])
+
     def test_green_requires_every_required_check_build_signing_and_upload(self):
         result = classify(run(), report())
         self.assertEqual('green', result['state'])

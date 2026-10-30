@@ -123,6 +123,7 @@ class BuildWorkflowTest(unittest.TestCase):
         self.assertEqual({'contents': 'read'}, self.workflow['permissions'])
         triggers = self.workflow.get('on', self.workflow.get('true', self.workflow.get(True)))
         self.assertIn('!build-badge-data', triggers['push']['branches'])
+        self.assertIn('!compatibility-badge-data', triggers['push']['branches'])
         evidence = self.step('badge-evidence')
         self.assertEqual('always()', evidence['if'])
         badge_upload = next(step for step in self.steps

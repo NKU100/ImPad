@@ -265,7 +265,9 @@ class RuntimeValidationWorkflowTest(unittest.TestCase):
                 root = Path(temporary)
                 (root / 'runtime-result').mkdir()
                 result = subprocess.run(['bash', '-e', '-c', validation['run']], cwd=root,
-                                        env=dict(os.environ, OPERATION=operation,
+                                        env=dict(os.environ,
+                                                 PYTHONPATH=str(Path(__file__).resolve().parents[1]),
+                                                 OPERATION=operation,
                                                  CANDIDATE_STATUS=status,
                                                  GITHUB_STEP_SUMMARY=str(root / 'summary.md')),
                                         capture_output=True, text=True)
