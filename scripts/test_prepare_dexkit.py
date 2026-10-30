@@ -73,6 +73,27 @@ class PrepareDexKitTest(unittest.TestCase):
             ("linux-aarch64", ["gcc-13=13.3-arm", "g++-13=13.3-arm", "zlib1g-dev=1.3-arm"]),
         )
         repository_lock = json.loads((Path(__file__).resolve().parents[1] / "gradle/dexkit-lock.json").read_text())
+        zlib_versions = {
+            build_name: {
+                package.split("=", 1)[0]: package.split("=", 1)[1]
+                for package in build["systemPackages"]
+                if package.startswith(("zlib1g=", "zlib1g-dev="))
+            }
+            for build_name, build in repository_lock["build"].items()
+        }
+        self.assertEqual(
+            zlib_versions,
+            {
+                "linux-aarch64": {
+                    "zlib1g-dev": "1:1.3.dfsg-3.1ubuntu2.3",
+                    "zlib1g": "1:1.3.dfsg-3.1ubuntu2.3",
+                },
+                "linux-x86_64": {
+                    "zlib1g-dev": "1:1.3.dfsg-3.1ubuntu2.3",
+                    "zlib1g": "1:1.3.dfsg-3.1ubuntu2.3",
+                },
+            },
+        )
         self.assertEqual(
             prepare_dexkit_system_deps.select_packages(repository_lock, "Linux", "x86_64")[0],
             "linux-x86_64",
