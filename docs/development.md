@@ -28,6 +28,14 @@ QQ owner-contract restoration 的普通 Python 套件为386项、385通过、1�
 
 Oracle ARM64 ReDroid 的四轮运行均未通过；即使复测另一历史运行曾成功的精确 binary/APK 也未通过。Oracle framework 文件与权限一致性未经确认，因此现有证据只说明环境或部署差异仍待定位，不能归因为纯宿主问题。GitHub-hosted ARM64 ReDroid 上上述三次运行均通过；该结果不反向解释 Oracle 失败。
 
+## 主分支构建徽章
+
+README 的“构建”徽章只跟踪官方仓库 `main` 分支 push 触发的 `Build module APK`。单测、固定静态回归、release APK 构建签名和产物上传全部有成功证据时显示绿色（“通过”）；能确认的检查或构建失败显示红色。取消、超时、依赖或样本下载、runner 异常、上传失败以及已完成运行缺少或无法匹配报告显示灰色；没有合格完成运行时 bootstrap 状态为“暂无记录”。
+
+发布器由独立的 `workflow_run` workflow 运行，只处理 `completed` 事件并检出默认分支代码；下载的 badge JSON 仅按大小、schema、run ID、attempt 和 commit SHA 校验，不执行。它通过 compare-and-swap 更新专用 `build-badge-data` 分支，并拒绝覆盖较新的 run 或 rerun attempt。该分支尚不存在时无需手动创建：首个合格 main push 的完成事件会以该分支和 `build.json` 自动初始化；在该事件完成前，endpoint 尚无可读记录。构建 workflow 保持 `contents: read`，且忽略该数据分支以避免递归构建。
+
+Gradle 构建失败分类要求失败 task 与已知编译、签名或 APK 创建异常同时匹配；仅有 task 名称不足以判红。已识别的依赖/网络、OOM、I/O、文件系统及 daemon 原因，以及无法确认的异常，均归为执行异常。静态检查器报错、输入不受支持或分析未完成也归为执行异常；确定无匹配、方案冲突或固定期待不符才归为检查失败。
+
 ## 指定 APK 的候选检查
 
 完整 `verify` 或 `adapt` 使用 GitHub Actions 中的 **Check WeChat compatibility**、**Check QQ compatibility** 或 **Check WeCom compatibility** 对应应用入口，再选择 `operation`。可填写精确 HTTPS APK 或 XAPK 下载直链 `apk_url`；留空时由该应用策略发现候选。手动 URL 允许第三方公共 HTTPS 下载源及查询参数；每次重定向都检查 HTTPS 和公共目标地址。自动发现仍限定官方来源。下载及 XAPK 解包均有 1.5 GB 上限；分包不合并、不重签，所有 APK 由共享检查器核对官方证书、包名、版本及 ABI。候选保存外层下载哈希与每个 APK 的哈希，独立验收整体安装并复核已安装分包哈希，不回退到自动发现的最新版本。可选的 `module_run_id` 和 `module_artifact` 仅用于 `verify`，留空时使用默认构建。`verify` 执行共享静态检查、固定代表回归和独立运行 gate，不启动模型、不创建 PR、不写正式验收表。`adapt` 仅在需要新规则时进入隔离适配；新规则使用新的不可变 ID 和临时路由，之后回到同一验证入口及完整 gate。GitHub Actions workflow dispatch 是生产级运行验收入口，本地候选检查不能代替它。

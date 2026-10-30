@@ -19,6 +19,14 @@ from scripts.ci.semantic_regression_baseline import (compare_baseline_report,
     load_semantic_regression_baseline)
 
 
+class SemanticRegressionMismatch(ValueError):
+    """A fresh valid checker report proves the frozen semantic result changed."""
+
+
+class StaticCheckerExecutionError(subprocess.SubprocessError):
+    """The checker did not produce a fresh valid report for its exact inputs."""
+
+
 def record_apk_inputs(record, cache, base):
     files = record.get('source', {}).get('apkFiles', [])
     paths = [Path(base)] + [Path(cache) / (item['sha256'].lower() + '.apk') for item in files[1:]]
@@ -72,7 +80,7 @@ def ensure_apk(record, cache, app_id):
 def check_apk(repository, apk, digest, log, offline=False, app_id='wechat', abi_splits=()):
     apk = apk.resolve()
     if file_sha256(apk) != digest.lower():
-        raise ValueError('An APK changed after verification')
+        raise StaticCheckerExecutionError('An APK changed after verification')
     report = log.with_suffix('.json')
     inputs = ['check-rules', '--app-id', app_id, '--apk', str(apk), '--report', str(report)]
     if abi_splits:
@@ -83,15 +91,40 @@ def check_apk(repository, apk, digest, log, offline=False, app_id='wechat', abi_
         command.append('--offline')
     command.extend([':compat-checker:run', '--args=' + arguments])
     log.parent.mkdir(parents=True, exist_ok=True)
+    report.unlink(missing_ok=True)
+    expected_hashes = [digest.lower(), *(file_sha256(Path(path)).lower() for path in abi_splits)]
     with log.open('w') as output:
-        subprocess.run(command, cwd=repository, stdout=output, stderr=subprocess.STDOUT,
-                       check=True, timeout=300)
-    result = json.loads(report.read_text())
-    validate_check_report(result, expected_app_id=app_id)
-    if (result['selection']['status'] != 'SELECTED'
-            or result['inputHashes'][0]['sha256'].lower() != digest.lower()):
-        raise ValueError('Rule checker did not select one complete plan for the exact base APK')
+        completed = subprocess.run(command, cwd=repository, stdout=output, stderr=subprocess.STDOUT,
+                                   check=False, timeout=300)
+    try:
+        result = json.loads(report.read_text())
+        validate_check_report(result, expected_app_id=app_id)
+        actual_hashes = [row['sha256'].lower() for row in result['inputHashes']]
+        if actual_hashes != expected_hashes:
+            raise ValueError('Checker report inputs differ from the exact base/split APK bytes')
+    except (OSError, ValueError, TypeError, KeyError, AttributeError) as error:
+        if completed.returncode != 0:
+            raise subprocess.CalledProcessError(completed.returncode, command) from None
+        raise StaticCheckerExecutionError('Rule checker did not produce a fresh valid report') from error
+    if result['selection']['status'] in {'EVALUATION_ERROR', 'UNSUPPORTED_INPUT', 'INCOMPLETE'}:
+        raise StaticCheckerExecutionError(
+            f"Rule checker could not complete evaluation: {result['selection']['status']}")
+    if result['selection']['status'] != 'SELECTED':
+        raise SemanticRegressionMismatch(
+            f"Rule checker returned {result['selection']['status']} for the frozen APK inputs")
+    if completed.returncode != 0:
+        raise subprocess.CalledProcessError(completed.returncode, command)
     return result
+
+
+def classify_regression_failure(stage, error):
+    if isinstance(error, SemanticRegressionMismatch):
+        return 'check_failure'
+    if isinstance(error, OSError) or stage in {'download', 'checker_execution'}:
+        return 'execution_failure'
+    if stage in {'checker_report', 'comparison', 'baseline'}:
+        return 'check_failure'
+    return 'execution_failure'
 
 
 def run_regression(app_id, reports, cache=None, repository=None):
@@ -107,7 +140,8 @@ def run_regression(app_id, reports, cache=None, repository=None):
             raise ValueError('Fixed semantic regression requires at least one frozen representative')
         baseline.assert_unchanged()
     except (OSError, ValueError) as error:
-        summary.append({'appId': policy.app_id, 'status': 'FAILED', 'error': str(error)})
+        summary.append({'appId': policy.app_id, 'status': 'FAILED',
+                        'failureKind': classify_regression_failure('baseline', error), 'error': str(error)})
         (reports / 'results.json').write_text(json.dumps(summary, indent=2) + '\n')
         return summary
 
@@ -135,13 +169,16 @@ def run_regression(app_id, reports, cache=None, repository=None):
             'v2SnapshotSha256': baseline.v2_sha256,
             'baselineSourceCase': source_case,
         }
+        stage = 'download'
         try:
             apk = ensure_apk(record, cache, policy.app_id)
             inputs = record_apk_inputs(record, cache, apk)
             log = reports / (key + '.log')
             options = {'abi_splits': inputs[1:]} if len(inputs) > 1 else {}
+            stage = 'checker_execution'
             checked = check_apk(repository, apk, identity['apkSha256'], log,
                                 app_id=policy.app_id, **options)
+            stage = 'comparison'
             compare_baseline_report(baseline, record_id, checked)
             report_path = log.with_suffix('.json')
             summary.append({
@@ -150,9 +187,12 @@ def run_regression(app_id, reports, cache=None, repository=None):
                 'status': 'PASSED',
             })
         except (OSError, ValueError, HTTPException, subprocess.SubprocessError) as error:
+            if isinstance(error, SemanticRegressionMismatch):
+                stage = 'checker_report'
             summary.append({
                 **row_binding,
                 'status': 'FAILED',
+                'failureKind': classify_regression_failure(stage, error),
                 'error': str(error),
             })
     try:
@@ -161,6 +201,7 @@ def run_regression(app_id, reports, cache=None, repository=None):
         summary.append({'appId': policy.app_id, 'status': 'FAILED',
                         'baselineSha256': baseline.sha256,
                         'v2SnapshotSha256': baseline.v2_sha256,
+                        'failureKind': classify_regression_failure('baseline', error),
                         'error': str(error)})
     (reports / 'results.json').write_text(json.dumps(summary, indent=2) + '\n')
     return summary

@@ -1,6 +1,24 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+badge_outcome=unknown
+keystore_directory=''
+write_badge_outcome() {
+  mkdir -p work/build-badge
+  printf '{"schemaVersion":1,"outcome":"%s"}\n' "$badge_outcome" \
+    > work/build-badge/module-build.json
+}
+cleanup() {
+  if [[ -n "$keystore_directory" ]]; then rm -rf "$keystore_directory"; fi
+}
+trap 'status=$?; cleanup; if [[ "$status" != 0 && "$badge_outcome" != failed ]]; then badge_outcome=unknown; fi; write_badge_outcome; exit "$status"' EXIT
+
+fail_build() {
+  badge_outcome=failed
+  echo "$1" >&2
+  exit 1
+}
+
 build_type="${1:-auto}"
 if [[ "$build_type" == auto ]]; then
   if [[ "${GITHUB_REF:-}" == refs/heads/main || "${GITHUB_REF:-}" == refs/tags/v* ]]; then
@@ -43,11 +61,6 @@ if [[ -n "$(git status --porcelain)" ]]; then
   exit 1
 fi
 
-keystore_directory=''
-cleanup() {
-  if [[ -n "$keystore_directory" ]]; then rm -rf "$keystore_directory"; fi
-}
-trap cleanup EXIT
 if [[ "$configured_secrets" == 4 ]]; then
   keystore_directory=$(mktemp -d)
   export WECHATPAD_KEYSTORE="$keystore_directory/impad-signing.jks"
@@ -56,23 +69,41 @@ if [[ "$configured_secrets" == 4 ]]; then
   chmod 600 "$WECHATPAD_KEYSTORE"
 fi
 
-./gradlew --no-daemon ":app:$build_task" ":app:$verify_task"
+rm -f work/build-badge/gradle-failures.json
+if ./gradlew --no-daemon --init-script scripts/ci/gradle_failure_evidence.init.gradle \
+  ":app:$build_task" ":app:$verify_task"; then
+  :
+else
+  gradle_status=$?
+  if python3 -m scripts.ci.build_badge gradle-failure \
+    --report work/build-badge/gradle-failures.json; then
+    badge_outcome=failed
+  fi
+  exit "$gradle_status"
+fi
 apk="app/build/outputs/apk/$build_type/app-$build_type.apk"
+if [[ ! -s "$apk" ]]; then
+  fail_build 'APK build completed without producing a non-empty APK.'
+fi
 version=$("$ANDROID_HOME/cmdline-tools/latest/bin/apkanalyzer" manifest version-name "$apk")
 if [[ ! "$version" =~ ^[0-9A-Za-z][0-9A-Za-z.+_-]*$ ]]; then
-  echo 'APK version cannot be used as an artifact filename.' >&2
-  exit 1
+  fail_build 'APK version cannot be used as an artifact filename.'
 fi
 if [[ "${GITHUB_REF:-}" == refs/tags/* && "${GITHUB_REF:-}" != "refs/tags/v$version" ]]; then
-  echo "Tag must match the APK version: v$version" >&2
-  exit 1
+  fail_build "Tag must match the APK version: v$version"
 fi
 
 artifact_directory=work/module-artifact
 mkdir -p "$artifact_directory"
 cp "$apk" "$artifact_directory/impad-$version-$build_type.apk"
-"$ANDROID_HOME/build-tools/37.0.0/apksigner" verify --verbose --print-certs "$apk" \
-  > "$artifact_directory/signature.txt"
+signer="$ANDROID_HOME/build-tools/37.0.0/apksigner"
+if [[ ! -x "$signer" ]]; then
+  echo 'Android APK signer is unavailable.' >&2
+  exit 1
+fi
+if ! "$signer" verify --verbose --print-certs "$apk" > "$artifact_directory/signature.txt"; then
+  fail_build 'APK signature verification failed.'
+fi
 git archive --format=tar.gz --prefix="ImPad-$version/" HEAD \
   > "$artifact_directory/impad-$version-source.tar.gz"
 commit=$(git rev-parse HEAD)
@@ -95,6 +126,7 @@ checksums = {path.name: hashlib.sha256(path.read_bytes()).hexdigest() for path i
     'The source archive corresponds to this APK. Verify files against SHA256SUMS.\n'
 )
 PY
+badge_outcome=passed
 if [[ -n "${GITHUB_OUTPUT:-}" ]]; then
   printf 'build-type=%s\nartifact-directory=%s\n' "$build_type" "$artifact_directory" >> "$GITHUB_OUTPUT"
 fi

@@ -45,6 +45,7 @@ printf '%s\\n' "$*" >> calls
 printf '%s' "${WECHATPAD_KEYSTORE:-}" > key-path
 if test -n "${WECHATPAD_KEYSTORE:-}"; then test -s "$WECHATPAD_KEYSTORE" || exit 3; fi
 case "$*" in *assembleRelease*) variant=release;; *) variant=debug;; esac
+if test "${FAILURE:-}" = missing-apk; then exit 0; fi
 mkdir -p "app/build/outputs/apk/$variant"
 printf 'fixture apk' > "app/build/outputs/apk/$variant/app-$variant.apk"
 ''')
@@ -56,7 +57,7 @@ printf 'fixture apk' > "app/build/outputs/apk/$variant/app-$variant.apk"
         analyzer.chmod(0o755)
         signer = sdk / 'build-tools/37.0.0/apksigner'
         signer.parent.mkdir(parents=True)
-        signer.write_text('#!/bin/sh\necho "fixture signer"\n')
+        signer.write_text('#!/bin/sh\n[ "${FAILURE:-}" != signature ] || exit 1\necho "fixture signer"\n')
         signer.chmod(0o755)
         subprocess.run(['git', 'init', '-q', str(self.root)], check=True)
         subprocess.run(['git', '-C', str(self.root), 'add', '.'], check=True)
@@ -66,8 +67,9 @@ printf 'fixture apk' > "app/build/outputs/apk/$variant/app-$variant.apk"
                             if k not in SIGNING_NAMES and not k.startswith('GITHUB_')}
         self.environment.update(ANDROID_HOME=str(sdk), GITHUB_OUTPUT=str(self.root / 'outputs'))
 
-    def run_build(self, event, ref, requested='auto', signing=False):
+    def run_build(self, event, ref, requested='auto', signing=False, failure=''):
         env = dict(self.environment, GITHUB_EVENT_NAME=event, GITHUB_REF=ref)
+        env['FAILURE'] = failure
         if signing:
             env.update(WECHATPAD_KEYSTORE_BASE64=base64.b64encode(b'fixture key').decode(),
                        WECHATPAD_KEYSTORE_PASSWORD='fixture', WECHATPAD_KEY_ALIAS='fixture',
@@ -88,11 +90,25 @@ printf 'fixture apk' > "app/build/outputs/apk/$variant/app-$variant.apk"
         self.assertTrue((artifact / 'impad-0.1.0-source.tar.gz').is_file())
         self.assertIn('impad-0.1.0-release.apk', (artifact / 'SHA256SUMS').read_text())
         self.assertEqual('release', json.loads((artifact / 'build.json').read_text())['buildType'])
+        badge = json.loads((self.root / 'work/build-badge/module-build.json').read_text())
+        self.assertEqual('passed', badge['outcome'])
 
     def test_main_without_signing_fails_before_gradle_instead_of_falling_back(self):
         result = self.run_build('push', 'refs/heads/main')
         self.assertNotEqual(0, result.returncode)
         self.assertFalse((self.root / 'calls').exists())
+
+    def test_missing_apk_after_successful_gradle_is_an_explicit_build_failure(self):
+        result = self.run_build('pull_request', 'refs/pull/20/merge', failure='missing-apk')
+        self.assertNotEqual(0, result.returncode)
+        badge = json.loads((self.root / 'work/build-badge/module-build.json').read_text())
+        self.assertEqual('failed', badge['outcome'])
+
+    def test_invalid_apk_signature_is_an_explicit_build_failure(self):
+        result = self.run_build('push', 'refs/tags/v0.1.0', signing=True, failure='signature')
+        self.assertNotEqual(0, result.returncode)
+        badge = json.loads((self.root / 'work/build-badge/module-build.json').read_text())
+        self.assertEqual('failed', badge['outcome'])
 
     def test_main_selects_release(self):
         result = self.run_build('push', 'refs/heads/main', signing=True)

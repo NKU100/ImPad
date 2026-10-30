@@ -11,6 +11,21 @@ from scripts.ci.static_regression import check_apk, ensure_apk, main, run_regres
 
 
 class StaticRegressionTest(unittest.TestCase):
+    def test_regression_failure_evidence_distinguishes_matcher_from_execution(self):
+        from scripts.ci.static_regression import classify_regression_failure
+        from subprocess import TimeoutExpired
+        from urllib.error import URLError
+        cases = [
+            ('download', URLError('network unavailable'), 'execution_failure'),
+            ('checker', TimeoutExpired('gradle', 300), 'execution_failure'),
+            ('checker_report', ValueError('checker report mismatch'), 'check_failure'),
+            ('comparison', ValueError('semantic baseline differs'), 'check_failure'),
+            ('setup', OSError('cannot read report'), 'execution_failure'),
+        ]
+        for stage, error, expected in cases:
+            with self.subTest(stage=stage, error=type(error).__name__):
+                self.assertEqual(expected, classify_regression_failure(stage, error))
+
     def test_fixed_xapk_restores_and_hash_checks_all_original_splits(self):
         import zipfile
         from scripts.ci.static_regression import record_apk_inputs
@@ -94,9 +109,37 @@ class StaticRegressionTest(unittest.TestCase):
                  patch('scripts.ci.static_regression.ensure_apk') as download:
                 rows = run_regression('qq', root / 'reports', repository=root)
             self.assertEqual('FAILED', rows[0]['status'])
+            self.assertEqual('check_failure', rows[0]['failureKind'])
             self.assertIn('representative', rows[0]['error'])
             download.assert_not_called()
             self.assertEqual(rows, json.loads((root / 'reports/results.json').read_text()))
+
+    def test_download_error_is_gray_evidence_and_matcher_mismatch_is_check_evidence(self):
+        import shutil
+        from urllib.error import URLError
+        from scripts.ci.semantic_migration import load_migration_bundle
+        from scripts.ci.semantic_regression_baseline import load_semantic_regression_baseline
+
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            shutil.copytree(ROOT / 'compatibility', root / 'compatibility')
+            bundle = load_migration_bundle(root)
+            baseline = load_semantic_regression_baseline(root, 'qq', bundle)
+            self.assertTrue(baseline.cases)
+
+            with patch('scripts.ci.static_regression.ensure_apk', side_effect=URLError('network unavailable')):
+                rows = run_regression('qq', root / 'download-report', repository=root)
+            self.assertTrue(all(row.get('failureKind') == 'execution_failure' for row in rows), rows)
+
+            apk = root / 'fixed.apk'
+            apk.write_bytes(b'fixed candidate')
+            with patch('scripts.ci.static_regression.ensure_apk', return_value=apk), \
+                 patch('scripts.ci.static_regression.record_apk_inputs', return_value=[apk]), \
+                 patch('scripts.ci.static_regression.check_apk', side_effect=
+                       __import__('scripts.ci.static_regression', fromlist=['SemanticRegressionMismatch']).
+                       SemanticRegressionMismatch('checker rejected plan')):
+                rows = run_regression('qq', root / 'matcher-report', repository=root)
+            self.assertTrue(all(row.get('failureKind') == 'check_failure' for row in rows), rows)
 
     def test_all_frozen_profiles_run_semantic_comparison_and_bind_migration_sources(self):
         with tempfile.TemporaryDirectory() as temporary:
@@ -165,7 +208,10 @@ class StaticRegressionTest(unittest.TestCase):
             from scripts.test_semantic_protocol import check_report
             result_path.write_text(json.dumps(check_report()))
             digest = 'b' * 64
-            with patch('scripts.ci.static_regression.subprocess.run') as run:
+            def fresh_success(command, **kwargs):
+                result_path.write_text(json.dumps(check_report()))
+                return __import__('subprocess').CompletedProcess(command, 0)
+            with patch('scripts.ci.static_regression.subprocess.run', side_effect=fresh_success) as run:
                 with patch('scripts.ci.static_regression.file_sha256', return_value=digest):
                     report = check_apk(root, apk, digest, log, app_id='qq')
             self.assertEqual('SELECTED', report['selection']['status'])
@@ -174,10 +220,90 @@ class StaticRegressionTest(unittest.TestCase):
             self.assertTrue(command[-1].startswith('--args=check-rules'))
             self.assertIn('--app-id qq', command[-1])
             self.assertIn(str(apk.resolve()), command[-1])
+            self.assertFalse(run.call_args.kwargs['check'])
             with patch('scripts.ci.static_regression.subprocess.run') as run:
-                with self.assertRaisesRegex(ValueError, 'changed'):
+                from scripts.ci.static_regression import StaticCheckerExecutionError
+                with self.assertRaisesRegex(StaticCheckerExecutionError, 'changed'):
                     check_apk(root, apk, '0' * 64, log, app_id='qq')
                 run.assert_not_called()
+
+    def test_fresh_valid_nonzero_no_match_is_semantic_failure(self):
+        import subprocess
+        from scripts.ci.static_regression import SemanticRegressionMismatch
+        from scripts.test_candidate_selection import CandidateSelectionTest
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            apk = root / 'qq.apk'; apk.write_bytes(b'fixed apk')
+            digest = hashlib.sha256(apk.read_bytes()).hexdigest()
+            log = root / 'checker.log'
+            report_path = log.with_suffix('.json')
+            fresh = CandidateSelectionTest._semantic_report('qq', apk, 'NO_MATCH')
+
+            def nonzero(command, **kwargs):
+                report_path.write_text(json.dumps(fresh))
+                return subprocess.CompletedProcess(command, 1)
+
+            with patch('scripts.ci.static_regression.subprocess.run', side_effect=nonzero):
+                with self.assertRaises(SemanticRegressionMismatch):
+                    check_apk(root, apk, digest, log, app_id='qq')
+
+    def test_checker_diagnostics_are_execution_failures(self):
+        import subprocess
+        from scripts.ci.static_regression import StaticCheckerExecutionError
+        from scripts.test_candidate_selection import CandidateSelectionTest
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            apk = root / 'qq.apk'
+            apk.write_bytes(b'fixed apk')
+            digest = hashlib.sha256(apk.read_bytes()).hexdigest()
+            log = root / 'checker.log'
+            for status in ('EVALUATION_ERROR', 'UNSUPPORTED_INPUT', 'INCOMPLETE'):
+                with self.subTest(status=status):
+                    fresh = CandidateSelectionTest._semantic_report('qq', apk, status)
+
+                    def nonzero(command, **kwargs):
+                        log.with_suffix('.json').write_text(json.dumps(fresh))
+                        return subprocess.CompletedProcess(command, 1)
+
+                    with patch('scripts.ci.static_regression.subprocess.run', side_effect=nonzero):
+                        with self.assertRaises(StaticCheckerExecutionError):
+                            check_apk(root, apk, digest, log, app_id='qq')
+
+    def test_missing_stale_and_invalid_checker_reports_remain_execution_failures(self):
+        import subprocess
+        from scripts.ci.static_regression import classify_regression_failure
+        from scripts.test_candidate_selection import CandidateSelectionTest
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            apk = root / 'qq.apk'; apk.write_bytes(b'fixed apk')
+            digest = hashlib.sha256(apk.read_bytes()).hexdigest()
+            log = root / 'checker.log'
+            report_path = log.with_suffix('.json')
+            stale = CandidateSelectionTest._semantic_report('qq', apk, 'NO_MATCH')
+            report_path.write_text(json.dumps(stale))
+
+            def no_fresh_report(command, **kwargs):
+                return subprocess.CompletedProcess(command, 1)
+
+            with patch('scripts.ci.static_regression.subprocess.run', side_effect=no_fresh_report):
+                with self.assertRaises(subprocess.CalledProcessError) as error:
+                    check_apk(root, apk, digest, log, app_id='qq')
+            self.assertEqual('execution_failure', classify_regression_failure('checker_execution', error.exception))
+            self.assertFalse(report_path.exists())
+
+            invalid_reports = [b'{broken',
+                               json.dumps(dict(stale, appId='wecom')).encode(),
+                               json.dumps(dict(stale, inputHashes=[{'path': str(apk), 'sha256': 'f' * 64}])).encode()]
+            for invalid in invalid_reports:
+                def invalid_fresh_report(command, **kwargs):
+                    report_path.write_bytes(invalid)
+                    return subprocess.CompletedProcess(command, 1)
+
+                with patch('scripts.ci.static_regression.subprocess.run', side_effect=invalid_fresh_report):
+                    with self.assertRaises(subprocess.CalledProcessError) as error:
+                        check_apk(root, apk, digest, log, app_id='qq')
+                self.assertEqual('execution_failure',
+                                 classify_regression_failure('checker_execution', error.exception))
 
     def test_fixed_acceptance_apk_cache_is_rehashed(self):
         with tempfile.TemporaryDirectory() as temporary:

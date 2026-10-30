@@ -1,0 +1,40 @@
+import groovy.json.JsonOutput
+import groovy.json.JsonSlurper
+import org.gradle.api.execution.TaskExecutionListener
+import org.gradle.api.tasks.TaskState
+
+def evidenceFile = new File(System.getProperty('user.dir'), 'work/build-badge/gradle-failures.json')
+gradle.addListener(new TaskExecutionListener() {
+    @Override
+    void beforeExecute(org.gradle.api.Task task) {}
+
+    @Override
+    void afterExecute(org.gradle.api.Task task, TaskState state) {
+        if (state.failure == null) return
+        def causes = []
+        def cause = state.failure
+        while (cause != null && causes.size() < 32) {
+            causes << cause.class.name
+            cause = cause.cause
+        }
+        synchronized (evidenceFile.absolutePath.intern()) {
+            def failedTasks = []
+            def existingCauses = []
+            if (evidenceFile.isFile()) {
+                try {
+                    def existing = new JsonSlurper().parse(evidenceFile)
+                    failedTasks.addAll(existing.failedTasks ?: [])
+                    existingCauses.addAll(existing.causes ?: [])
+                } catch (Exception ignored) {}
+            }
+            failedTasks << task.path
+            existingCauses.addAll(causes)
+            evidenceFile.parentFile.mkdirs()
+            evidenceFile.text = JsonOutput.toJson([
+                schemaVersion: 1,
+                failedTasks: failedTasks.unique().take(32),
+                causes: existingCauses.unique().take(32),
+            ]) + '\n'
+        }
+    }
+})

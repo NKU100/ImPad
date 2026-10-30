@@ -2,7 +2,7 @@ name: Build module APK
 
 on:
   push:
-    branches: ['**']
+    branches: ['**', '!build-badge-data']
     tags: ['v*']
   pull_request:
   workflow_dispatch:
@@ -83,12 +83,22 @@ jobs:
       - name: Install project Android SDK packages
         run: sdkmanager 'platforms;android-37.2' 'build-tools;37.0.0'
 
-      - name: Run unit tests and verify module packaging
+      - name: Install unit-test tools
+        id: test-tools
         run: |
           sudo apt-get update
           sudo apt-get install --yes age
-          python3 -m unittest discover -s scripts -p 'test_*.py'
-          ./gradlew --no-daemon :compat-core:test :compat-rules:test :compat-checker:test :app:testDebugUnitTest :app:testReleaseUnitTest :app:verifyModuleMetadata
+
+      - name: Run Python unit tests
+        id: python-tests
+        run: python3 -m scripts.ci.run_unit_tests
+
+      - name: Record Gradle test report boundary
+        run: mkdir -p work/build-badge && rm -f work/build-badge/gradle-failures.json && date +%s%N > work/build-badge/gradle-tests-started
+
+      - name: Run Gradle unit tests and verify module packaging
+        id: gradle-tests
+        run: ./gradlew --no-daemon --init-script scripts/ci/gradle_failure_evidence.init.gradle :compat-core:test :compat-rules:test :compat-checker:test :app:testDebugUnitTest :app:testReleaseUnitTest :app:verifyModuleMetadata
 
       - name: Restore official APK cache
         uses: actions/cache@v5
@@ -160,7 +170,7 @@ jobs:
             -validity 2 -dname 'CN=ImPad temporary release validation' \
             -keystore "$WECHATPAD_KEYSTORE" -alias "$WECHATPAD_KEY_ALIAS" \
             -storepass "$validation_password" -keypass "$validation_password"
-          ./gradlew --no-daemon :app:assembleRelease :app:verifyReleaseModuleMetadata
+          ./gradlew --no-daemon --init-script scripts/ci/gradle_failure_evidence.init.gradle :app:assembleRelease :app:verifyReleaseModuleMetadata
           apk=app/build/outputs/apk/release/app-release.apk
           tools="$ANDROID_HOME/build-tools/37.0.0"
           analyzer="$ANDROID_HOME/cmdline-tools/latest/bin/apkanalyzer"
@@ -242,4 +252,21 @@ jobs:
           name: impad-r8-release-validation
           path: work/r8-release-validation/
           if-no-files-found: error
+          retention-days: 14
+
+      - name: Write build badge evidence
+        if: always()
+        id: badge-evidence
+        env:
+          GRADLE_TESTS_OUTCOME: ${{ steps.gradle-tests.outcome }}
+          MODULE_UPLOAD_OUTCOME: ${{ steps.upload-module.outcome }}
+        run: python3 -m scripts.ci.build_badge write
+
+      - name: Upload build badge evidence
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: impad-build-badge
+          path: work/build-badge/build-badge.json
+          if-no-files-found: ignore
           retention-days: 14

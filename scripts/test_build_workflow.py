@@ -27,22 +27,14 @@ class BuildWorkflowTest(unittest.TestCase):
         return matches[0]
 
     def test_unit_test_step_runs_every_module_test_suite(self):
-        step = next(step for step in self.steps
-                    if step.get('name') == 'Run unit tests and verify module packaging')
+        step = self.step('gradle-tests')
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
-            tools = root / 'bin'
-            tools.mkdir()
-            for name in ('sudo', 'python3'):
-                path = tools / name
-                path.write_text('#!/bin/sh\nexit 0\n')
-                path.chmod(0o755)
             gradle = root / 'gradlew'
             gradle.write_text('#!/bin/sh\nprintf "%s\\n" "$@" > gradle-arguments\n')
             gradle.chmod(0o755)
             result = subprocess.run(['bash', '-euo', 'pipefail', '-c', step['run']],
-                                    cwd=root, env=dict(os.environ, PATH=str(tools) + os.pathsep + os.environ['PATH']),
-                                    text=True, capture_output=True)
+                                    cwd=root, env=os.environ.copy(), text=True, capture_output=True)
             self.assertEqual(0, result.returncode, result.stderr)
             arguments = (root / 'gradle-arguments').read_text().splitlines()
             for task in (':compat-core:test', ':compat-rules:test', ':compat-checker:test',
@@ -127,6 +119,35 @@ class BuildWorkflowTest(unittest.TestCase):
         self.assertEqual('impad-r8-release-validation',
                          self.step('upload-release-validation')['with']['name'])
 
+    def test_badge_publisher_isolated_from_build_and_only_trusts_main_build_artifacts(self):
+        self.assertEqual({'contents': 'read'}, self.workflow['permissions'])
+        triggers = self.workflow.get('on', self.workflow.get('true', self.workflow.get(True)))
+        self.assertIn('!build-badge-data', triggers['push']['branches'])
+        evidence = self.step('badge-evidence')
+        self.assertEqual('always()', evidence['if'])
+        badge_upload = next(step for step in self.steps
+                            if step.get('name') == 'Upload build badge evidence')
+        self.assertEqual('always()', badge_upload['if'])
+        self.assertEqual('impad-build-badge', badge_upload['with']['name'])
+
+        publisher = parsed_workflows()['publish-build-badge.yml']
+        self.assertEqual({'actions': 'read', 'contents': 'write'}, publisher['permissions'])
+        publisher_triggers = publisher.get('on', publisher.get('true', publisher.get(True)))
+        self.assertIn('workflow_run', publisher_triggers)
+        job = publisher['jobs']['publish']
+        checkout = job['steps'][0]
+        self.assertEqual('${{ github.event.repository.default_branch }}', checkout['with']['ref'])
+        download = job['steps'][1]
+        self.assertTrue(download['continue-on-error'])
+        self.assertEqual('${{ github.event.workflow_run.id }}', download['with']['run-id'])
+        self.assertNotIn('contents: write', self.workflow['permissions'])
+
+    def test_python_unit_test_runner_and_build_badge_report_are_structured(self):
+        self.assertEqual('python3 -m scripts.ci.run_unit_tests', self.step('python-tests')['run'])
+        evidence = self.step('badge-evidence')
+        self.assertIn('${{ steps.gradle-tests.outcome }}', evidence['env']['GRADLE_TESTS_OUTCOME'])
+        self.assertIn('scripts.ci.build_badge write', evidence['run'])
+
     def build_fixture(self, root, failure=''):
         tools = root / 'bin'
         tools.mkdir()
@@ -162,7 +183,7 @@ class BuildWorkflowTest(unittest.TestCase):
             import hashlib, json, os, pathlib, sys, zipfile
             from scripts.ci.candidate_selection import module_source_hashes, source_tree_sha256
             root = pathlib.Path.cwd()
-            assert sys.argv[1:] == ['--no-daemon', ':app:assembleRelease', ':app:verifyReleaseModuleMetadata']
+            assert sys.argv[1:] == ['--no-daemon', '--init-script', 'scripts/ci/gradle_failure_evidence.init.gradle', ':app:assembleRelease', ':app:verifyReleaseModuleMetadata']
             assert os.environ.get('WECHATPAD_KEYSTORE_BASE64') is None
             key = pathlib.Path(os.environ['WECHATPAD_KEYSTORE'])
             assert key.is_file()
