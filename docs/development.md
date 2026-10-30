@@ -64,6 +64,8 @@ python3 -m scripts.ci.candidate_selection \
 
 - `NO_COMPATIBLE_RULE`、目标缺失或多解：检查精确 APK 身份、路由结果、规则目录和完整目标唯一性诊断。
 - `CODE_INPUT_UNAVAILABLE`：必需 APK/split 代码输入不可读时模块失败关闭，不安装业务 Hook。
-- 缓存命中仅复用绑定了 APK/split、规则、路由、策略和解析器版本的解析结果；不能证明热补丁代码已读取或通过。
+- 微信在 Tinker ready 后读取活动 ClassLoader 的 DEX 路径。当前支持包私有目录 `tinker/patch-*/dex/tinker_classN.apk` 的单个合并代码归档；存在多个活动归档或必需输入不可读时失败关闭，不按磁盘上最新的补丁目录猜测。
+- 活动合并归档替代原 APK/split 作为微信规则的 DEX 搜索输入，已安装包的官方签名和身份仍独立校验。补丁内容哈希参与解析缓存和安装前后的一致性检查，避免补丁更新后复用旧描述符。
+- 缓存命中只复用绑定了 APK/split、活动代码、规则、路由、策略和解析器版本的解析结果；完整成功仍须检查 Hook 安装日志及实际登录入口。
 
 无账号运行验收不证明真实账号登录、服务端接受或双设备会话共存。Tinker readiness 观测不等于完整热补丁还原与匹配；QQ socket FD handoff 也未覆盖。
