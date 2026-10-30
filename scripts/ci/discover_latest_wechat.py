@@ -106,24 +106,24 @@ def fetch_official_page() -> str:
 
 def expected_sha256_for_url(app_id: str, source_url: str,
                             repository: Path | None = None) -> str:
-    from scripts.ci.acceptance import read_acceptance_snapshot
+    from scripts.ci.semantic_regression_baseline import load_semantic_regression_baseline
 
     repository = Path(repository or Path.cwd()).resolve()
-    snapshot = read_acceptance_snapshot(
-        repository / f"compatibility/{app_id}/acceptance.json", app_id, False,
-        repository=repository,
-    )
-    matches = [record for record in snapshot.records
-               if record.get("source", {}).get("url") == source_url]
+    baseline = load_semantic_regression_baseline(repository, app_id)
+    matches = [case for case in baseline.cases
+               if case.get("source", {}).get("url") == source_url]
+    digests = set()
+    for case in matches:
+        digest = case.get('identity', {}).get('apkSha256')
+        if not isinstance(digest, str) or not re.fullmatch(r"[a-fA-F0-9]{64}", digest):
+            raise ValueError("Registered APK URL has an invalid SHA-256 digest")
+        digests.add(digest.lower())
+    baseline.assert_unchanged()
     if not matches:
         return ""
-    digests = {record["identity"].get("apkSha256", "").lower() for record in matches}
     if len(digests) > 1:
         return ""
-    expected = next(iter(digests))
-    if not re.fullmatch(r"[a-f0-9]{64}", expected):
-        raise ValueError("Registered APK URL has an invalid SHA-256 digest")
-    return expected
+    return next(iter(digests))
 
 
 def append_github_output(path: Path, values: dict[str, str]) -> None:

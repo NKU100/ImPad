@@ -11,16 +11,70 @@ from scripts.ci.fetch_latest_wechat_apk import cache_matches
 
 
 class DiscoverLatestWechatTest(unittest.TestCase):
-    def test_url_with_multiple_registered_hashes_does_not_choose_a_variant(self):
-        with TemporaryDirectory() as temporary:
-            url = 'https://dldir1v6.qq.com/weixin/android/repack.apk'
-            records = [
-                {'source': {'url': url}, 'identity': {'apkSha256': 'a' * 64}},
-                {'source': {'url': url}, 'identity': {'apkSha256': 'b' * 64}},
-            ]
-            snapshot = SimpleNamespace(records=records)
-            with patch('scripts.ci.acceptance.read_acceptance_snapshot', return_value=snapshot):
-                self.assertEqual('', expected_sha256_for_url('wechat', url, Path(temporary)))
+    def test_real_app_baselines_supply_registered_source_digests_without_catalog_loading(self):
+        from scripts.ci.semantic_regression_baseline import load_semantic_regression_baseline
+
+        for app_id in ('wechat', 'qq', 'wecom'):
+            baseline = load_semantic_regression_baseline(Path.cwd(), app_id)
+            self.assertEqual(4, len(baseline.migration_bundle.profiles))
+            case = next(case for case in baseline.cases
+                        if case.get('source', {}).get('url'))
+            with patch('scripts.ci.acceptance.load_rule_catalog',
+                       side_effect=AssertionError('catalog loaded')):
+                self.assertEqual(case['identity']['apkSha256'].lower(),
+                                 expected_sha256_for_url(app_id, case['source']['url']))
+
+    def test_source_case_lookup_uses_exact_url_and_rejects_ambiguous_or_missing_digest(self):
+        url = 'https://dldir1v6.qq.com/weixin/android/repack.apk'
+        cases = [
+            {'kind': 'MIGRATION', 'source': {'url': url},
+             'identity': {'apkSha256': 'a' * 64}},
+            {'kind': 'ACCEPTED_V2', 'source': {'url': url + '?variant=1'},
+             'identity': {'apkSha256': 'c' * 64}},
+        ]
+        baseline = SimpleNamespace(cases=tuple(cases), assert_unchanged=lambda: None)
+        with patch('scripts.ci.semantic_regression_baseline.load_semantic_regression_baseline',
+                   return_value=baseline):
+            self.assertEqual('a' * 64, expected_sha256_for_url('wechat', url, Path.cwd()))
+            self.assertEqual('c' * 64,
+                             expected_sha256_for_url('wechat', url + '?variant=1', Path.cwd()))
+            cases.append({'kind': 'ACCEPTED_V2', 'source': {'url': url},
+                          'identity': {'apkSha256': 'b' * 64}})
+            baseline.cases = tuple(cases)
+            self.assertEqual('', expected_sha256_for_url('wechat', url, Path.cwd()))
+            self.assertEqual('', expected_sha256_for_url('wechat', url + '/other', Path.cwd()))
+
+    def test_source_case_lookup_rejects_invalid_digest(self):
+        url = 'https://dldir1v6.qq.com/weixin/android/repack.apk'
+        baseline = SimpleNamespace(
+            cases=({'kind': 'ACCEPTED_V2', 'source': {'url': url},
+                    'identity': {'apkSha256': 'not-a-digest'}},),
+            assert_unchanged=lambda: None,
+        )
+        with patch('scripts.ci.semantic_regression_baseline.load_semantic_regression_baseline',
+                   return_value=baseline):
+            with self.assertRaisesRegex(ValueError, 'invalid SHA-256 digest'):
+                expected_sha256_for_url('wechat', url, Path.cwd())
+
+    def test_source_case_lookup_propagates_invalid_baseline_errors(self):
+        url = 'https://dldir1v6.qq.com/weixin/android/repack.apk'
+        with patch('scripts.ci.semantic_regression_baseline.load_semantic_regression_baseline',
+                   side_effect=ValueError('tampered baseline')):
+            with self.assertRaisesRegex(ValueError, 'tampered baseline'):
+                expected_sha256_for_url('wechat', url, Path.cwd())
+
+    def test_source_case_lookup_rejects_baseline_mutation(self):
+        url = 'https://dldir1v6.qq.com/weixin/android/repack.apk'
+        baseline = SimpleNamespace(
+            cases=({'kind': 'MIGRATION', 'source': {'url': url},
+                    'identity': {'apkSha256': 'a' * 64}},),
+            assert_unchanged=unittest.mock.Mock(side_effect=ValueError('baseline changed')),
+        )
+        with patch('scripts.ci.semantic_regression_baseline.load_semantic_regression_baseline',
+                   return_value=baseline):
+            with self.assertRaisesRegex(ValueError, 'baseline changed'):
+                expected_sha256_for_url('wechat', url, Path.cwd())
+        baseline.assert_unchanged.assert_called_once_with()
 
     def test_selects_unique_highest_official_arm64_build(self):
         html = """
