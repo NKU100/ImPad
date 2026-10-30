@@ -6,6 +6,7 @@ from pathlib import Path
 
 from scripts.ci import runtime_task
 from scripts.ci.apps.wechat import runtime_policy
+from scripts.test_semantic_hook_evidence import lifecycle_fixture, protocol_two_logcat
 
 
 PACKAGE = 'com.tencent.mm'
@@ -22,14 +23,9 @@ class WeChatRawRuntimeReplayTest(unittest.TestCase):
         self.root = Path(self.temporary.name)
         self.app_root = self.root / 'apps/wechat'
         self.app_root.mkdir(parents=True)
-        self.candidate = {
-            'appId': 'wechat',
-            'identity': {'packageName': PACKAGE, 'versionCode': 3040, 'abi': 'arm64-v8a',
-                         'apkSha256': APK_SHA},
-            'apkFiles': [{'role': 'base', 'path': 'input/wechat.apk', 'sha256': APK_SHA}],
-            'expectedPlan': {'ruleId': 'wechat_tablet_login_001',
-                             'strategyId': 'wechat_tablet_login_behavior_001'},
-        }
+        self.candidate, _, _, _, _, _ = lifecycle_fixture(
+            'wechat', apk_sha=APK_SHA, api_sha=API_SHA, native_sha=NATIVE_SHA, version_code=3040)
+        self.candidate['apkFiles'][0]['path'] = 'input/wechat.apk'
         self.module = {'sha256': MODULE_SHA, 'dexkit': {
             'dexkitAndroidApiSha256': API_SHA, 'dexkitAndroidArm64NativeSha256': NATIVE_SHA,
         }}
@@ -110,20 +106,10 @@ class WeChatRawRuntimeReplayTest(unittest.TestCase):
         }
         (self.app_root / 'installed-identities.json').write_text(json.dumps(installed) + '\n')
 
-        process_text = f'3100 {PACKAGE}\n'
         native_path = '/data/app/impad/base.apk'
-        timestamp = lambda second: f'10-21 00:00:{second:02}.000'
-        envelope = f'[{MODULE},ImPad,1.0.0,1,1] '
-        messages = [
-            (1, f'status=COMPATIBLE rule plan=wechat_tablet_login_001/wechat_tablet_login_behavior_001 versionCode=3040 apkInputs=1 cacheHit=false'),
-            (2, 'waiting for Tinker class loader'),
-            (3, 'rule-runtime event=tinker_ready elapsedRealtimeNs=100 contextPackage=com.tencent.mm loaderClass=example.ReadyLoader'),
-            (4, f'rule-runtime event=native_loaded elapsedRealtimeNs=200 apiSha256={API_SHA} nativeSha256={NATIVE_SHA} nativeAbi=arm64-v8a packagingMode=APK_DIRECT sourceApkPath={native_path} nativeLoadPath={native_path}!/lib/arm64-v8a/libdexkit.so'),
-            (5, 'installed 2 WeChat hooks'),
-            (6, 'rule-runtime event=hook_installed elapsedRealtimeNs=300 ruleId=wechat_tablet_login_001 strategyId=wechat_tablet_login_behavior_001 hookCount=2 processName=com.tencent.mm'),
-        ]
-        logcat = ''.join(f'{timestamp(second)} 3100 3100 I ImPad: ({PACKAGE}){envelope}{body}\n'
-                         for second, body in messages)
+        process_text = f'3100 {PACKAGE}\n'
+        logcat = protocol_two_logcat(
+            self.candidate, self.module, process_name=PACKAGE, native_path=native_path)
         (self.app_root / 'processes.txt').write_text(process_text)
         (self.app_root / 'logcat.txt').write_text(logcat)
         scoped = runtime_policy.scoped_module_log_lines(logcat, process_text, PACKAGE)

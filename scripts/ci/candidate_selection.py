@@ -8,45 +8,75 @@ import re
 import shlex
 import shutil
 import subprocess
+import tempfile
 from pathlib import Path
 import hashlib
 import zipfile
 
-from scripts.ci.acceptance import read_acceptance_snapshot, select_representatives
+from scripts.ci.acceptance import SEMANTIC_ACCEPTANCE_FILENAME, read_semantic_acceptance_table
 from scripts.ci.app_policy import get_policy
 from scripts.ci.apk_inputs import resolve_apk_inputs, unpack_apk_inputs
 from scripts.ci.download_url import validate_download_url
 from scripts.ci.discover_latest_wechat import discover_from_html, fetch_official_page, validate_official_apk_url
 from scripts.ci.fetch_latest_wechat_apk import download_candidate, file_sha256, remote_metadata
+from scripts.ci.semantic_protocol import validate_check_report
 
 
 def _run_rules_checker(app_id: str, apk: Path, report_path: Path,
                        repository: Path | None = None, abi_splits=()) -> dict:
     repository = Path(repository or Path(__file__).resolve().parents[2]).resolve()
+    report_path = Path(report_path)
     arguments = ['check-rules', '--app-id', app_id, '--apk', str(Path(apk).resolve()),
                  '--report', str(Path(report_path).resolve())]
     if abi_splits:
         arguments += ['--abi-splits', ','.join(str(Path(path).resolve()) for path in abi_splits)]
     log = Path(report_path).with_suffix('.log')
+    try:
+        report_path.unlink()
+    except FileNotFoundError:
+        pass
     with log.open('w') as output:
-        subprocess.run(['./gradlew', '--no-daemon', ':compat-checker:run',
-                        '--args=' + shlex.join(arguments)],
-                       cwd=repository, stdout=output, stderr=subprocess.STDOUT,
-                       check=True, timeout=600)
+        try:
+            subprocess.run(['./gradlew', '--no-daemon', ':compat-checker:run',
+                            '--args=' + shlex.join(arguments)],
+                           cwd=repository, stdout=output, stderr=subprocess.STDOUT,
+                           check=True, timeout=600)
+        except subprocess.CalledProcessError as error:
+            try:
+                result = json.loads(report_path.read_text())
+                validate_check_report(result, expected_app_id=app_id)
+            except (OSError, ValueError, TypeError, KeyError, AttributeError):
+                raise error from None
+            if result['selection']['status'] == 'SELECTED':
+                raise error
+            return result
     return json.loads(Path(report_path).read_text())
+
+
+def recognition_identity(static: dict) -> tuple[dict, str]:
+    validate_check_report(static)
+    catalog_sha = static['ruleCatalog']['ruleCatalogSha256']
+    recognition = {
+        'appId': static['appId'],
+        'evaluatedRecognizerIds': list(static['evaluatedRecognizerIds']),
+        'ruleCatalogSha256': catalog_sha,
+    }
+    digest = hashlib.sha256(json.dumps(
+        recognition, sort_keys=True, separators=(',', ':')).encode()).hexdigest()
+    return recognition, digest
 
 
 def _candidate_from_static(app_id: str, source_url: str, apk: Path, base_digest: str,
                            directory: Path, report_path: Path, static: dict,
                            expected_identity: dict | None = None) -> dict:
     policy = get_policy(app_id)
-    if (not isinstance(static, dict) or static.get('appId') != app_id
-            or static.get('analysisScope') != 'STATIC_ONLY'):
-        raise ValueError('Shared checker returned an invalid static report')
+    validate_check_report(static, expected_app_id=app_id, expected_identity=expected_identity)
+    recognition, recognition_sha = recognition_identity(static)
     selection = static.get('selection')
     identity = static.get('identity')
     if (not isinstance(selection, dict)
-            or selection.get('status') not in {'SELECTED', 'NO_MATCH', 'AMBIGUOUS'}):
+            or selection.get('status') not in {'SELECTED', 'NO_MATCH', 'CONFLICT', 'INCOMPLETE',
+                                               'EVALUATION_ERROR', 'UNSUPPORTED_INPUT'}):
         raise ValueError('Shared checker did not return a recognized rule-selection result')
     selected = selection.get('status') == 'SELECTED'
     if not isinstance(identity, dict):
@@ -64,13 +94,7 @@ def _candidate_from_static(app_id: str, source_url: str, apk: Path, base_digest:
     if app_id == 'qq' and selected:
         from scripts.ci.apps.qq.runtime_probe import manifest_expectation
         request_expectation = manifest_expectation(apk, base_digest)
-    route_candidates = static.get('routeCandidates')
-    if (not isinstance(route_candidates, list) or (selected and not route_candidates)
-            or any(not isinstance(value, str) or not value for value in route_candidates)
-            or len(set(route_candidates)) != len(route_candidates)):
-        raise ValueError('Shared checker did not return a valid route candidate list')
-    route = {'appId': app_id, 'candidates': route_candidates}
-    input_hashes = static.get('inputHashes')
+    input_hashes = copy.deepcopy(static.get('inputHashes'))
     if not isinstance(input_hashes, list) or not input_hashes:
         raise ValueError('Shared checker did not report input APK hashes')
     apk_files = []
@@ -90,32 +114,37 @@ def _candidate_from_static(app_id: str, source_url: str, apk: Path, base_digest:
             shutil.copyfile(source, staged)
         if file_sha256(staged) != digest:
             raise ValueError('Staged candidate APK differs from shared checker input')
-        row['path'] = staged.relative_to(directory).as_posix()
-        apk_files.append({'path': row['path'], 'role': 'base' if index == 0 else 'split',
+        relative = staged.relative_to(directory).as_posix()
+        apk_files.append({'path': relative, 'role': 'base' if index == 0 else 'split',
                           'sha256': digest})
+        input_hashes[index]['path'] = relative
     if apk_files[0]['sha256'] != base_digest.lower():
         raise ValueError('Shared checker did not bind the exact base APK bytes')
-    Path(report_path).write_text(json.dumps(static, indent=2) + '\n')
+    static_copy = copy.deepcopy(static)
+    static_copy['inputHashes'] = input_hashes
+    Path(report_path).write_text(json.dumps(static_copy, indent=2) + '\n')
     candidate = {
-        'schemaVersion': 1,
+        'schemaVersion': 2,
         'appId': policy.app_id,
         'status': 'PREPARED' if selected else 'INCOMPATIBLE',
         'identity': identity,
         'sourceUrl': source_url,
         'apkFiles': apk_files,
-        'ruleCatalogSha256': static['ruleCatalogSha256'],
-        'routeSha256': hashlib.sha256(json.dumps(route, sort_keys=True, separators=(',', ':')).encode()).hexdigest(),
+        'ruleCatalog': copy.deepcopy(static['ruleCatalog']),
+        'snapshot': copy.deepcopy(static['snapshot']),
+        'ruleCatalogSha256': static['ruleCatalog']['ruleCatalogSha256'],
+        'recognition': recognition,
+        'recognitionSha256': recognition_sha,
         'staticReport': Path(report_path).relative_to(directory).as_posix(),
         'staticReportSha256': file_sha256(report_path),
     }
     if selected:
-        candidate['expectedPlan'] = {'selection': 'UNIQUE', 'ruleId': selection['selectedRuleId'],
-                                     'strategyId': selection['strategyId'], 'targets': selection['targets']}
-        candidate['route'] = dict(route, samplingMode='DIRECT' if len(route_candidates) == 1 else 'GAP')
+        candidate['expectedPlan'] = copy.deepcopy(selection['plan'])
+        candidate['expectedExecutionSha256'] = selection['executionSha256']
     else:
         candidate['diagnostic'] = {'selection': selection['status'],
-                                   'routeCandidates': route_candidates,
-                                   'blockers': static.get('blockers', [])}
+                                   'diagnostics': selection['diagnostics'],
+                                   'incompleteReasons': selection['incompleteReasons']}
     if app_id == 'qq':
         if request_expectation is not None:
             candidate['requestIdentityExpectation'] = request_expectation
@@ -141,6 +170,7 @@ def prepare_candidate(app_id: str, apk_url: str, directory: Path, *, allow_exter
     report_path = directory / 'static-check.json'
     static = (_run_rules_checker(app_id, apk, report_path, abi_splits=inputs[1:])
               if len(inputs) > 1 else _run_rules_checker(app_id, apk, report_path))
+    validate_check_report(static, expected_app_id=app_id)
     if [row.get('sha256') for row in static.get('inputHashes', [])] != [file_sha256(path) for path in inputs]:
         raise ValueError('Shared checker did not bind every downloaded base/split APK')
     candidate = _candidate_from_static(app_id, apk_url, apk, digest.lower(), directory,
@@ -199,6 +229,7 @@ def prepare_candidate_from_adaptation_report(app_id: str, adaptation_report: Pat
     report_path = directory / 'static-check.json'
     static = (_run_rules_checker(app_id, apk, report_path, repository, abi_splits=inputs[1:])
               if len(inputs) > 1 else _run_rules_checker(app_id, apk, report_path, repository))
+    validate_check_report(static, expected_app_id=app_id)
     if [row.get('sha256') for row in static.get('inputHashes', [])] != [file_sha256(path) for path in inputs]:
         raise ValueError('Shared checker did not bind every uploaded base/split APK')
     candidate = _candidate_from_static(app_id, source_url, apk, digest, directory,
@@ -304,23 +335,25 @@ def prepare_module(module_apk: Path, static_report: dict, repository: Path = Pat
         raise ValueError('Module APK build-time fingerprint does not match current source, routing, or dependency inputs')
     source_commit = subprocess.check_output(['git', 'rev-parse', 'HEAD'], cwd=repository, text=True).strip()
     execution = static_report.get('executionIdentity', {})
-    rule_catalog_sha = static_report.get('ruleCatalogSha256')
-    if (not rule_catalog_sha or execution.get('ruleCatalogSha256') != rule_catalog_sha
+    recognition, recognition_sha = recognition_identity(static_report)
+    rule_catalog_sha = recognition['ruleCatalogSha256']
+    if (static_report['selection']['status'] != 'SELECTED'
+            or execution.get('ruleCatalogSha256') != rule_catalog_sha
             or execution.get('fingerprintFileSha256') != fingerprint_sha
             or execution.get('sourceTreeSha256') != tree_now
             or execution.get('routeConfigurationSha256') != route_config_now
             or execution.get('dependencyLockSha256') != lock_now):
         raise ValueError('Static checker identity does not match the module APK fingerprint')
-    route = {'appId': static_report['appId'], 'candidates': static_report['routeCandidates']}
     module = {
+        'schemaVersion': 2,
         'apkPath': str(module_apk), 'sha256': module_sha, 'sourceCommit': source_commit,
         'sourceTreeSha256': tree_now, 'ruleCatalogSha256': rule_catalog_sha,
-        'routeSha256': hashlib.sha256(json.dumps(route, sort_keys=True, separators=(',', ':')).encode()).hexdigest(),
+        'recognition': recognition,
+        'recognitionSha256': recognition_sha,
         'routeConfigurationSha256': route_config_now,
         'dependencyLockSha256': lock_now,
         'fingerprintFileSha256': fingerprint_sha,
         'fingerprint': fingerprint,
-        'route': route,
         'dexkit': execution,
     }
     if file_sha256(module_apk) != module_sha or module_source_hashes(repository) != current_sources:
@@ -346,12 +379,19 @@ def verify_module_identity(module: dict, expected_apk: Path | None = None,
             or fingerprint.get('dependencyLockSha256') != dependency_lock_sha256(sources)
             or fingerprint.get('routeConfigurationSha256') != route_configuration_sha256(sources)):
         raise ValueError('Module APK build-time source fingerprint changed after identity preparation')
-    route = module.get('route')
-    route_sha = hashlib.sha256(json.dumps(route, sort_keys=True, separators=(',', ':')).encode()).hexdigest()
-    if (route_sha != module.get('routeSha256')
-            or route.get('appId') != module.get('dexkit', {}).get('appId', route.get('appId'))
+    recognition = module.get('recognition')
+    if (module.get('schemaVersion') != 2 or not isinstance(recognition, dict)
+            or set(recognition) != {'appId', 'evaluatedRecognizerIds', 'ruleCatalogSha256'}
+            or not isinstance(recognition.get('appId'), str)
+            or not isinstance(recognition.get('evaluatedRecognizerIds'), list)
+            or not all(isinstance(value, str) and value for value in recognition['evaluatedRecognizerIds'])):
+        raise ValueError('Module recognition identity is malformed')
+    recognition_sha = hashlib.sha256(json.dumps(
+        recognition, sort_keys=True, separators=(',', ':')).encode()).hexdigest()
+    if (recognition_sha != module.get('recognitionSha256')
+            or recognition.get('ruleCatalogSha256') != module.get('ruleCatalogSha256')
             or module.get('ruleCatalogSha256') != module.get('dexkit', {}).get('ruleCatalogSha256')):
-        raise ValueError('Module route or catalog identity changed after preparation')
+        raise ValueError('Module recognition or catalog identity changed after preparation')
 
 
 def write_local_runtime_assets(candidate, app_id, directory):
@@ -364,6 +404,181 @@ def write_local_runtime_assets(candidate, app_id, directory):
     scope_path = Path(directory) / 'resources/META-INF/xposed/scope.list'
     scope_path.parent.mkdir(parents=True, exist_ok=True)
     scope_path.write_text(policy.package_name + '\n')
+
+
+def _registered_expectations(app_id, repository):
+    """Load v2 registrations, or exact source-linked frozen records during migration."""
+    repository = Path(repository).resolve()
+    table_path = repository / 'compatibility' / app_id / SEMANTIC_ACCEPTANCE_FILENAME
+    raw = read_semantic_acceptance_table(table_path, app_id, repository)
+    if raw is not None:
+        table = json.loads(raw.decode('utf-8'))
+        return [{
+            'recordId': record['recordId'],
+            'identity': record['identity'],
+            'apkFiles': record['apkFiles'],
+            'completePlan': record['completePlan'],
+            'executionSha256': record['executionSha256'],
+            'source': record['source'],
+        } for record in table['records']]
+
+    from scripts.ci.semantic_migration import load_migration_bundle
+
+    bundle = load_migration_bundle(repository)
+    profiles = [profile for profile in bundle.profiles if profile['appId'] == app_id]
+    historical = {record['recordId']: record for record in bundle.historical_records
+                  if record.get('appId') == app_id}
+    if not profiles:
+        return []
+    expectations = []
+    for profile in profiles:
+        record_id = profile['historicalRecordId']
+        record = historical.get(record_id)
+        source = record.get('source') if isinstance(record, dict) else None
+        if (record is None or record.get('identity') != profile['identity']
+                or not isinstance(source, dict) or not isinstance(source.get('apkFiles'), list)):
+            raise ValueError('Pinned migration profile has no source-linked historical record')
+        source_hashes = [item.get('sha256', '').lower() for item in source['apkFiles']
+                         if isinstance(item, dict)]
+        if (len(source_hashes) != len(source['apkFiles'])
+                or source_hashes != [digest.lower() for digest in profile['apkInputSha256']]):
+            raise ValueError('Pinned migration profile APK inputs differ from its historical source')
+        expectations.append({
+            'recordId': record_id,
+            'identity': profile['identity'],
+            'apkFiles': source['apkFiles'],
+            'completePlan': profile['expectedPlan'],
+            'executionSha256': profile['expectedExecutionSha256'],
+            'source': {key: value for key, value in source.items()
+                       if key in {'type', 'url', 'archiveSha256'}},
+        })
+    return expectations
+
+
+def _verify_registered_candidate(candidate, expected):
+    if not isinstance(candidate, dict) or candidate.get('status') != 'PREPARED':
+        raise ValueError('Registered candidate did not prepare a selected schema2 plan')
+    if candidate.get('identity') != expected['identity']:
+        raise ValueError('Rechecked APK identity differs from the registered record')
+
+    expected_files = expected['apkFiles']
+    actual_files = candidate.get('apkFiles')
+    if (not isinstance(actual_files, list) or len(actual_files) != len(expected_files)
+            or any(not isinstance(actual, dict)
+                   or actual.get('role') != saved.get('role')
+                   or str(actual.get('sha256', '')).lower() != str(saved.get('sha256', '')).lower()
+                   for actual, saved in zip(actual_files, expected_files))):
+        raise ValueError('Rechecked ordered base/split APK hashes differ from the registered record')
+    if candidate.get('expectedPlan') != expected['completePlan']:
+        raise ValueError('Rechecked CompletePlan differs from the registered record')
+    if (str(candidate.get('expectedExecutionSha256', '')).lower()
+            != str(expected['executionSha256']).lower()):
+        raise ValueError('Rechecked execution SHA-256 differs from the registered record')
+
+    expected_archive = expected['source'].get('archiveSha256')
+    if (expected_archive is not None
+            and str(candidate.get('sourceArchiveSha256', '')).lower() != expected_archive.lower()):
+        raise ValueError('Rechecked source archive SHA-256 differs from the registered record')
+    return candidate
+
+
+def _recheck_registered_candidate(app_id, expected, directory):
+    source = expected['source']
+    if not isinstance(source, dict) or source.get('type') not in {'official', 'signed-download'}:
+        raise ValueError('Registered APK source is malformed')
+    candidate = prepare_candidate(
+        app_id, source['url'], Path(directory),
+        allow_external=source['type'] == 'signed-download')
+    return _verify_registered_candidate(candidate, expected)
+
+
+def _select_highest_registered(verified, apk_sha256=None):
+    if not verified:
+        raise ValueError('No registered candidate matches the requested APK')
+    if apk_sha256:
+        verified = [item for item in verified
+                      if item['expected']['identity']['apkSha256'].lower() == apk_sha256.lower()]
+        if not verified:
+            raise ValueError('No registered candidate matches --apk-sha256')
+    highest = max(item['expected']['identity']['versionCode'] for item in verified)
+    candidates = [item for item in verified if item['expected']['identity']['versionCode'] == highest]
+    if len(candidates) != 1:
+        raise ValueError('Highest registered APK is ambiguous; specify --apk-sha256')
+    return candidates[0]
+
+
+def _artifact_file(root, relative):
+    path = Path(relative)
+    if path.is_absolute() or '..' in path.parts or not path.parts:
+        raise ValueError('Registered candidate artifact path is not relative to its bundle')
+    resolved = (Path(root) / path).resolve()
+    try:
+        resolved.relative_to(Path(root).resolve())
+    except ValueError as error:
+        raise ValueError('Registered candidate artifact path escapes its bundle') from error
+    return resolved
+
+
+def _copy_registered_artifact(candidate, source_directory, destination_directory):
+    source_directory = Path(source_directory).resolve()
+    destination_directory = Path(destination_directory).resolve()
+    paths = [row['path'] for row in candidate.get('apkFiles', [])]
+    paths.append(candidate.get('staticReport'))
+    if not candidate.get('apkFiles') or not candidate.get('staticReport'):
+        raise ValueError('Registered candidate artifact is missing APK or static report paths')
+
+    for relative in paths:
+        source = _artifact_file(source_directory, relative)
+        destination = _artifact_file(destination_directory, relative)
+        if not source.is_file():
+            raise ValueError('Verified registered candidate artifact is missing')
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copyfile(source, destination)
+
+    copied_hashes = []
+    for row in candidate['apkFiles']:
+        copied = _artifact_file(destination_directory, row['path'])
+        digest = file_sha256(copied)
+        if digest != row['sha256'].lower():
+            raise ValueError('Copied registered APK differs from its verified ordered input hash')
+        copied_hashes.append({'path': row['path'], 'sha256': digest})
+    if (not copied_hashes or copied_hashes[0]['sha256']
+            != candidate['identity']['apkSha256'].lower()):
+        raise ValueError('Copied registered base APK differs from its verified identity')
+
+    source_report = _artifact_file(source_directory, candidate['staticReport'])
+    copied_report = _artifact_file(destination_directory, candidate['staticReport'])
+    report_sha = candidate['staticReportSha256'].lower()
+    if file_sha256(source_report) != report_sha or file_sha256(copied_report) != report_sha:
+        raise ValueError('Copied registered static report differs from its verified report hash')
+    static = json.loads(copied_report.read_text())
+    input_hashes = static.get('inputHashes') if isinstance(static, dict) else None
+    if (not isinstance(input_hashes, list) or len(input_hashes) != len(copied_hashes)
+            or any(not isinstance(actual, dict)
+                   or actual.get('path') != saved['path']
+                   or str(actual.get('sha256', '')).lower() != saved['sha256']
+                   for actual, saved in zip(input_hashes, copied_hashes))):
+        raise ValueError('Copied registered static report does not bind the copied ordered APK inputs')
+
+
+def prepare_registered_candidate(app_id, directory, apk_sha256=None, repository=None):
+    directory = Path(directory).resolve()
+    repository = Path(repository or Path.cwd()).resolve()
+    expectations = _registered_expectations(app_id, repository)
+    if not expectations:
+        raise ValueError('No registered semantic candidate is available')
+
+    verified = []
+    with tempfile.TemporaryDirectory(prefix='impad-registered-candidates-') as temporary:
+        for index, expected in enumerate(expectations):
+            artifact_directory = Path(temporary) / str(index)
+            candidate = _recheck_registered_candidate(
+                app_id, expected, artifact_directory)
+            verified.append({'expected': expected, 'candidate': candidate,
+                             'directory': artifact_directory})
+        selected = _select_highest_registered(verified, apk_sha256)
+        _copy_registered_artifact(selected['candidate'], selected['directory'], directory)
+        return selected['candidate']
 
 
 def main():
@@ -401,23 +616,8 @@ def main():
         (args.directory / 'candidate-report.json').write_text(json.dumps(candidate, indent=2) + '\n')
         write_local_runtime_assets(candidate, policy.app_id, args.directory)
         return
-    snapshot = read_acceptance_snapshot(
-        Path.cwd() / f'compatibility/{policy.app_id}/acceptance.json', policy.app_id, False)
-    records = select_representatives(snapshot.records)
-    if args.apk_sha256:
-        records = [record for record in records
-                   if record['identity']['apkSha256'].lower() == args.apk_sha256.lower()]
-    if not records:
-        raise ValueError('No fixed acceptance representative matches the requested APK')
-    highest = max(row['identity']['versionCode'] for row in records)
-    records = [row for row in records if row['identity']['versionCode'] == highest]
-    if len(records) != 1:
-        raise ValueError('Highest accepted APK is ambiguous; specify --apk-sha256')
-    record = records[0]
-    source_url = record['source']['url']
-    candidate = prepare_candidate(args.app_id, source_url, args.directory)
-    if candidate['identity'] != record['identity']:
-        raise ValueError('Rechecked APK identity differs from the fixed acceptance record')
+    candidate = prepare_registered_candidate(
+        args.app_id, args.directory, args.apk_sha256, repository=Path.cwd())
     digest = candidate['identity']['apkSha256']
     base_apk = args.directory / candidate['apkFiles'][0]['path']
     shutil.copy2(base_apk, args.directory / f'{policy.app_id}-{digest}.apk')

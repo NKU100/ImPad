@@ -1,6 +1,7 @@
 import unittest
 
 from scripts.ci.apps.wechat import runtime_policy
+from scripts.test_semantic_hook_evidence import lifecycle_fixture as semantic_lifecycle_fixture
 
 
 PACKAGE = 'com.tencent.mm'
@@ -8,29 +9,6 @@ MODULE = 'io.github.nku100.impad'
 ACTIVITY = lambda name: (
     f'ACTIVITY MANAGER ACTIVITIES\n  topResumedActivity=ActivityRecord{{abc u0 {PACKAGE}/.{name} t8}}'
 )
-
-
-def lifecycle_fixture(rule_id="wechat_tablet_login_001", strategy_id="wechat_tablet_login_behavior_001"):
-    candidate = {
-        'identity': {'packageName': PACKAGE, 'versionCode': 3040, 'abi': 'arm64-v8a'},
-        'apkFiles': [{'path': 'input/wechat.apk'}],
-        'expectedPlan': {'ruleId': rule_id,
-                         'strategyId': strategy_id},
-    }
-    module = {'dexkit': {'dexkitAndroidApiSha256': 'c' * 64,
-                         'dexkitAndroidArm64NativeSha256': 'd' * 64}}
-    process = f'3100 {PACKAGE}\n'
-    prefix = f'10-21 00:00:01.000 3100 3100 I ImPad: ({PACKAGE})[{MODULE},ImPad,1.0.0,1,1] '
-    logs = '\n'.join((
-        prefix + f'status=COMPATIBLE rule plan={rule_id}/{strategy_id} versionCode=3040 apkInputs=1 cacheHit=false',
-        prefix + 'waiting for Tinker class loader',
-        prefix + 'rule-runtime event=tinker_ready elapsedRealtimeNs=100 contextPackage=com.tencent.mm loaderClass=example.ReadyLoader',
-        prefix + 'rule-runtime event=native_loaded elapsedRealtimeNs=200 apiSha256=' + 'c' * 64 +
-        ' nativeSha256=' + 'd' * 64 + ' nativeAbi=arm64-v8a packagingMode=APK_DIRECT sourceApkPath=/data/app/impad/base.apk nativeLoadPath=/data/app/impad/base.apk!/lib/arm64-v8a/libdexkit.so',
-        prefix + 'installed 2 WeChat hooks',
-        prefix + f'rule-runtime event=hook_installed elapsedRealtimeNs=300 ruleId={rule_id} strategyId={strategy_id} hookCount=2 processName=com.tencent.mm',
-    )) + '\n'
-    return candidate, module, process, logs
 
 
 class WeChatStrictRuntimePolicyTest(unittest.TestCase):
@@ -87,47 +65,50 @@ class WeChatStrictRuntimePolicyTest(unittest.TestCase):
         with self.assertRaises(ValueError):
             runtime_policy.derive_installed_identities(identities, PACKAGE, 'a' * 64, MODULE, 'b' * 64)
 
-    def test_lifecycle_replay_binds_target_plan_native_identity_and_event_order(self):
-        candidate, module, process, logs = lifecycle_fixture()
+    def test_lifecycle_replay_binds_complete_plan_native_identity_and_event_order(self):
+        candidate, module, process, logs, installed, _ = semantic_lifecycle_fixture('wechat')
 
-        diagnostics, lifecycle = runtime_policy.derive_hook_evidence(process, logs, candidate, module, {
-            'baseApkPath': '/data/app/impad/base.apk',
-        })
+        diagnostics, lifecycle = runtime_policy.derive_hook_evidence(
+            process, logs, candidate, module, installed)
 
         self.assertEqual('COMPATIBLE', diagnostics['compatibility'])
         self.assertEqual('INSTALLED_2', diagnostics['hookInstallation'])
         self.assertEqual('READY', lifecycle['tinkerEvidence']['status'])
         self.assertEqual('LOADED', lifecycle['nativeEvidence']['status'])
+        self.assertEqual(candidate['expectedPlan'], lifecycle['hookEvidence']['completePlan'])
+        self.assertEqual(candidate['expectedExecutionSha256'], lifecycle['hookEvidence']['executionSha256'])
         self.assertTrue(lifecycle['timingEvidence']['nativeBeforeHook'])
         with self.assertRaises(ValueError):
             runtime_policy.derive_hook_evidence(process, logs + logs, candidate, module)
 
-
-    def test_selected_plan_ids_are_replayed_without_a_legacy_rule_gate(self):
-        candidate, module, process, logs = lifecycle_fixture('synthetic_rule', 'synthetic_strategy')
+    def test_semantic_selection_carries_plan_without_rule_id_projection(self):
+        candidate, module, process, logs, _, _ = semantic_lifecycle_fixture('wechat')
         _, lifecycle = runtime_policy.derive_hook_evidence(process, logs, candidate, module)
-        self.assertEqual('synthetic_rule', lifecycle['hookEvidence']['ruleId'])
-        self.assertEqual('synthetic_strategy', lifecycle['hookEvidence']['strategyId'])
+        self.assertNotIn('ruleId', lifecycle['hookEvidence'])
+        self.assertEqual(candidate['expectedPlan']['contractId'], lifecycle['hookEvidence']['contractId'])
+        self.assertEqual(candidate['expectedPlan']['strategyId'], lifecycle['hookEvidence']['strategyId'])
 
-    def test_selected_plan_still_rejects_status_and_hook_identity_mismatches(self):
-        candidate, module, process, logs = lifecycle_fixture('synthetic_rule', 'synthetic_strategy')
+    def test_semantic_plan_payload_and_hook_contract_mismatches_fail(self):
+        candidate, module, process, logs, _, _ = semantic_lifecycle_fixture('wechat')
         replacements = (
-            ('plan=synthetic_rule/', 'plan=other_rule/'),
-            ('/synthetic_strategy versionCode=', '/other_strategy versionCode='),
-            ('ruleId=synthetic_rule ', 'ruleId=other_rule '),
-            ('strategyId=synthetic_strategy ', 'strategyId=other_strategy '),
+            ('executionSha256=' + candidate['expectedExecutionSha256'], 'executionSha256=' + 'f' * 64),
+            ('contractId=wechat_contract', 'contractId=other_contract'),
+            ('strategyId=wechat_strategy', 'strategyId=other_strategy'),
         )
         for original, replacement in replacements:
             with self.subTest(original=original), self.assertRaises(ValueError):
                 runtime_policy.derive_hook_evidence(process, logs.replace(original, replacement), candidate, module)
 
-    def test_plan_ids_must_be_unambiguous_log_field_values(self):
-        for field in ('ruleId', 'strategyId'):
-            for value in (None, 17, True, '', 'two words', 'two/parts', 'line\nbreak', 'tab\tvalue', ' leading'):
-                candidate, module, process, logs = lifecycle_fixture()
-                candidate['expectedPlan'][field] = value
-                with self.subTest(field=field, value=value), self.assertRaisesRegex(ValueError, 'expectation is incomplete'):
-                    runtime_policy.derive_hook_evidence(process, logs, candidate, module)
+    def test_candidate_requires_schema_two_complete_plan_and_execution_hash(self):
+        for mutation in (
+            lambda candidate: candidate.update(schemaVersion=1),
+            lambda candidate: candidate.update(expectedExecutionSha256='not-a-hash'),
+            lambda candidate: candidate.update(expectedPlan={}),
+        ):
+            candidate, module, process, logs, _, _ = semantic_lifecycle_fixture('wechat')
+            mutation(candidate)
+            with self.assertRaises(ValueError):
+                runtime_policy.derive_hook_evidence(process, logs, candidate, module)
 
 
 if __name__ == '__main__':

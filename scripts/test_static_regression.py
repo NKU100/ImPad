@@ -6,7 +6,7 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-from scripts.ci.acceptance import AcceptanceSnapshot
+from scripts.test_semantic_migration import SemanticMigrationTest, ROOT
 from scripts.ci.static_regression import check_apk, ensure_apk, main, run_regression
 
 
@@ -38,61 +38,34 @@ class StaticRegressionTest(unittest.TestCase):
                 record_apk_inputs(record, root / 'cache', base)
 
     def test_explicit_repository_loads_catalog_and_checks_cache_outside_cwd(self):
-        from scripts.test_acceptance import AcceptanceTest
-
-        candidate, module, static, _, _ = AcceptanceTest().fixture()
+        import shutil
+        from scripts.ci.semantic_migration import load_migration_bundle
+        helper = SemanticMigrationTest()
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary).resolve()
             repository = root / 'candidate-checkout'
-            cache = repository / '.cache/qq-apks'
-            cache.mkdir(parents=True)
-            payload = b'fixed accepted APK'
-            digest = hashlib.sha256(payload).hexdigest()
-            apk = cache / f'{digest}.apk'
-            apk.write_bytes(payload)
-            candidate['identity']['apkSha256'] = digest
-            record = {
-                'recordId': 'fixed-first', 'appId': 'qq', 'status': 'VERIFIED',
-                'identity': candidate['identity'], 'expectedPlan': candidate['expectedPlan'],
-                'source': {'type': 'official', 'url': candidate['sourceUrl'],
-                           'apkFiles': [{'role': 'base', 'path': 'base.apk', 'sha256': digest}]},
-                'module': module, 'route': module['route'], 'ruleCatalogSha256': 'd' * 64,
-                'ruleOrder': 1, 'firstForRule': True, 'firstRecordId': 'fixed-first',
-                'stageEvidence': {name: {'path': name + '.json', 'sha256': 'e' * 64}
-                                  for name in ('static', 'regression', 'runtime')},
-            }
-            acceptance = repository / 'compatibility/qq/acceptance.json'
-            acceptance.parent.mkdir(parents=True)
-            acceptance.write_text(json.dumps({'schemaVersion': 1, 'appId': 'qq', 'records': [record]}))
-            (repository / 'checker-fixture.json').write_text(json.dumps(static))
-            wrapper = repository / 'gradlew'
-            wrapper.write_text(
-                '#!/usr/bin/env python3\n'
-                'import json, shlex, sys\n'
-                'from pathlib import Path\n'
-                'fixture = json.loads(Path("checker-fixture.json").read_text())\n'
-                'arguments = shlex.split(sys.argv[-1].removeprefix("--args="))\n'
-                'assert arguments[1:3] == ["--app-id", "qq"]\n'
-                'if arguments[0] == "catalog":\n'
-                '    result = fixture["ruleCatalog"]\n'
-                'else:\n'
-                '    assert arguments[0] == "check-rules"\n'
-                '    result = fixture\n'
-                'Path(arguments[arguments.index("--report") + 1]).write_text(json.dumps(result))\n'
-            )
-            wrapper.chmod(0o755)
+            shutil.copytree(ROOT / 'compatibility', repository / 'compatibility')
+            bundle = load_migration_bundle(repository)
+            profile = next(row for row in bundle.profiles if row['appId'] == 'qq')
+            apk = root / 'fixed.apk'; apk.write_bytes(b'fixture')
+            report = helper.report(profile)
+            def check(repository, candidate_apk, digest, log, app_id, **kwargs):
+                log.parent.mkdir(parents=True, exist_ok=True)
+                log.with_suffix('.json').write_text(json.dumps(report))
+                return report
             outside = root / 'outside'; outside.mkdir()
             original_cwd = Path.cwd()
             try:
                 os.chdir(outside)
-                rows = run_regression('qq', root / 'reports', cache=cache, repository=repository)
+                with patch('scripts.ci.static_regression.ensure_apk', return_value=apk), \
+                     patch('scripts.ci.static_regression.record_apk_inputs', return_value=[apk]), \
+                     patch('scripts.ci.static_regression.check_apk', side_effect=check):
+                    rows = run_regression('qq', root / 'reports', repository=repository)
             finally:
                 os.chdir(original_cwd)
             self.assertEqual('PASSED', rows[0]['status'], rows)
-            self.assertEqual('fixed-first', rows[0]['recordId'])
-            self.assertEqual(digest, rows[0]['identity']['apkSha256'])
-            self.assertEqual(hashlib.sha256(acceptance.read_bytes()).hexdigest(),
-                             rows[0]['acceptanceSnapshotSha256'])
+            self.assertEqual(len([row for row in bundle.profiles if row['appId'] == 'qq']), len(rows))
+            self.assertEqual(profile['historicalRecordId'], rows[0]['recordId'])
 
     def test_checker_source_has_only_the_shared_rules_entrypoint(self):
         source = Path('scripts/ci/static_regression.py').read_text()
@@ -117,10 +90,7 @@ class StaticRegressionTest(unittest.TestCase):
     def test_missing_or_empty_acceptance_fails_without_static_download(self):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
-            snapshot = AcceptanceSnapshot(root / 'compatibility/qq/acceptance.json',
-                                          b'{}', 'a' * 64, b'[]', False)
-            with patch('scripts.ci.static_regression.read_acceptance_snapshot', return_value=snapshot), \
-                 patch('scripts.ci.static_regression.select_representatives', return_value=[]), \
+            with patch('scripts.ci.static_regression.load_migration_bundle', side_effect=ValueError('missing representative')), \
                  patch('scripts.ci.static_regression.ensure_apk') as download:
                 rows = run_regression('qq', root / 'reports', repository=root)
             self.assertEqual('FAILED', rows[0]['status'])
@@ -128,64 +98,61 @@ class StaticRegressionTest(unittest.TestCase):
             download.assert_not_called()
             self.assertEqual(rows, json.loads((root / 'reports/results.json').read_text()))
 
-    def test_passed_row_binds_identity_plan_record_and_acceptance_snapshot(self):
+    def test_all_frozen_profiles_run_semantic_comparison_and_bind_migration_sources(self):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
-            acceptance_path = root / 'compatibility/qq/acceptance.json'
-            raw = b'{"schemaVersion":1,"appId":"qq","records":["fixed"]}\n'
-            snapshot = AcceptanceSnapshot(acceptance_path, raw, hashlib.sha256(raw).hexdigest(),
-                                          b'[]', False)
-            identity = {'packageName': 'com.tencent.mobileqq', 'abi': 'arm64-v8a',
-                        'versionCode': 14378, 'apkSha256': 'a' * 64}
-            plan = {'selection': 'UNIQUE', 'ruleId': 'qq_device_type_001',
-                    'strategyId': 'qq_tablet_001', 'targets': {'device_type': {}}}
-            record = {'appId': 'qq', 'recordId': 'qq-first', 'identity': identity,
-                      'expectedPlan': plan, 'source': {'url': 'https://downv6.qq.com/qqweb/QQ_1/android_apk/test.apk'}}
-            apk = root / 'fixed.apk'
-            apk.write_bytes(b'official apk')
+            import shutil
+            shutil.copytree(ROOT / 'compatibility', root / 'compatibility')
+            migration = SemanticMigrationTest()
+            from scripts.ci.semantic_migration import load_migration_bundle
+            loaded = load_migration_bundle(root)
+            self.assertEqual(4, len(loaded.profiles))
+            for profile in loaded.profiles:
+                app_id = profile['appId']
+                record = next(row for row in loaded.historical_records if row['recordId'] == profile['historicalRecordId'])
+                apk = root / (profile['profileId'] + '.apk')
+                apk.write_bytes(b'fixed base')
+                report = migration.report(profile)
+                def check(repository, candidate_apk, digest, log, app_id, **kwargs):
+                    chosen = next(row for row in loaded.profiles if row['identity']['apkSha256'] == digest)
+                    checked = migration.report(chosen)
+                    log.parent.mkdir(parents=True, exist_ok=True)
+                    log.with_suffix('.json').write_text(json.dumps(checked))
+                    return checked
+                with patch('scripts.ci.static_regression.load_migration_bundle', return_value=loaded), \
+                     patch('scripts.ci.static_regression.ensure_apk', return_value=apk) as ensure, \
+                     patch('scripts.ci.static_regression.record_apk_inputs', return_value=[apk]), \
+                     patch('scripts.ci.static_regression.check_apk', side_effect=check), \
+                     patch('scripts.ci.static_regression.compare_baseline_report', wraps=__import__(
+                         'scripts.ci.semantic_regression_baseline', fromlist=['compare_baseline_report']).compare_baseline_report) as compare:
+                    rows = run_regression(app_id, root / ('reports-' + profile['profileId']), repository=root)
+                self.assertTrue(all(row['status'] == 'PASSED' for row in rows), rows)
+                passed = next(row for row in rows if row['profileId'] == profile['profileId'])
+                self.assertEqual(profile['historicalRecordId'], passed['recordId'])
+                self.assertEqual(profile['historicalAcceptanceSha256'], passed['acceptanceSnapshotSha256'])
+                self.assertEqual(loaded.history_sha256, passed['migrationHistorySha256'])
+                self.assertEqual(loaded.expectations_sha256, passed['migrationExpectationsSha256'])
+                self.assertEqual(profile['profileId'], passed['profileId'])
+                self.assertFalse(passed['initialMigration'])
+                self.assertNotIn('newacceptance', json.dumps(passed).lower())
+                self.assertTrue(all(call.args[0]['source']['url'] for call in ensure.call_args_list))
+                self.assertIn(profile['historicalRecordId'], [call.args[1] for call in compare.call_args_list])
 
-            def check(repository, candidate_apk, digest, log, app_id):
-                log.parent.mkdir(parents=True, exist_ok=True)
-                log.with_suffix('.json').write_text('{}')
-                return {'identity': identity, 'selection': {
-                    'status': 'SELECTED', 'selectedRuleId': plan['ruleId'],
-                    'strategyId': plan['strategyId'], 'targets': plan['targets']}}
-
-            with patch('scripts.ci.static_regression.read_acceptance_snapshot', return_value=snapshot), \
-                 patch('scripts.ci.static_regression.select_representatives', return_value=[record]), \
-                 patch('scripts.ci.static_regression.ensure_apk', return_value=apk), \
-                 patch('scripts.ci.static_regression.check_apk', side_effect=check) as run_checker:
-                rows = run_regression('qq', root / 'reports', repository=root)
-
-            self.assertEqual('PASSED', rows[0]['status'])
-            self.assertEqual('qq-first', rows[0]['recordId'])
-            self.assertEqual(identity, rows[0]['identity'])
-            self.assertEqual(plan, rows[0]['expectedPlan'])
-            self.assertEqual(snapshot.sha256, rows[0]['acceptanceSnapshotSha256'])
-            self.assertIs(rows[0]['initialMigration'], False)
-            self.assertEqual('qq', run_checker.call_args.kwargs['app_id'])
-
-    def test_failed_historical_row_binds_snapshot_as_non_migration(self):
+    def test_selected_legacy_or_wrong_frozen_target_fails_comparison(self):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
-            raw = b'{"schemaVersion":1,"appId":"qq","records":["fixed"]}\n'
-            snapshot = AcceptanceSnapshot(root / 'compatibility/qq/acceptance.json', raw,
-                                          hashlib.sha256(raw).hexdigest(), b'[]', False)
-            identity = {'packageName': 'com.tencent.mobileqq', 'abi': 'arm64-v8a',
-                        'versionCode': 14378, 'apkSha256': 'a' * 64}
-            record = {'appId': 'qq', 'recordId': 'qq-first', 'identity': identity,
-                      'expectedPlan': {'selection': 'UNIQUE'}}
-            apk = root / 'fixed.apk'
-            apk.write_bytes(b'official apk')
-            with patch('scripts.ci.static_regression.read_acceptance_snapshot', return_value=snapshot), \
-                 patch('scripts.ci.static_regression.select_representatives', return_value=[record]), \
-                 patch('scripts.ci.static_regression.ensure_apk', return_value=apk), \
-                 patch('scripts.ci.static_regression.check_apk', side_effect=ValueError('checker mismatch')):
-                rows = run_regression('qq', root / 'reports', repository=root)
-            self.assertEqual('FAILED', rows[0]['status'])
-            self.assertEqual(snapshot.sha256, rows[0]['acceptanceSnapshotSha256'])
-            self.assertIs(rows[0]['initialMigration'], False)
-            self.assertEqual(rows, json.loads((root / 'reports/results.json').read_text()))
+            import shutil
+            shutil.copytree(ROOT / 'compatibility', root / 'compatibility')
+            from scripts.ci.semantic_migration import load_migration_bundle, compare_fixed_report
+            bundle = load_migration_bundle(root)
+            profile = next(row for row in bundle.profiles if row['appId'] == 'qq')
+            helper = SemanticMigrationTest()
+            report = helper.report(profile)
+            with self.assertRaises(ValueError):
+                compare_fixed_report(bundle, profile['historicalRecordId'], {'selection': {'status': 'SELECTED'}})
+            report['selection']['plan']['hooks'][0]['descriptor'] += 'L'
+            with self.assertRaises(ValueError):
+                compare_fixed_report(bundle, profile['historicalRecordId'], report)
 
     def test_checker_rehashes_exact_apk_and_runs_check_rules_for_explicit_app(self):
         with tempfile.TemporaryDirectory() as temporary:
@@ -195,9 +162,12 @@ class StaticRegressionTest(unittest.TestCase):
             digest = hashlib.sha256(apk.read_bytes()).hexdigest()
             log = root / 'checker.log'
             result_path = log.with_suffix('.json')
-            result_path.write_text(json.dumps({'selection': {'status': 'SELECTED'}}))
+            from scripts.test_semantic_protocol import check_report
+            result_path.write_text(json.dumps(check_report()))
+            digest = 'b' * 64
             with patch('scripts.ci.static_regression.subprocess.run') as run:
-                report = check_apk(root, apk, digest, log, app_id='qq')
+                with patch('scripts.ci.static_regression.file_sha256', return_value=digest):
+                    report = check_apk(root, apk, digest, log, app_id='qq')
             self.assertEqual('SELECTED', report['selection']['status'])
             command = run.call_args.args[0]
             self.assertIn(':compat-checker:run', command)

@@ -38,20 +38,23 @@ def _step_runs_checker(step: dict) -> bool:
         return False
     if re.search(r"(?:\./gradlew|gradlew\s).*?(?::compat-checker:|:compat-rules:)", run, re.S):
         return True
-    for module_match in re.finditer(r"scripts\.ci\.([a-zA-Z0-9_]+)([^\n]*)", run):
-        module, arguments = module_match.groups()
-        if module == "app_policy":
-            continue
-        if module == "codex_adaptation" and not re.search(r"\bvalidate\b", arguments):
-            continue
-        source = ROOT / "scripts/ci" / f"{module}.py"
-        if source.is_file() and re.search(r"(?:\./gradlew|:compat-checker:|:compat-rules:)", source.read_text()):
+    module_stages = {
+        "candidate_selection": None,
+        "codex_adaptation": {"eligibility", "prepare", "validate"},
+        "static_regression": None,
+    }
+    for match in re.finditer(r"\bpython(?:3(?:\.\d+)?)?\s+-m\s+scripts\.ci\.([a-zA-Z0-9_]+)([^\n]*)", run):
+        module, arguments = match.groups()
+        stages = module_stages.get(module, set())
+        if stages is None:
             return True
-    if "unittest discover" in run:
-        for source in (ROOT / "scripts").glob("test_*.py"):
-            contents = source.read_text()
-            if re.search(r"(?:\./gradlew|:compat-checker:|:compat-rules:)", contents):
-                return True
+        if stages and re.search(r"\b(" + "|".join(sorted(stages)) + r")\b", arguments):
+            return True
+
+    # Acceptance owns both pure validators and the legacy Gradle catalog loader.
+    # Classify the called API, not any unrelated checker implementation in the module.
+    if re.search(r"\bload_rule_catalog\s*\(", run):
+        return True
     return False
 
 
@@ -141,6 +144,25 @@ def host_platform() -> str:
 
 
 class DexKitGradleIntegrationTest(unittest.TestCase):
+    def test_checker_detector_tracks_actual_python_entrypoints_and_acceptance_calls(self):
+        self.assertFalse(_step_runs_checker({
+            "run": "from scripts.ci.acceptance import validate_semantic_acceptance_table\n"
+                   "validate_semantic_acceptance_table(table, app_id)\n"
+        }))
+        self.assertFalse(_step_runs_checker({
+            "run": "python3 -m scripts.ci.runtime_task register --app-id wechat"
+        }))
+        self.assertTrue(_step_runs_checker({
+            "run": "from scripts.ci.acceptance import load_rule_catalog\n"
+                   "catalog = load_rule_catalog(app_id)\n"
+        }))
+        self.assertTrue(_step_runs_checker({
+            "run": "python3 -m scripts.ci.codex_adaptation validate --app-id wechat"
+        }))
+        self.assertTrue(_step_runs_checker({
+            "run": "./gradlew --no-daemon :compat-checker:run"
+        }))
+
     def test_build_pr_revision_contains_dexkit_action_before_its_consumer(self):
         workflow = parsed_workflows()["build.yml"]
         job = workflow["jobs"]["build"]

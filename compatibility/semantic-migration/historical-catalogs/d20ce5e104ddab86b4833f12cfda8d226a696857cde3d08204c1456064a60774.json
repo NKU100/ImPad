@@ -1,0 +1,25 @@
+{
+  "schemaVersion": 1,
+  "appId": "wechat",
+  "ruleCatalogSha256": "d20ce5e104ddab86b4833f12cfda8d226a696857cde3d08204c1456064a60774",
+  "definitions": [
+    {
+      "ruleId": "wechat_tablet_login_001",
+      "strategyId": "wechat_tablet_login_behavior_001",
+      "requiredTargetIds": [
+        "tablet",
+        "login"
+      ]
+    }
+  ],
+  "bindings": [
+    {
+      "ruleId": "wechat_tablet_login_001",
+      "min": 3040,
+      "max": null
+    }
+  ],
+  "strategyIds": [
+    "wechat_tablet_login_behavior_001"
+  ]
+}

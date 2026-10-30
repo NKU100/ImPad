@@ -7,6 +7,7 @@ import os
 import subprocess
 from pathlib import Path
 import re
+import uuid
 
 from scripts.ci.app_policy import get_policy, policy_for_report
 from scripts.ci.download_url import validate_download_url
@@ -18,6 +19,23 @@ def _sha256(path):
         for block in iter(lambda: source.read(1024 * 1024), b''):
             digest.update(block)
     return digest.hexdigest()
+
+
+def _regression_baseline_binding(baseline):
+    bundle = baseline.migration_bundle
+    return {
+        'sha256': baseline.sha256,
+        'appId': baseline.app_id,
+        'migrationHistorySha256': bundle.history_sha256,
+        'migrationExpectationsSha256': bundle.expectations_sha256,
+        'v2Path': f'compatibility/{baseline.app_id}/acceptance-v2.json',
+        'v2SnapshotSha256': baseline.v2_sha256,
+        'regressionRecordIds': [case['recordId'] for case in baseline.cases],
+        'sourceCases': [{'kind': case['kind'], 'recordId': case['recordId'],
+                         'profileId': case['profileId'],
+                         'sourceSha256': case['acceptanceSnapshotSha256']}
+                        for case in baseline.cases],
+    }
 
 
 def _verify_regression_snapshot(rows, snapshot, app_id, initial_migration,
@@ -104,9 +122,61 @@ def _read_json(path, label):
     return value
 
 
+def _semantic_stage_context(candidate, module, static, regression, repository,
+                            acceptance_path=None, migration_bundle=None,
+                            regression_baseline=None):
+    from scripts.ci.semantic_migration import load_migration_bundle
+    from scripts.ci.semantic_regression_baseline import load_semantic_regression_baseline
+    from scripts.ci.semantic_validation import validate_semantic_stage_models
+
+    repository = Path(repository).resolve()
+    bundle = migration_bundle or load_migration_bundle(repository)
+    baseline = regression_baseline or load_semantic_regression_baseline(
+        repository, candidate['appId'], bundle)
+    baseline.assert_unchanged()
+    expected_acceptance = repository / 'compatibility' / candidate['appId'] / 'acceptance.json'
+    supplied_acceptance = Path(acceptance_path or expected_acceptance).resolve()
+    if supplied_acceptance != expected_acceptance.resolve():
+        raise ValueError('Acceptance path must be the pinned v1 history for this application')
+    profiles = [row for row in bundle.profiles if row['appId'] == candidate['appId']]
+    pinned_hashes = {row['historicalAcceptanceSha256'] for row in profiles}
+    if len(pinned_hashes) != 1 or _sha256(supplied_acceptance) not in pinned_hashes:
+        raise ValueError('Acceptance history bytes differ from the pinned migration bundle')
+
+    records = regression.get('records')
+    if not isinstance(records, list):
+        raise ValueError('Regression report must contain fixed profile rows')
+    evidence_ref = regression.get('evidence')
+    if not isinstance(evidence_ref, dict) or not isinstance(evidence_ref.get('path'), str):
+        raise ValueError('Regression report file reference is missing')
+    regression_file = Path(evidence_ref['path']).resolve()
+    if not regression_file.is_file() or _sha256(regression_file) != evidence_ref.get('sha256', '').lower():
+        raise ValueError('Regression report changed after generation')
+    regression_root = regression_file.parent
+    fixed_reports = {}
+    for row in records:
+        reference = row.get('staticEvidence') if isinstance(row, dict) else None
+        if (not isinstance(reference, dict) or not isinstance(reference.get('path'), str)
+                or not re.fullmatch(r'[a-fA-F0-9]{64}', str(reference.get('sha256', '')))):
+            raise ValueError('Fixed regression row has no hashed static report reference')
+        report_path = _resolve_child(regression_root, reference['path'], 'Fixed regression static report')
+        if _sha256(report_path) != reference['sha256'].lower():
+            raise ValueError('Fixed regression static report changed')
+        report = _read_json(report_path, 'Fixed regression static report')
+        if not isinstance(report, dict):
+            raise ValueError('Fixed regression static report has an invalid schema')
+        fixed_reports[row.get('recordId')] = report
+
+    gate = validate_semantic_stage_models(candidate, module, static, records, bundle,
+                                          fixed_reports, repository=repository,
+                                          baseline=baseline)
+    baseline.assert_unchanged()
+    return bundle, gate, baseline
+
+
 def _validate_qq_raw_evidence(smoke, evidence_root, candidate, module, *, allow_app_id_mismatch=False):
     from scripts.ci.apps.qq import packet_capture, request_protocol, runtime_policy
-    from scripts.ci.redroid_app_smoke import extract_qq_lifecycle_evidence, qq_compatible_hook_installed
+    from scripts.ci.redroid_app_smoke import extract_qq_semantic_lifecycle_evidence
     from scripts.ci.apk_inputs import verify_installed_apk_hashes
 
     entries = smoke.get('evidence')
@@ -174,28 +244,19 @@ def _validate_qq_raw_evidence(smoke, evidence_root, candidate, module, *, allow_
             allow_app_id_mismatch=allow_app_id_mismatch):
         raise ValueError('QQ request identity evidence failed the shared policy')
 
-    logs = files.get('apps/qq/logcat-enabled.txt')
-    if logs is None:
-        raise ValueError('QQ enabled logcat evidence is missing')
-    owners = {item['pid'] for item in captures['enabled'].get('owners', [])}
-    log_text = logs.read_text()
-    if not qq_compatible_hook_installed(log_text, owners):
-        raise ValueError('QQ raw logcat does not show a compatible installed hook in one MSF owner')
-    lifecycle = extract_qq_lifecycle_evidence(
-        log_text, owners,
-        [frame.get('firstObservedMonotonicNs') for frame in captures['enabled'].get('frames', [])],
-    )
-    if any(smoke.get(key) != value for key, value in lifecycle.items()):
-        raise ValueError('QQ lifecycle summary does not match the captured logcat')
-    dexkit = module.get('dexkit', {})
-    if (lifecycle['nativeEvidence'].get('status') != 'LOADED'
-            or lifecycle['nativeEvidence'].get('apiSha256') != dexkit.get('dexkitAndroidApiSha256')
-            or lifecycle['nativeEvidence'].get('nativeSha256') != dexkit.get('dexkitAndroidArm64NativeSha256')
-            or lifecycle['qfixEvidence'].get('status') != 'READY'
-            or lifecycle['qfixEvidence'].get('contextPackage') != 'com.tencent.mobileqq'
-            or lifecycle['timingEvidence'] != {'qfixReadyBeforeNative': True,
-                                               'hookInstalledBeforeRequest': True}):
-        raise ValueError('QQ lifecycle evidence does not match the tested module identity')
+    log_path = files.get('apps/qq/logcat-enabled.txt')
+    process_path = files.get('apps/qq/processes-enabled.txt')
+    if log_path is None or process_path is None:
+        raise ValueError('QQ enabled logcat and process-table evidence are required')
+    owner_pids = {item['pid'] for item in captures['enabled'].get('owners', [])}
+    request_times = [frame.get('firstObservedMonotonicNs')
+                     for frame in captures['enabled'].get('frames', [])]
+    diagnostics, lifecycle = extract_qq_semantic_lifecycle_evidence(
+        log_path.read_text(), owner_pids, request_times, candidate, module,
+        process_path.read_text(), installed_module=None)
+    if (smoke.get('runtimeDiagnostics') != diagnostics
+            or smoke.get('runtimeLifecycleEvidence') != lifecycle):
+        raise ValueError('QQ semantic lifecycle summary differs from hashed process and log evidence')
     return files
 
 
@@ -520,14 +581,24 @@ def export_runtime_adaptation(report_path, candidate_path, evidence_root, operat
 
 def verify_validation_files(candidate_path, module_apk, regression_path, smoke_path,
                             evidence_root, conclusion, repository, acceptance_path,
-                            initial_migration=False, acceptance_snapshot=None):
+                            initial_migration=False, acceptance_snapshot=None,
+                            regression_baseline=None):
     """Reopen stage artifacts, recompute identities, and invoke the shared evaluator."""
     from scripts.ci.candidate_selection import prepare_module
+    from scripts.ci.semantic_migration import load_migration_bundle
+    from scripts.ci.semantic_regression_baseline import load_semantic_regression_baseline
 
+    repository = Path(repository).resolve()
+    if initial_migration:
+        raise ValueError('Semantic verification requires the pinned historical migration bundle')
+    migration_bundle = load_migration_bundle(repository)
+    regression_baseline = regression_baseline or load_semantic_regression_baseline(
+        repository, _read_json(candidate_path, 'Candidate').get('appId'), migration_bundle)
+    regression_baseline.assert_unchanged()
     candidate_path = Path(candidate_path).resolve()
     candidate_root = candidate_path.parent
     candidate = _read_json(candidate_path, 'Candidate')
-    if not isinstance(candidate, dict) or candidate.get('schemaVersion') != 1:
+    if not isinstance(candidate, dict) or candidate.get('schemaVersion') != 2:
         raise ValueError('Candidate report schema is invalid')
     candidate['_root'] = str(candidate_root)
     static_path = _resolve_child(candidate_root, candidate.get('staticReport', ''), 'Static report')
@@ -569,12 +640,13 @@ def verify_validation_files(candidate_path, module_apk, regression_path, smoke_p
     if static_inputs != actual_inputs:
         raise ValueError('Static report input hashes do not bind the staged base/split APK files')
 
-    module = prepare_module(Path(module_apk), static, Path(repository))
+    module = prepare_module(Path(module_apk), static, repository)
     module_apk = Path(module_apk).resolve()
     saved_module = candidate.get('module')
-    stable_module_fields = ('sha256', 'sourceCommit', 'sourceTreeSha256', 'routeConfigurationSha256',
-                            'dependencyLockSha256', 'ruleCatalogSha256', 'routeSha256',
-                            'fingerprintFileSha256', 'fingerprint', 'route', 'dexkit')
+    stable_module_fields = ('schemaVersion', 'sha256', 'sourceCommit', 'sourceTreeSha256',
+                            'routeConfigurationSha256', 'dependencyLockSha256',
+                            'ruleCatalogSha256', 'recognition', 'recognitionSha256',
+                            'fingerprintFileSha256', 'fingerprint', 'dexkit')
     if (not isinstance(saved_module, dict)
             or any(saved_module.get(key) != module.get(key) for key in stable_module_fields)):
         raise ValueError('Candidate module identity differs from the APK build fingerprint')
@@ -583,49 +655,10 @@ def verify_validation_files(candidate_path, module_apk, regression_path, smoke_p
     regression_raw = _read_json(regression_path, 'Regression')
     if not isinstance(regression_raw, list) or not regression_raw:
         raise ValueError('Regression report must contain per-record results')
-    from scripts.ci.app_policy import get_policy
-    acceptance_snapshot_binding = None
-    verified_acceptance_snapshot = None
-    from scripts.ci.acceptance import AcceptanceSnapshot, read_acceptance_snapshot
-
-    if acceptance_snapshot is None:
-        verified_acceptance_snapshot = read_acceptance_snapshot(
-            acceptance_path, candidate['appId'], initial_migration,
-            catalog=static.get('ruleCatalog'), repository=repository)
-    elif (not isinstance(acceptance_snapshot, AcceptanceSnapshot)
-          or acceptance_snapshot.path != Path(acceptance_path).resolve()
-          or acceptance_snapshot.initial_migration is not bool(initial_migration)):
-        raise ValueError('Supplied acceptance snapshot does not match verifier inputs')
-    else:
-        verified_acceptance_snapshot = acceptance_snapshot
-    regression_status, acceptance_snapshot_binding = _verify_regression_snapshot(
-        regression_raw, verified_acceptance_snapshot, candidate['appId'], initial_migration,
-        static.get('ruleCatalog'), repository)
-    if candidate.get('appId') == 'qq' and regression_status != 'NO_HISTORICAL_SAMPLES':
-        from scripts.ci.acceptance import validate_expected_plan
-        for row in regression_raw:
-            if row.get('status') != 'PASSED':
-                continue
-            reference = row.get('staticEvidence')
-            if (not isinstance(reference, dict) or not isinstance(reference.get('path'), str)
-                    or not re.fullmatch(r'[a-f0-9]{64}', reference.get('sha256', '').lower())):
-                raise ValueError('Regression row has no raw static report reference')
-            report_path = _resolve_child(regression_path.parent, reference['path'], 'Regression static report')
-            if _sha256(report_path) != reference['sha256'].lower():
-                raise ValueError('Regression static report hash changed')
-            report = _read_json(report_path, 'Regression static checker')
-            plan = row.get('expectedPlan')
-            if (report.get('appId') != row.get('appId') or report.get('identity') != row.get('identity')
-                    or report.get('analysisScope') != 'STATIC_ONLY'
-                    or report.get('selection', {}).get('status') != 'SELECTED'
-                    or report.get('selection', {}).get('selectedRuleId') != plan.get('ruleId')
-                    or report.get('selection', {}).get('strategyId') != plan.get('strategyId')
-                    or report.get('selection', {}).get('targets') != plan.get('targets')):
-                raise ValueError('Regression raw static report differs from its fixed record')
-            validate_expected_plan(plan, report.get('ruleCatalog', {}), row.get('identity', {}).get('versionCode'))
+    regression_status = 'PASSED' if all(isinstance(row, dict) and row.get('status') == 'PASSED'
+                                         for row in regression_raw) else 'FAILED'
     regression = {'status': regression_status, 'records': regression_raw,
-                  'evidence': {'path': regression_path.relative_to(candidate_root).as_posix()
-                               if regression_path.is_relative_to(candidate_root) else str(regression_path),
+                  'evidence': {'path': str(regression_path),
                                'sha256': _sha256(regression_path)}}
 
     evidence_root = Path(evidence_root).resolve()
@@ -667,7 +700,9 @@ def verify_validation_files(candidate_path, module_apk, regression_path, smoke_p
         smoke['_verifiedEvidenceFiles'] = {path: _sha256(path) for path in files.values()}
 
     result = evaluate_validation(candidate, module, static, regression, smoke, conclusion,
-                                 runtime_rejection=runtime_rejection)
+                                 runtime_rejection=runtime_rejection, repository=repository,
+                                 acceptance_path=acceptance_path, migration_bundle=migration_bundle,
+                                 regression_baseline=regression_baseline)
     result['candidate'].pop('_root', None)
     result['runtime'].pop('_verifiedEvidenceFiles', None)
     try:
@@ -680,23 +715,29 @@ def verify_validation_files(candidate_path, module_apk, regression_path, smoke_p
         'runtime': {'path': runtime_ref_path,
                     'sha256': smoke['evidenceReport']['sha256']},
     }
-    if acceptance_snapshot_binding is not None:
-        result['acceptanceSnapshot'] = acceptance_snapshot_binding
-        result['_acceptanceSnapshotObject'] = verified_acceptance_snapshot
+    reloaded_bundle = load_migration_bundle(repository)
+    if (reloaded_bundle.history_sha256 != migration_bundle.history_sha256
+            or reloaded_bundle.expectations_sha256 != migration_bundle.expectations_sha256):
+        raise ValueError('Semantic migration bundle changed during runtime verification')
+    regression_baseline.assert_unchanged()
+    result['_migrationBundleObject'] = migration_bundle
+    result['_regressionBaselineObject'] = regression_baseline
     result['inputPaths'] = {'candidate': str(candidate_path), 'moduleApk': str(module_apk),
                             'regression': str(regression_path), 'smoke': str(smoke_path),
                             'evidenceRoot': str(evidence_root), 'repository': str(Path(repository).resolve())}
     return result
 
 
-def evaluate_validation(candidate, module, static, regression, smoke, conclusion, *, runtime_rejection=False):
-    """Pure decision over parsed controller inputs; file verification belongs to the caller."""
+def evaluate_validation(candidate, module, static, regression, smoke, conclusion, *, runtime_rejection=False,
+                        repository=None, acceptance_path=None, migration_bundle=None,
+                        regression_baseline=None):
+    """Validate semantic stage models and runtime acceptance evidence."""
     candidate = candidate if isinstance(candidate, dict) else {}
     module = module if isinstance(module, dict) else {}
     static = static if isinstance(static, dict) else {}
     regression = regression if isinstance(regression, dict) else {}
     smoke = smoke if isinstance(smoke, dict) else {}
-    result = {'schemaVersion': 1, 'candidate': candidate, 'module': module, 'static': static,
+    result = {'schemaVersion': 2, 'candidate': candidate, 'module': module, 'static': static,
               'regression': regression, 'runtime': smoke, 'outcome': 'ERROR',
               'failedStage': None, 'diagnostics': [], 'stageEvidence': {}}
     if conclusion in {'cancelled', 'skipped'}:
@@ -707,7 +748,7 @@ def evaluate_validation(candidate, module, static, regression, smoke, conclusion
         result.update(outcome='UNAVAILABLE', failedStage='runtime',
                       diagnostics=[smoke.get('reason', 'Runtime acceptance environment was unavailable')])
         return result
-    if (not isinstance(candidate, dict) or candidate.get('schemaVersion') != 1
+    if (not isinstance(candidate, dict) or candidate.get('schemaVersion') != 2
             or candidate.get('status') != 'PREPARED'):
         result.update(outcome='CANDIDATE_REJECTED', failedStage='candidate',
                       diagnostics=['Candidate schema is invalid'])
@@ -744,98 +785,41 @@ def evaluate_validation(candidate, module, static, regression, smoke, conclusion
                    or not isinstance(item.get('path'), str) or not item['path']
                    or not re.fullmatch(r'[a-f0-9]{64}', item.get('sha256', '').lower())
                    for index, item in enumerate(apk_files))
-            or not isinstance(candidate_plan, dict) or candidate_plan.get('selection') != 'UNIQUE'):
+            or not isinstance(candidate_plan, dict)
+            or not isinstance(candidate.get('expectedExecutionSha256'), str)):
         result.update(outcome='CANDIDATE_REJECTED', failedStage='candidate',
-                      diagnostics=['Candidate APK identity or expected unique plan is invalid'])
+                      diagnostics=['Candidate APK identity or expected complete plan is invalid'])
         return result
-    selection = static.get('selection')
-    if (not isinstance(selection, dict) or static.get('analysisScope') != 'STATIC_ONLY'
-            or static.get('appId') != policy.app_id or static.get('identity') != identity
-            or selection.get('status') != 'SELECTED'):
-        result.update(outcome='CANDIDATE_REJECTED', failedStage='static',
-                      diagnostics=['Shared static check did not pass for this exact APK identity'])
+    if regression.get('status') == 'FAILED' or any(
+            isinstance(row, dict) and row.get('status') == 'FAILED'
+            for row in regression.get('records', [])):
+        result.update(outcome='REGRESSION_FAILED', failedStage='regression',
+                      diagnostics=['A fixed semantic regression representative failed'])
         return result
-    if (not isinstance(static.get('inputHashes'), list)
-            or any(not isinstance(row, dict) for row in static['inputHashes'])):
-        result.update(outcome='CANDIDATE_REJECTED', failedStage='static',
-                      diagnostics=['Shared static checker returned malformed APK input hashes'])
-        return result
-    static_hashes = [row.get('sha256', '').lower() for row in static['inputHashes']]
-    candidate_hashes = [row.get('sha256', '').lower() for row in apk_files]
-    if candidate_hashes != static_hashes:
-        result.update(outcome='CANDIDATE_REJECTED', failedStage='static',
-                      diagnostics=['Static report input APK bytes do not match the staged candidate files'])
-        return result
-    expected = candidate_plan
-    catalog = static.get('ruleCatalog', {})
-    definitions = catalog.get('definitions', []) if isinstance(catalog, dict) else []
-    definition = next((item for item in definitions if isinstance(item, dict)
-                       and item.get('ruleId') == expected.get('ruleId')), None) if isinstance(definitions, list) else None
-    targets = expected.get('targets')
-    static_plan = {'selection': 'UNIQUE', 'ruleId': selection.get('selectedRuleId'),
-                   'strategyId': selection.get('strategyId'), 'targets': selection.get('targets')}
-    if (not isinstance(catalog, dict) or catalog.get('schemaVersion') != 1
-            or catalog.get('appId') != policy.app_id
-            or catalog.get('ruleCatalogSha256') != static.get('ruleCatalogSha256')
-            or not definition or definition.get('strategyId') != expected.get('strategyId')
-            or not isinstance(targets, dict)
-            or set(targets) != set(definition.get('requiredTargetIds', []))
-            or static_plan != expected):
-        result.update(outcome='CANDIDATE_REJECTED', failedStage='static',
-                      diagnostics=['Static plan does not match the current catalog or complete candidate plan'])
-        return result
+    repository = Path(repository or Path.cwd()).resolve()
     try:
-        from scripts.ci.acceptance import validate_expected_plan
-        validate_expected_plan(expected, catalog, identity.get('versionCode'))
-    except (TypeError, ValueError) as error:
+        bundle, gate, regression_baseline = _semantic_stage_context(
+            candidate, module, static, regression, repository, acceptance_path,
+            migration_bundle, regression_baseline)
+    except (OSError, TypeError, ValueError, KeyError) as error:
         result.update(outcome='CANDIDATE_REJECTED', failedStage='static', diagnostics=[str(error)])
         return result
-    route_candidates = static.get('routeCandidates')
-    route = candidate.get('route')
-    route_projection = {'appId': policy.app_id, 'candidates': route_candidates}
-    if (not isinstance(route_candidates, list) or not route_candidates
-            or any(not isinstance(rule_id, str) or not rule_id for rule_id in route_candidates)
-            or len(set(route_candidates)) != len(route_candidates)
-            or expected['ruleId'] not in route_candidates
-            or not isinstance(route, dict)
-            or set(route) != {'appId', 'candidates', 'samplingMode'}
-            or route.get('appId') != policy.app_id
-            or route.get('candidates') != route_candidates
-            or route.get('samplingMode') != ('DIRECT' if len(route_candidates) == 1 else 'GAP')
-            or any(rule_id not in {row.get('ruleId') for row in definitions if isinstance(row, dict)}
-                   for rule_id in route_candidates)):
-        result.update(outcome='CANDIDATE_REJECTED', failedStage='static',
-                      diagnostics=['Candidate route does not match the shared static route candidates'])
-        return result
-    route_sha = hashlib.sha256(json.dumps(
-        route_projection, sort_keys=True, separators=(',', ':')).encode()).hexdigest()
-    if (candidate.get('routeSha256') != route_sha
-            or module.get('routeSha256') != route_sha
-            or module.get('route') != route_projection):
-        result.update(outcome='CANDIDATE_REJECTED', failedStage='static',
-                      diagnostics=['Candidate and module route fingerprints do not match the shared static route'])
-        return result
-    execution = static.get('executionIdentity', {})
-    if (static.get('ruleCatalogSha256') != module.get('ruleCatalogSha256')
-            or candidate.get('ruleCatalogSha256') != module.get('ruleCatalogSha256')
-            or candidate.get('routeSha256') != module.get('routeSha256')
-            or execution.get('fingerprintFileSha256') != module.get('fingerprintFileSha256')
-            or execution.get('sourceTreeSha256') != module.get('sourceTreeSha256')
-            or execution.get('routeConfigurationSha256') != module.get('routeConfigurationSha256')
-            or execution.get('dependencyLockSha256') != module.get('dependencyLockSha256')):
-        result.update(outcome='CANDIDATE_REJECTED', failedStage='static',
-                      diagnostics=['Static plan or source APK bytes do not match the candidate'])
-        return result
-    required_module = ('sha256', 'sourceTreeSha256', 'ruleCatalogSha256', 'routeSha256', 'dependencyLockSha256')
-    required_module += ('routeConfigurationSha256', 'fingerprintFileSha256')
-    if any(not re.fullmatch(r'[a-f0-9]{64}', module.get(key, '').lower()) for key in required_module):
+    result['migrationBundle'] = {
+        'historySha256': gate['migrationHistorySha256'],
+        'expectationsSha256': gate['migrationExpectationsSha256'],
+        'recordIds': gate['recordIds'],
+    }
+    result['regressionBaseline'] = gate['regressionBaseline']
+    result['regressionRecordIds'] = gate['regressionRecordIds']
+    result['baselineSha256'] = gate['baselineSha256']
+    result['v2SnapshotSha256'] = gate['v2SnapshotSha256']
+    result['_regressionBaselineObject'] = regression_baseline
+    required_module = ('sha256', 'sourceTreeSha256', 'ruleCatalogSha256', 'recognitionSha256',
+                       'dependencyLockSha256', 'routeConfigurationSha256', 'fingerprintFileSha256')
+    if any(not re.fullmatch(r'[a-f0-9]{64}', str(module.get(key, '')).lower()) for key in required_module):
         result.update(outcome='ERROR', failedStage='module', diagnostics=['Module source identity is incomplete'])
         return result
-    if regression.get('status') == 'FAILED':
-        result.update(outcome='REGRESSION_FAILED', failedStage='regression',
-                      diagnostics=['A fixed historical acceptance representative failed'])
-        return result
-    if regression.get('status') not in {'PASSED', 'NO_HISTORICAL_SAMPLES'}:
+    if regression.get('status') != 'PASSED':
         result.update(outcome='ERROR', failedStage='regression',
                       diagnostics=['Regression status is missing or invalid'])
         return result
@@ -850,7 +834,7 @@ def evaluate_validation(candidate, module, static, regression, smoke, conclusion
              and smoke.get('moduleApkSha256') == module.get('sha256')
              and smoke.get('moduleSourceTreeSha256') == module.get('sourceTreeSha256')
              and smoke.get('ruleCatalogSha256') == module.get('ruleCatalogSha256')
-             and smoke.get('routeSha256') == module.get('routeSha256')
+             and smoke.get('recognitionSha256') == module.get('recognitionSha256')
              and smoke.get('dependencyLockSha256') == module.get('dependencyLockSha256'))
     if not exact:
         result.update(outcome='ERROR', failedStage='runtime',
@@ -866,13 +850,30 @@ def evaluate_validation(candidate, module, static, regression, smoke, conclusion
                       and smoke.get('requestIdentityExpectation') == candidate.get('requestIdentityExpectation')
                       and validate_request_evidence(smoke.get('requestIdentityEvidence'), apk_sha,
                                                     module['sha256'], smoke.get('requestIdentityExpectation')))
-        lifecycle_ok = (smoke.get('nativeEvidence', {}).get('status') == 'LOADED'
-                        and smoke.get('nativeEvidence', {}).get('apiSha256') == module.get('dexkit', {}).get('dexkitAndroidApiSha256')
-                        and smoke.get('nativeEvidence', {}).get('nativeSha256') == module.get('dexkit', {}).get('dexkitAndroidArm64NativeSha256')
-                        and smoke.get('qfixEvidence', {}).get('status') == 'READY'
-                        and smoke.get('qfixEvidence', {}).get('contextPackage') == policy.package_name
-                        and smoke.get('timingEvidence', {}).get('qfixReadyBeforeNative') is True
-                        and smoke.get('timingEvidence', {}).get('hookInstalledBeforeRequest') is True)
+        lifecycle = smoke.get('runtimeLifecycleEvidence', {})
+        native = lifecycle.get('nativeEvidence', {})
+        qfix = lifecycle.get('qfixEvidence', {})
+        semantic_plan = lifecycle.get('semanticPlanEvidence', {})
+        hook = lifecycle.get('hookEvidence', {})
+        timing = lifecycle.get('timingEvidence', {})
+        lifecycle_ok = (native.get('status') == 'LOADED'
+                        and native.get('apiSha256') == module.get('dexkit', {}).get('dexkitAndroidApiSha256')
+                        and native.get('nativeSha256') == module.get('dexkit', {}).get('dexkitAndroidArm64NativeSha256')
+                        and qfix.get('status') == 'READY'
+                        and qfix.get('contextPackage') == policy.package_name
+                        and semantic_plan.get('status') == 'RESOLVED'
+                        and semantic_plan.get('protocolVersion') == 2
+                        and semantic_plan.get('executionSha256') == candidate.get('expectedExecutionSha256')
+                        and hook.get('status') == 'INSTALLED'
+                        and hook.get('protocolVersion') == 2
+                        and hook.get('executionSha256') == candidate.get('expectedExecutionSha256')
+                        and hook.get('completePlan') == candidate.get('expectedPlan')
+                        and hook.get('processName') == f'{policy.package_name}:MSF'
+                        and hook.get('hookCount') == len(candidate.get('expectedPlan', {}).get('hooks', []))
+                        and timing.get('qfixBeforeNative') is True
+                        and timing.get('nativeBeforePlan') is True
+                        and timing.get('planBeforeHook') is True
+                        and timing.get('compatibleBeforeHook') is True)
         if not request_ok or not lifecycle_ok:
             result.update(outcome='ERROR', failedStage='runtime',
                           diagnostics=['QQ request contrast, native/QFix, or hook timing evidence is incomplete'])
@@ -895,6 +896,13 @@ def evaluate_validation(candidate, module, static, regression, smoke, conclusion
            for ref in stage_evidence.values()):
         result.update(outcome='ERROR', failedStage='evidence',
                       diagnostics=['Static, regression, and runtime report references are required'])
+        return result
+    from scripts.ci.semantic_migration import load_migration_bundle
+    latest_bundle = load_migration_bundle(repository)
+    if (latest_bundle.history_sha256 != bundle.history_sha256
+            or latest_bundle.expectations_sha256 != bundle.expectations_sha256):
+        result.update(outcome='ERROR', failedStage='static',
+                      diagnostics=['Semantic migration bundle changed during verification'])
         return result
     result.update(outcome='VERIFIED', failedStage=None, stageEvidence=stage_evidence,
                   regression=dict(regression, status=regression['status']))
@@ -961,6 +969,8 @@ def verify_cli(argv):
     args.output.parent.mkdir(parents=True, exist_ok=True)
     output_report = dict(report)
     output_report.pop('_acceptanceSnapshotObject', None)
+    output_report.pop('_migrationBundleObject', None)
+    output_report.pop('_regressionBaselineObject', None)
     args.output.write_text(json.dumps(output_report, indent=2) + '\n')
     print(json.dumps({'schemaVersion': report['schemaVersion'], 'outcome': report['outcome'],
                       'failedStage': report['failedStage']}))
@@ -1001,45 +1011,94 @@ def register_cli(argv):
         raise ValueError('Acceptance path must be inside the trusted source checkout') from error
     if acceptance_relative != f'compatibility/{args.app_id}/acceptance.json':
         raise ValueError('Acceptance path does not match the explicit app policy')
+    from scripts.ci.acceptance import (
+        SEMANTIC_ACCEPTANCE_FILENAME, read_semantic_acceptance_table,
+    )
+    from scripts.ci.semantic_regression_baseline import load_semantic_regression_baseline
+    regression_baseline = load_semantic_regression_baseline(repository, args.app_id)
+    regression_baseline.assert_unchanged()
+    semantic_acceptance_path = repository / 'compatibility' / args.app_id / SEMANTIC_ACCEPTANCE_FILENAME
+    if not semantic_acceptance_path.parent.resolve().is_relative_to(repository):
+        raise ValueError('Semantic acceptance output directory escapes the trusted repository')
+    semantic_acceptance_bytes = read_semantic_acceptance_table(
+        semantic_acceptance_path, args.app_id, repository=repository)
     try:
         policy = get_policy(args.app_id)
     except ValueError as error:
         parser.error(str(error))
     report = verify_validation_files(args.candidate, args.module_apk, args.regression,
                                      args.smoke, args.evidence_root, args.conclusion,
-                                     repository, args.acceptance, False)
+                                     repository, args.acceptance, False,
+                                     regression_baseline=regression_baseline)
     if (report.get('outcome') != 'VERIFIED'
             or report.get('candidate', {}).get('appId') != args.app_id):
         raise ValueError('Current file-backed validation is not VERIFIED for the requested app')
-    from scripts.ci.acceptance import make_record
-    record = make_record(
-        report['candidate'], report['module'], report,
-        candidate_path=args.candidate, module_apk=args.module_apk,
-        regression_path=args.regression, smoke_path=args.smoke,
-        evidence_root=args.evidence_root, acceptance_path=args.acceptance,
-        initial_migration=False, repository=repository,
-        conclusion=args.conclusion,
+    if report.get('regressionBaseline') != _regression_baseline_binding(regression_baseline):
+        raise ValueError('Current validation does not bind the complete regression baseline')
+    revalidated = verify_validation_files(
+        args.candidate, args.module_apk, args.regression, args.smoke,
+        args.evidence_root, args.conclusion, repository, args.acceptance, False,
+        acceptance_snapshot=report.get('_acceptanceSnapshotObject'),
+        regression_baseline=regression_baseline,
     )
-    current_after_validation = subprocess.check_output(
-        ['git', 'rev-parse', 'HEAD'], cwd=repository, text=True).strip()
-    if current_after_validation != expected_head:
-        raise ValueError('Trusted source head changed during acceptance registration')
-    from scripts.ci.acceptance import validate_acceptance_snapshot
-    snapshot = report.get('_acceptanceSnapshotObject')
-    records = validate_acceptance_snapshot(snapshot, args.app_id, False,
-                                           catalog=report['static'].get('ruleCatalog'),
-                                           repository=repository)
-    table = {'schemaVersion': 1, 'appId': args.app_id, 'records': records + [record]}
-    acceptance_path = Path(args.acceptance)
-    acceptance_path.parent.mkdir(parents=True, exist_ok=True)
-    temporary = acceptance_path.with_name(acceptance_path.name + '.tmp')
-    temporary.write_text(json.dumps(table, indent=2) + '\n')
-    os.replace(temporary, acceptance_path)
+    compared_fields = ('outcome', 'candidate', 'module', 'static', 'regression', 'runtime',
+                       'stageEvidence', 'acceptanceSnapshot', 'migrationBundle', 'inputPaths',
+                       'regressionBaseline', 'regressionRecordIds', 'baselineSha256',
+                       'v2SnapshotSha256')
+    if any(report.get(field) != revalidated.get(field) for field in compared_fields):
+        raise ValueError('File-backed validation changed during acceptance registration')
+    from scripts.ci.acceptance import (
+        archive_verified_evidence, assert_evidence_archive_unchanged,
+        build_semantic_acceptance_record,
+        cleanup_new_evidence_archive, write_semantic_acceptance_table,
+    )
+    record_id = str(uuid.uuid4())
+    evidence_archive = None
+    evidence_paths = None
+    try:
+        evidence_archive, evidence_paths = archive_verified_evidence(
+            revalidated, repository, record_id)
+        assert_evidence_archive_unchanged(repository, evidence_archive)
+        record = build_semantic_acceptance_record(
+            revalidated, evidence_archive=evidence_archive, record_id=record_id)
+
+        def assert_trusted_head():
+            current = subprocess.check_output(
+                ['git', 'rev-parse', 'HEAD'], cwd=repository, text=True).strip()
+            if current != expected_head:
+                raise ValueError('Trusted source head changed during acceptance registration')
+            regression_baseline.assert_unchanged()
+            assert_evidence_archive_unchanged(repository, evidence_archive)
+
+        assert_trusted_head()
+        table = write_semantic_acceptance_table(
+            semantic_acceptance_path, record, args.app_id,
+            expected_existing_bytes=semantic_acceptance_bytes,
+            repository=repository,
+            before_replace=assert_trusted_head,
+        )
+    except BaseException:
+        if evidence_archive is not None:
+            try:
+                cleanup_new_evidence_archive(repository, evidence_archive)
+            except Exception:
+                pass
+        raise
+    semantic_acceptance_relative = semantic_acceptance_path.relative_to(repository).as_posix()
+    evidence_manifest = {'path': evidence_archive['manifestPath'],
+                         'sha256': evidence_archive['manifestSha256']}
     args.output.parent.mkdir(parents=True, exist_ok=True)
-    args.output.write_text(json.dumps({'schemaVersion': 1, 'status': 'REGISTERED',
+    args.output.write_text(json.dumps({'schemaVersion': 2, 'status': 'REGISTERED',
                                        'recordId': record['recordId'],
-                                       'acceptancePath': acceptance_relative}, indent=2) + '\n')
-    print(json.dumps({'schemaVersion': 1, 'status': 'REGISTERED', 'recordId': record['recordId']}))
+                                       'acceptancePath': semantic_acceptance_relative,
+                                       'evidencePaths': evidence_paths,
+                                       'evidenceManifest': evidence_manifest,
+                                       'recordCount': len(table['records'])}, indent=2) + '\n')
+    print(json.dumps({'schemaVersion': 2, 'status': 'REGISTERED',
+                      'recordId': record['recordId'],
+                      'acceptancePath': semantic_acceptance_relative,
+                      'evidencePaths': evidence_paths,
+                      'evidenceManifest': evidence_manifest}))
 
 
 def main():

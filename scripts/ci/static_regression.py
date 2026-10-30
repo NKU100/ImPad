@@ -8,12 +8,15 @@ import subprocess
 import shutil
 from pathlib import Path
 
-from scripts.ci.acceptance import read_acceptance_snapshot, select_representatives
 from scripts.ci.app_policy import get_policy
 from scripts.ci.discover_latest_wechat import validate_official_apk_url
 from scripts.ci.fetch_latest_wechat_apk import download_candidate, file_sha256, remote_metadata
 from scripts.ci.download_url import validate_download_url
 from scripts.ci.apk_inputs import unpack_apk_inputs
+from scripts.ci.semantic_migration import load_migration_bundle
+from scripts.ci.semantic_protocol import validate_check_report
+from scripts.ci.semantic_regression_baseline import (compare_baseline_report,
+    load_semantic_regression_baseline)
 
 
 def record_apk_inputs(record, cache, base):
@@ -84,34 +87,54 @@ def check_apk(repository, apk, digest, log, offline=False, app_id='wechat', abi_
         subprocess.run(command, cwd=repository, stdout=output, stderr=subprocess.STDOUT,
                        check=True, timeout=300)
     result = json.loads(report.read_text())
-    if result.get('selection', {}).get('status') != 'SELECTED':
-        raise ValueError('Rule checker did not select one complete plan')
+    validate_check_report(result, expected_app_id=app_id)
+    if (result['selection']['status'] != 'SELECTED'
+            or result['inputHashes'][0]['sha256'].lower() != digest.lower()):
+        raise ValueError('Rule checker did not select one complete plan for the exact base APK')
     return result
 
 
 def run_regression(app_id, reports, cache=None, repository=None):
     policy = get_policy(app_id)
     repository = Path(repository or Path.cwd()).resolve()
-    acceptance_path = repository / f'compatibility/{policy.app_id}/acceptance.json'
     cache = Path(cache or Path('.cache') / f'{policy.app_id}-apks')
     reports.mkdir(parents=True, exist_ok=True)
     summary = []
-    snapshot = None
     try:
-        snapshot = read_acceptance_snapshot(acceptance_path, policy.app_id, False,
-                                            repository=repository)
-        records = select_representatives(snapshot.records)
-        if not records:
-            raise ValueError('Fixed acceptance regression requires at least one representative')
+        bundle = load_migration_bundle(repository)
+        baseline = load_semantic_regression_baseline(repository, policy.app_id, bundle)
+        if not baseline.cases:
+            raise ValueError('Fixed semantic regression requires at least one frozen representative')
+        baseline.assert_unchanged()
     except (OSError, ValueError) as error:
         summary.append({'appId': policy.app_id, 'status': 'FAILED', 'error': str(error)})
         (reports / 'results.json').write_text(json.dumps(summary, indent=2) + '\n')
         return summary
 
-    for record in records:
-        identity = record['identity']
+    for case in baseline.cases:
+        record_id = case['recordId']
+        identity = case['identity']
+        source = dict(case['source'])
+        source['apkFiles'] = case['apkFiles']
+        record = {'identity': identity, 'source': source}
         key = (f"{policy.app_id}-{identity['packageName']}-{identity['abi']}-"
                f"{identity['versionCode']}-{identity['apkSha256']}")
+        source_case = {'kind': case['kind'], 'recordId': record_id,
+                       'profileId': case['profileId'],
+                       'sourceSha256': case['acceptanceSnapshotSha256']}
+        row_binding = {
+            'appId': policy.app_id,
+            'recordId': record_id,
+            'identity': identity,
+            'acceptanceSnapshotSha256': case['acceptanceSnapshotSha256'],
+            'migrationHistorySha256': baseline.migration_bundle.history_sha256,
+            'migrationExpectationsSha256': baseline.migration_bundle.expectations_sha256,
+            'profileId': case['profileId'],
+            'initialMigration': False,
+            'baselineSha256': baseline.sha256,
+            'v2SnapshotSha256': baseline.v2_sha256,
+            'baselineSourceCase': source_case,
+        }
         try:
             apk = ensure_apk(record, cache, policy.app_id)
             inputs = record_apk_inputs(record, cache, apk)
@@ -119,36 +142,26 @@ def run_regression(app_id, reports, cache=None, repository=None):
             options = {'abi_splits': inputs[1:]} if len(inputs) > 1 else {}
             checked = check_apk(repository, apk, identity['apkSha256'], log,
                                 app_id=policy.app_id, **options)
-            if checked.get('identity') != identity:
-                raise ValueError('Regression checker identity differs from the fixed acceptance record')
-            expected = record.get('expectedPlan', {})
-            actual = checked.get('selection', {})
-            if (actual.get('selectedRuleId') != expected.get('ruleId')
-                    or actual.get('strategyId') != expected.get('strategyId')
-                    or actual.get('targets') != expected.get('targets')):
-                raise ValueError('Regression selection differs from its fixed acceptance record')
+            compare_baseline_report(baseline, record_id, checked)
             report_path = log.with_suffix('.json')
             summary.append({
-                'appId': policy.app_id,
-                'recordId': record['recordId'],
-                'identity': identity,
-                'expectedPlan': expected,
-                'acceptanceSnapshotSha256': snapshot.sha256,
-                'initialMigration': False,
+                **row_binding,
                 'staticEvidence': {'path': report_path.name, 'sha256': file_sha256(report_path)},
                 'status': 'PASSED',
             })
         except (OSError, ValueError, HTTPException, subprocess.SubprocessError) as error:
             summary.append({
-                'appId': policy.app_id,
-                'recordId': record.get('recordId'),
-                'identity': identity,
-                'expectedPlan': record.get('expectedPlan'),
-                'acceptanceSnapshotSha256': snapshot.sha256,
-                'initialMigration': False,
+                **row_binding,
                 'status': 'FAILED',
                 'error': str(error),
             })
+    try:
+        baseline.assert_unchanged()
+    except (OSError, ValueError) as error:
+        summary.append({'appId': policy.app_id, 'status': 'FAILED',
+                        'baselineSha256': baseline.sha256,
+                        'v2SnapshotSha256': baseline.v2_sha256,
+                        'error': str(error)})
     (reports / 'results.json').write_text(json.dumps(summary, indent=2) + '\n')
     return summary
 

@@ -9,137 +9,30 @@ from unittest.mock import patch
 from scripts.ci import redroid_app_smoke as app
 from scripts.ci import redroid_prepare_apps as prepare
 from scripts.ci import runtime_task
+from scripts.test_semantic_hook_evidence import lifecycle_fixture
 
 
 class ReDroidApplicationSmokeTest(unittest.TestCase):
     def test_wecom_summary_only_fixture_is_rejected_without_production_raw_captures(self):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
-            candidate_root = root / 'candidate'
-            candidate_root.mkdir()
-            output = root / 'runtime'
-            module_apk = root / 'module.apk'
-            module_bytes = b'wecom-test-module'
-            module_apk.write_bytes(module_bytes)
-            apk_sha = hashlib.sha256(b'official-wecom-apk').hexdigest()
-            module_sha = hashlib.sha256(module_bytes).hexdigest()
-            source_tree_sha = 'c' * 64
-            catalog_sha = 'd' * 64
-            route_configuration_sha = '7' * 64
-            dependency_lock_sha = 'f' * 64
-            fingerprint_file_sha = '8' * 64
-            route_candidates = ['wecom_local_001']
-            route_projection = {'appId': 'wecom', 'candidates': route_candidates}
-            route_sha = hashlib.sha256(json.dumps(
-                route_projection, sort_keys=True, separators=(',', ':')).encode()).hexdigest()
-            fingerprint = {'schemaVersion': 1, 'sourceTreeSha256': source_tree_sha,
-                           'routeConfigurationSha256': route_configuration_sha,
-                           'dependencyLockSha256': dependency_lock_sha}
-            module = {'sha256': module_sha, 'sourceTreeSha256': source_tree_sha,
-                      'sourceCommit': 'test-source-commit',
-                      'ruleCatalogSha256': catalog_sha, 'routeSha256': route_sha,
-                      'routeConfigurationSha256': route_configuration_sha,
-                      'fingerprintFileSha256': fingerprint_file_sha,
-                      'dependencyLockSha256': dependency_lock_sha, 'fingerprint': fingerprint,
-                      'route': route_projection, 'dexkit': {'dexkitAndroidApiSha256': '1' * 64,
-                                                            'dexkitAndroidArm64NativeSha256': '2' * 64}}
-            identity = {'packageName': 'com.tencent.wework', 'versionName': '5.0.8',
-                        'versionCode': 70675, 'abi': 'arm64-v8a', 'apkSha256': apk_sha,
-                        'signerSha256': '66896ae0aae48b9e963a3e034fa2ca813ca2f661f53619a92263a8a5c2e3f388'}
-            targets = {
-                'device_type': {'descriptor': 'Lcom/tencent/wework/foundation/logic/Application;->a()I',
-                                'shape': {'parameters': [], 'returnType': 'int', 'isStatic': False}},
-                'app_pad': {'descriptor': 'Lcom/tencent/wework/foundation/logic/Application;->b()Z',
-                            'shape': {'parameters': [], 'returnType': 'boolean', 'isStatic': True}},
-                'service_pad': {'descriptor': 'Lcom/tencent/wework/foundation/impl/WeworkServiceImpl;->c()Z',
-                                'shape': {'parameters': [], 'returnType': 'boolean', 'isStatic': False}},
+            evidence_dir = root / 'apps/wecom'
+            evidence_dir.mkdir(parents=True)
+            files = {
+                'apps/wecom/logcat.txt': evidence_dir / 'logcat.txt',
+                'apps/wecom/screen.xml': evidence_dir / 'screen.xml',
             }
-            plan = {'selection': 'UNIQUE', 'ruleId': 'wecom_local_001',
-                    'strategyId': 'wecom_local_tablet_001', 'targets': targets}
-            catalog = {'schemaVersion': 1, 'appId': 'wecom', 'ruleCatalogSha256': catalog_sha,
-                       'definitions': [{'ruleId': 'wecom_local_001',
-                                        'strategyId': 'wecom_local_tablet_001',
-                                        'requiredTargetIds': ['device_type', 'app_pad', 'service_pad']}],
-                       'bindings': [{'ruleId': 'wecom_local_001', 'min': 70675, 'max': None}],
-                       'strategyIds': ['wecom_local_tablet_001']}
-            candidate_apk = candidate_root / 'apk-inputs/base.apk'
-            candidate_apk.parent.mkdir(parents=True)
-            candidate_apk.write_bytes(b'official-wecom-apk')
-            candidate = {'schemaVersion': 1, 'appId': 'wecom', 'status': 'PREPARED',
-                         'identity': identity,
-                         'sourceUrl': 'https://dldir1.qq.com/wework/work_weixin/WeCom_android_5.0.8.70675_arm64_100001.apk',
-                         'apkFiles': [{'path': 'apk-inputs/base.apk', 'role': 'base', 'sha256': apk_sha}],
-                         'expectedPlan': plan,
-                         'route': dict(route_projection, samplingMode='DIRECT'), 'routeSha256': route_sha,
-                         'ruleCatalogSha256': catalog_sha, 'module': module,
-                         'staticReport': 'static-check.json'}
-            static = {'appId': 'wecom', 'analysisScope': 'STATIC_ONLY', 'identity': identity,
-                      'inputHashes': [{'path': 'apk-inputs/base.apk', 'sha256': apk_sha}],
-                      'ruleCatalogSha256': catalog_sha, 'ruleCatalog': catalog,
-                      'executionIdentity': {'ruleCatalogSha256': catalog_sha,
-                                            'fingerprintFileSha256': fingerprint_file_sha,
-                                            'sourceTreeSha256': source_tree_sha,
-                                            'routeConfigurationSha256': route_configuration_sha,
-                                            'dependencyLockSha256': dependency_lock_sha},
-                      'routeCandidates': route_candidates,
-                      'selection': {'status': 'SELECTED', 'selectedRuleId': 'wecom_local_001',
-                                    'strategyId': 'wecom_local_tablet_001', 'targets': targets}}
-            static_path = candidate_root / 'static-check.json'
-            static_path.write_text(json.dumps(static))
-            candidate['staticReportSha256'] = hashlib.sha256(static_path.read_bytes()).hexdigest()
-            candidate_path = candidate_root / 'candidate.json'
-            candidate_path.write_text(json.dumps(candidate))
-            acceptance_path = root / 'compatibility/wecom/acceptance.json'
-            acceptance_path.parent.mkdir(parents=True)
-            acceptance_path.write_text(json.dumps({'schemaVersion': 1, 'appId': 'wecom', 'records': []}))
-            regression_path = candidate_root / 'regression/results.json'
-            regression_path.parent.mkdir(parents=True)
-            regression_path.write_text(json.dumps([{
-                'appId': 'wecom', 'status': 'NO_HISTORICAL_SAMPLES',
-                'acceptanceSnapshotSha256': hashlib.sha256(acceptance_path.read_bytes()).hexdigest(),
-                'initialMigration': True,
-            }]))
+            files['apps/wecom/logcat.txt'].write_text('captured WeCom logcat')
+            files['apps/wecom/screen.xml'].write_text('<hierarchy/>')
+            smoke = {'evidence': [
+                {'path': path, 'sha256': hashlib.sha256(file.read_bytes()).hexdigest()}
+                for path, file in files.items()
+            ]}
+            candidate = {'identity': {'packageName': 'com.tencent.wework'}}
 
-            def run_ui_smoke(app_id, apps_root, inputs, tested_module_hash):
-                evidence_dir = apps_root / app_id
-                evidence_dir.mkdir(parents=True)
-                (evidence_dir / 'logcat.txt').write_text('captured WeCom logcat')
-                (evidence_dir / 'screen.xml').write_text('<hierarchy/>')
-                return {'appId': app_id, 'status': 'RUNTIME_SMOKE_VERIFIED',
-                        'evidenceDirectory': str(evidence_dir), 'moduleApkSha256': tested_module_hash,
-                        'baseline': 'NO_TABLET_ENTRY', 'qrPage': 'LoginQrCodeForAndroidPad'}
-
-            instance = object.__new__(app.AppSmoke)
-            instance.probe = SimpleNamespace(output=output)
-            instance.inputs = {'wecom': {}}
-            instance.module_hash = module_sha
-            instance.module_identity = module
-            instance.restart = lambda: None
-            with patch('scripts.ci.redroid_ui_smoke.probe', side_effect=run_ui_smoke):
-                produced = instance.run_candidate({'appId': 'wecom', 'identity': identity})
-
-            self.assertEqual('RUNTIME_SMOKE_VERIFIED', produced['status'])
-            with patch('scripts.ci.candidate_selection.prepare_module', return_value=module):
-                with self.assertRaisesRegex(ValueError, 'missing required UI, process, module or manager snapshots'):
-                    runtime_task.verify_validation_files(
-                        candidate_path, module_apk, regression_path,
-                        output / 'evidence/smoke-report.json', output, 'success', root,
-                        acceptance_path, initial_migration=True,
-                    )
-            self.assertEqual(module_sha, produced['moduleApkSha256'])
-            self.assertEqual(source_tree_sha, produced['moduleSourceTreeSha256'])
-            self.assertEqual(catalog_sha, produced['ruleCatalogSha256'])
-            self.assertEqual(route_sha, produced['routeSha256'])
-            self.assertEqual(dependency_lock_sha, produced['dependencyLockSha256'])
-            self.assertEqual({'apps/wecom/logcat.txt', 'apps/wecom/screen.xml'},
-                             {item['path'] for item in produced['evidence']})
-
-            mismatched_module = app.pipeline_report(
-                {'appId': 'wecom', 'status': 'RUNTIME_SMOKE_VERIFIED',
-                 'evidenceDirectory': str(output / 'apps/wecom'), 'moduleApkSha256': 'e' * 64},
-                {'appId': 'wecom', 'identity': identity}, module, output,
-            )
-            self.assertEqual('RUNTIME_REJECTED', mismatched_module['status'])
+            with self.assertRaisesRegex(
+                    ValueError, 'missing required UI, process, module or manager snapshots'):
+                runtime_task._validate_wecom_raw_evidence(smoke, root, candidate, {})
 
     def test_qq_lifecycle_requires_native_qfix_hook_and_request_order_from_same_process(self):
         logs = '\n'.join([
@@ -158,6 +51,50 @@ class ReDroidApplicationSmokeTest(unittest.TestCase):
         self.assertEqual('NOT_OBSERVED', evidence['nativeEvidence']['status'])
         self.assertFalse(evidence['timingEvidence']['hookInstalledBeforeRequest'])
 
+    def test_qq_semantic_lifecycle_binds_current_msf_and_complete_plan_before_requests(self):
+        candidate, module, processes, logs, installed, _ = lifecycle_fixture('qq')
+        diagnostics, evidence = app.extract_qq_semantic_lifecycle_evidence(
+            logs, {3100}, [400, 500], candidate, module, processes, installed)
+        self.assertEqual('INSTALLED_1', diagnostics['hookInstallation'])
+        self.assertEqual('READY', evidence['qfixEvidence']['status'])
+        self.assertTrue(evidence['timingEvidence']['qfixReadyBeforeNative'])
+        self.assertTrue(evidence['timingEvidence']['hookInstalledBeforeRequest'])
+
+    def test_qq_semantic_lifecycle_rejects_wrong_pid_missing_plan_stale_process_and_multiple_owners(self):
+        candidate, module, processes, logs, _, _ = lifecycle_fixture('qq')
+        cases = (
+            (logs, {9999}, processes),
+            ('\n'.join(line for line in logs.splitlines() if 'semantic_plan' not in line), {3100}, processes),
+            (logs.replace('(com.tencent.mobileqq:MSF)', '(com.tencent.mobileqq:worker)'), {3100}, processes),
+            (logs, {3100, 3200}, processes + '3200 com.tencent.mobileqq:MSF\n'),
+        )
+        for scoped, owners, process_text in cases:
+            with self.subTest(owners=owners, process_text=process_text), self.assertRaises(ValueError):
+                app.extract_qq_semantic_lifecycle_evidence(
+                    scoped, owners, [400], candidate, module, process_text)
+
+    def test_qq_semantic_lifecycle_requires_positive_request_times_and_hook_precedes_all(self):
+        candidate, module, processes, logs, _, _ = lifecycle_fixture('qq')
+        for request_times in ([], [0, -1], [250, 400]):
+            with self.subTest(request_times=request_times), self.assertRaises(ValueError):
+                app.extract_qq_semantic_lifecycle_evidence(
+                    logs, {3100}, request_times, candidate, module, processes)
+
+    def test_qq_process_snapshot_uses_actual_ps_output_and_requires_one_current_owner(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            evidence_dir = Path(temporary)
+            expected = 'PID NAME\n3100 com.tencent.mobileqq:MSF\n'
+            fake_smoke = SimpleNamespace(su=lambda command: SimpleNamespace(stdout=expected.encode()))
+            process_text = app.capture_qq_process_snapshot(fake_smoke, evidence_dir, {3100})
+            self.assertEqual(expected, process_text)
+            self.assertEqual(expected, (evidence_dir / 'processes-enabled.txt').read_text())
+            for bad_output, owners in ((expected, {3101}),
+                                       (expected + '3200 com.tencent.mobileqq:MSF\n', {3100}),
+                                       ('PID NAME\n', {3100})):
+                fake_smoke.su = lambda command, output=bad_output: SimpleNamespace(stdout=output.encode())
+                with self.subTest(output=bad_output, owners=owners), self.assertRaises(ValueError):
+                    app.capture_qq_process_snapshot(fake_smoke, evidence_dir, owners)
+
     def test_qq_compatibility_and_hook_installation_must_share_a_captured_owner(self):
         logs = '\n'.join([
             'x x 123 x I ImPad: status=COMPATIBLE',
@@ -167,7 +104,7 @@ class ReDroidApplicationSmokeTest(unittest.TestCase):
         logs += '\nx x 123 x I ImPad: installed 1 QQ hooks'
         self.assertTrue(app.qq_compatible_hook_installed(logs, {123}))
 
-    def test_production_qq_smoke_passes_logcat_text_to_compatibility_gate(self):
+    def test_production_qq_smoke_does_not_accept_legacy_markers_without_semantic_candidate(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             output = root / 'output'
@@ -191,6 +128,8 @@ class ReDroidApplicationSmokeTest(unittest.TestCase):
                 if active:
                     evidence = output / 'apps' / 'qq'
                     evidence.mkdir(parents=True, exist_ok=True)
+                    (evidence / 'processes-enabled.txt').write_text(
+                        'PID NAME\n123 com.tencent.mobileqq:MSF\n')
                     (evidence / 'logcat-enabled.txt').write_text(
                         '10-19 12:00:00.001 123 456 I ImPad: status=COMPATIBLE\n'
                         '10-19 12:00:00.002 123 456 I ImPad: installed 1 QQ hooks\n')
@@ -204,6 +143,8 @@ class ReDroidApplicationSmokeTest(unittest.TestCase):
                     patch.object(app.smoke, 'save'), \
                     patch.object(app.smoke, 'snapshot'), \
                     patch.object(app.runtime_probe, 'manager_state', return_value={'scopeVerified': True}), \
+                    patch.object(app.runtime_probe, 'installed_identity',
+                                 return_value={'baseApkPath': '/data/app/impad/base.apk'}), \
                     patch.object(app.AppSmoke, 'capture', autospec=True, side_effect=capture):
                 report = instance.run_candidate({
                     'appId': 'qq',
@@ -213,11 +154,67 @@ class ReDroidApplicationSmokeTest(unittest.TestCase):
                 written_report = json.loads((output / 'evidence/smoke-report.json').read_text())
 
         self.assertEqual('ACCEPTANCE_UNAVAILABLE', report['status'])
-        self.assertEqual('RuntimeError: Native, QFix, or hook-before-request evidence is missing',
+        self.assertEqual('ValueError: Semantic lifecycle candidate must use schema version 2',
                          report['reason'])
         self.assertEqual('REQUEST_APP_ID_CONTRAST', report['acceptanceKind'])
         self.assertEqual(capture_proof, report['requestIdentityEvidence'])
         self.assertEqual(report, written_report)
+
+    def test_successful_qq_report_saves_both_semantic_summaries_and_hashed_process_snapshot(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            output = root / 'output'
+            (root / 'qq.apk').write_bytes(b'qq')
+            candidate, semantic_module, process_text, logs, installed, _ = lifecycle_fixture(
+                'qq', apk_sha='a' * 64)
+            module = dict(semantic_module, sha256='b' * 64, sourceTreeSha256='c' * 64,
+                          ruleCatalogSha256=candidate['ruleCatalogSha256'],
+                          recognitionSha256='d' * 64, dependencyLockSha256='e' * 64)
+            instance = object.__new__(app.AppSmoke)
+            instance.root = root
+            instance.probe = SimpleNamespace(output=output)
+            instance.inputs = {'qq': {'identity': dict(candidate['identity'], versionName='9.3.1'),
+                                      'requestIdentityExpectation': {
+                                          'contract': 'QQ_SSO_REQUEST_IDENTITY_V1',
+                                          'apkSha256': 'a' * 64, 'phoneAppId': 10, 'tabletAppId': 20}}}
+            instance.module_hash = 'b' * 64
+            instance.module_identity = module
+            from scripts.test_qq_requests import proof
+            pair = proof('a' * 64, 'b' * 64)
+            for side in ('disabled', 'enabled'):
+                pair[side]['owners'][0]['pid'] = 3100
+            pair['enabled']['frames'][0]['firstObservedMonotonicNs'] = 400
+
+            def capture(_instance, enabled, _profile):
+                if enabled:
+                    evidence_dir = output / 'apps/qq'
+                    evidence_dir.mkdir(parents=True, exist_ok=True)
+                    (evidence_dir / 'processes-enabled.txt').write_text(process_text)
+                    (evidence_dir / 'logcat-enabled.txt').write_text(logs)
+                return pair['enabled' if enabled else 'disabled']
+
+            with patch.object(app.smoke, 'configure_app_id'), \
+                    patch.object(app, 'checked_digest'), \
+                    patch.object(app.smoke, 'adb', return_value=SimpleNamespace(stdout=b'', stderr=b'', returncode=0)), \
+                    patch.object(app.smoke, 'mobile_input'), \
+                    patch.object(app.smoke, 'save'), \
+                    patch.object(app.smoke, 'snapshot'), \
+                    patch.object(app.runtime_probe, 'manager_state', return_value={'scopeVerified': True}), \
+                    patch.object(app.runtime_probe, 'installed_identity', return_value=installed), \
+                    patch.object(app.runtime_policy, 'validate_request_evidence', return_value=True), \
+                    patch.object(app.AppSmoke, 'capture', autospec=True, side_effect=capture):
+                report = instance.qq(instance.inputs['qq'], candidate)
+
+            evidence_dir = output / 'apps/qq'
+            process_file = evidence_dir / 'processes-enabled.txt'
+            process_ref = next(item for item in report['evidence']
+                               if item['path'] == 'apps/qq/processes-enabled.txt')
+            self.assertEqual(hashlib.sha256(process_file.read_bytes()).hexdigest(), process_ref['sha256'])
+            self.assertIn('runtimeDiagnostics', report)
+            self.assertEqual('READY', report['runtimeLifecycleEvidence']['qfixEvidence']['status'])
+            saved = json.loads((evidence_dir / 'report.json').read_text())
+            self.assertEqual(report['runtimeDiagnostics'], saved['runtimeDiagnostics'])
+            self.assertEqual(report['runtimeLifecycleEvidence'], saved['runtimeLifecycleEvidence'])
 
     def test_memory_units_are_normalized(self):
         self.assertEqual(app.memory_mib('1.5GiB / 16GiB'), 1536)

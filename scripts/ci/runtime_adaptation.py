@@ -18,6 +18,7 @@ from scripts.ci.runtime_task import _resolve_child, evaluate_validation
 from scripts.ci.static_regression import run_regression
 from scripts.ci.adb_relay import normalize_adb_server_socket
 from scripts.ci.apk_inputs import resolve_apk_inputs
+from scripts.ci.semantic_protocol import validate_check_report
 
 
 def configure(directory):
@@ -153,6 +154,24 @@ def is_sha256(value):
     return isinstance(value, str) and re.fullmatch(r'[a-f0-9]{64}', value.lower()) is not None
 
 
+def validate_prepared_candidate(candidate, static_report, app_id, expected_identity):
+    """Bind the prepared candidate to one complete schema2 checker selection."""
+    if (not isinstance(candidate, dict) or type(candidate.get('schemaVersion')) is not int
+            or candidate.get('schemaVersion') != 2 or candidate.get('status') != 'PREPARED'
+            or candidate.get('appId') != app_id or candidate.get('identity') != expected_identity):
+        raise ValueError('Prepared runtime candidate differs from the exact shared-checker candidate')
+    validate_check_report(static_report, expected_app_id=app_id, expected_identity=expected_identity)
+    selection = static_report['selection']
+    if selection['status'] != 'SELECTED' or selection['plan'] is None:
+        raise ValueError('Shared static check did not select one complete plan')
+    if (candidate.get('ruleCatalog') != static_report['ruleCatalog']
+            or candidate.get('ruleCatalogSha256') != static_report['ruleCatalog']['ruleCatalogSha256']
+            or candidate.get('snapshot') != static_report['snapshot']
+            or candidate.get('expectedPlan') != selection['plan']
+            or candidate.get('expectedExecutionSha256') != selection['executionSha256']):
+        raise ValueError('Prepared candidate does not match the selected complete plan and snapshot')
+
+
 def verify_runtime(directory):
     state, root = configure(directory)
     candidate_root = Path(state['worktree']).resolve() / 'work/runtime-smoke'
@@ -184,8 +203,8 @@ def verify_runtime(directory):
             raise ValueError('Prepared candidate report is missing from the candidate artifact root') from error
         candidate = json.loads(candidate_path.read_text())
         original = state.get('report', {})
-        if (not isinstance(candidate, dict) or candidate.get('schemaVersion') != 1
-                or candidate.get('status') != 'PREPARED'
+        if (not isinstance(candidate, dict) or type(candidate.get('schemaVersion')) is not int
+                or candidate.get('schemaVersion') != 2 or candidate.get('status') != 'PREPARED'
                 or candidate.get('appId') != policy.app_id
                 or candidate.get('identity') != original.get('identity')):
             raise ValueError('Prepared runtime candidate differs from the exact shared-checker candidate')
@@ -198,6 +217,7 @@ def verify_runtime(directory):
         if sha256(static_path) != candidate.get('staticReportSha256'):
             raise ValueError('Shared checker report changed after candidate preparation')
         static_report = json.loads(static_path.read_text())
+        validate_prepared_candidate(candidate, static_report, policy.app_id, original.get('identity'))
         apk_files = candidate.get('apkFiles')
         if not isinstance(apk_files, list) or not apk_files:
             raise ValueError('Candidate APK file list is missing')

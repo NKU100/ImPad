@@ -37,11 +37,15 @@ def _activity(name):
 
 def _wecom_logcat(candidate, module):
     plan = candidate['expectedPlan']
+    catalog = candidate['ruleCatalog']
     dexkit = module['dexkit']
+    encoded_plan = base64.urlsafe_b64encode(
+        json.dumps(plan, separators=(',', ':')).encode()).decode().rstrip('=')
+    execution_sha = candidate['expectedExecutionSha256']
     native_path = '/data/app/io.github.nku100.impad/base.apk'
     rows = [
         '07-01 12:00:00.100  2727  2727 I ImPad: (com.tencent.wework)[io.github.nku100.impad,ImPad,test,1,1] '
-        f"status=COMPATIBLE rule plan={plan['ruleId']}/{plan['strategyId']} "
+        f"status=COMPATIBLE rule plan={catalog['recognizerIds'][0]}/{plan['strategyId']} "
         f"versionCode={candidate['identity']['versionCode']} apkInputs=1 cacheHit=false",
         '07-01 12:00:00.200  2727  2727 I ImPad: (com.tencent.wework)[io.github.nku100.impad,ImPad,test,1,1] '
         'installed 3 WeCom hooks',
@@ -54,9 +58,15 @@ def _wecom_logcat(candidate, module):
         f"nativeSha256={dexkit['dexkitAndroidArm64NativeSha256']} nativeAbi=arm64-v8a "
         f'packagingMode=APK_DIRECT sourceApkPath={native_path} '
         f'nativeLoadPath={native_path}!/lib/arm64-v8a/libdexkit.so',
+        '07-01 12:00:00.450  2727  2727 I ImPad: (com.tencent.wework)[io.github.nku100.impad,ImPad,synthetic,1,1] '
+        'rule-runtime event=semantic_plan protocolVersion=2 elapsedRealtimeNs=250 '
+        f'executionSha256={execution_sha} plan={encoded_plan} cacheHit=false attempts=1',
         '07-01 12:00:00.500  2727  2727 I ImPad: (com.tencent.wework)[io.github.nku100.impad,ImPad,test,1,1] '
-        f"rule-runtime event=hook_installed elapsedRealtimeNs=300 ruleId={plan['ruleId']} "
-        f"strategyId={plan['strategyId']} hookCount=3 processName={PACKAGE}",
+        'rule-runtime event=hook_installed protocolVersion=2 elapsedRealtimeNs=300 '
+        f"contractId={catalog['contractId']} contractRevision={catalog['contractRevision']} "
+        f"strategyId={plan['strategyId']} strategyRevision={plan['strategyRevision']} "
+        f"executionSha256={execution_sha} snapshotSha256={plan['snapshotSha256']} "
+        f"hookCount={len(plan['hooks'])} processName={PACKAGE}",
     ]
     return '\n'.join(rows) + '\n'
 
@@ -246,63 +256,44 @@ class WeComPortableRuntimeReplayTest(unittest.TestCase):
         smoke_path.write_text(json.dumps(pipeline, indent=2) + '\n')
         return candidate_path, module_apk, regression_path, smoke_path, output, acceptance_path, pipeline
 
-    def test_failed_production_probe_reaches_file_verified_runtime_incompatibility(self):
+    def test_failed_synthetic_probe_is_rejected_and_cannot_bypass_migration_gate(self):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
             candidate_path, module_apk, regression_path, smoke_path, output, acceptance_path, pipeline = \
                 self._produce_from_fixture_ui_and_log_capture(root, missing_entry=True)
-            self.assertTrue(pipeline['evidence'])
-            report = runtime_task.verify_validation_files(
-                candidate_path, module_apk, regression_path, smoke_path, output,
-                'failure', ROOT, acceptance_path, initial_migration=True)
-            self.assertEqual('RUNTIME_INCOMPATIBLE', report['outcome'])
-            self.assertEqual('runtime', report['failedStage'])
-            self.assertNotIn('rejectionReplayError', report['runtime'])
-            nested = candidate_path.parent / 'evidence/runtime-smoke'
-            shutil.copytree(output, nested)
-            replayed = runtime_task.verify_validation_files(
-                candidate_path, module_apk, regression_path, nested / 'evidence/smoke-report.json', nested,
-                'failure', ROOT, acceptance_path, initial_migration=True)
-            replayed.pop('_acceptanceSnapshotObject', None)
-            report_path = candidate_path.parent / 'runtime-candidate-report.json'
-            report_path.write_text(json.dumps(replayed))
-            self.assertTrue(runtime_task.export_runtime_adaptation(
-                report_path, candidate_path, nested, 'adapt'))
-            exported = json.loads(candidate_path.read_text())
-            self.assertEqual('INCOMPATIBLE', exported['status'])
-            from scripts.ci.codex_adaptation import copy_runtime_failure
-            analysis = root / 'agent-analysis'
-            copy_runtime_failure(exported, candidate_path.parent, analysis)
-            self.assertTrue((analysis / 'evidence/runtime-smoke/apps/wecom/module-on-login.xml').is_file())
-            # Restore the original prepared candidate for the identity-mismatch check.
-            candidate_path.write_text(json.dumps(report['candidate']))
-            raw = json.loads(smoke_path.read_text())
-            raw['moduleApkSha256'] = 'f' * 64
-            smoke_path.write_text(json.dumps(raw))
-            rejected = runtime_task.verify_validation_files(
-                candidate_path, module_apk, regression_path, smoke_path, output,
-                'failure', ROOT, acceptance_path, initial_migration=True)
-            self.assertEqual('ERROR', rejected['outcome'])
+            self.assertEqual('RUNTIME_REJECTED', pipeline['status'])
+            with self.assertRaisesRegex(ValueError, 'WeCom runtime UI summary differs'):
+                runtime_task._validate_wecom_raw_evidence(pipeline, output, self.candidate, self.module)
+            with self.assertRaisesRegex(ValueError, 'pinned historical migration bundle'):
+                runtime_task.verify_validation_files(
+                    candidate_path, module_apk, regression_path, smoke_path, output,
+                    'failure', ROOT, acceptance_path, initial_migration=True)
 
-    def test_production_probe_raw_report_verifier_and_evaluator_share_the_saved_ui_capture(self):
+    def test_synthetic_schema2_probe_and_raw_verifier_share_saved_ui_capture(self):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
             candidate_path, module_apk, regression_path, smoke_path, output, acceptance_path, pipeline = \
                 self._produce_from_fixture_ui_and_log_capture(root)
-            verified = runtime_task.verify_validation_files(
-                candidate_path, module_apk, regression_path, smoke_path, output,
-                'success', ROOT, acceptance_path, initial_migration=True)
-            self.assertEqual('VERIFIED', verified['outcome'])
-            lifecycle = verified['runtime']['runtimeLifecycleEvidence']
+            self.assertEqual('RUNTIME_SMOKE_VERIFIED', pipeline['status'])
+            candidate = json.loads(candidate_path.read_text())
+            module = candidate['module']
+            verified_files = runtime_task._validate_wecom_raw_evidence(
+                pipeline, output, candidate, module)
+            self.assertIn('apps/wecom/tablet-qr-confirmed.xml', verified_files)
+            lifecycle = pipeline['runtimeLifecycleEvidence']
             self.assertEqual('READY', lifecycle['tinkerEvidence']['status'])
             self.assertEqual('LOADED', lifecycle['nativeEvidence']['status'])
             self.assertEqual(3, lifecycle['hookEvidence']['hookCount'])
-
-            failed_outer_gate = runtime_task.evaluate_validation(
-                verified['candidate'], verified['module'], verified['static'],
-                verified['regression'], verified['runtime'], 'failure')
-            self.assertEqual('ERROR', failed_outer_gate['outcome'])
-            self.assertEqual('runtime', failed_outer_gate['failedStage'])
+            candidate_root = candidate_path.parent
+            static = json.loads((candidate_root / candidate['staticReport']).read_text())
+            self.assertEqual(2, static['schemaVersion'])
+            provenance = json.loads((candidate_root / 'synthetic-fixture-provenance.json').read_text())
+            self.assertEqual('SYNTHETIC_TEST_ONLY', provenance['kind'])
+            self.assertFalse(provenance['deviceBusinessValidation'])
+            with self.assertRaisesRegex(ValueError, 'pinned historical migration bundle'):
+                runtime_task.verify_validation_files(
+                    candidate_path, module_apk, regression_path, smoke_path, output,
+                    'success', ROOT, acceptance_path, initial_migration=True)
 
     def test_wecom_raw_verifier_rejects_summary_ui_activity_and_scope_tampering(self):
         with tempfile.TemporaryDirectory() as temporary:
@@ -412,14 +403,18 @@ class WeComPortableRuntimeReplayTest(unittest.TestCase):
             root = Path(temporary)
             candidate_path, module_apk, regression_path, smoke_path, output, acceptance_path, _ = \
                 self._produce_from_fixture_ui_and_log_capture(root)
+            candidate = json.loads(candidate_path.read_text())
+            module = candidate['module']
 
             original_apk = module_apk.read_bytes()
+            self.assertEqual(module['sha256'], hashlib.sha256(original_apk).hexdigest())
+            candidate_selection.verify_module_identity(module, module_apk, ROOT)
+
             module_apk.write_bytes(original_apk + b'tampered')
-            with self.assertRaisesRegex(ValueError, 'Candidate module identity differs'):
-                runtime_task.verify_validation_files(
-                    candidate_path, module_apk, regression_path, smoke_path, output,
-                    'success', ROOT, acceptance_path, initial_migration=True)
+            with self.assertRaisesRegex(ValueError, 'Module APK changed after identity preparation'):
+                candidate_selection.verify_module_identity(module, module_apk, ROOT)
             module_apk.write_bytes(original_apk)
+            candidate_selection.verify_module_identity(module, module_apk, ROOT)
 
             changed_repository = root / 'changed-source-tree'
             for row in candidate_selection.module_source_hashes(ROOT):
@@ -429,10 +424,8 @@ class WeComPortableRuntimeReplayTest(unittest.TestCase):
                 shutil.copyfile(source, target)
             changed_source = changed_repository / 'scripts/ci/runtime_task.py'
             changed_source.write_bytes(changed_source.read_bytes() + b'\n# changed test input\n')
-            with self.assertRaisesRegex(ValueError, 'fingerprint does not match current source'):
-                runtime_task.verify_validation_files(
-                    candidate_path, module_apk, regression_path, smoke_path, output,
-                    'success', changed_repository, acceptance_path, initial_migration=True)
+            with self.assertRaisesRegex(ValueError, 'source fingerprint changed after identity preparation'):
+                candidate_selection.verify_module_identity(module, module_apk, changed_repository)
 
     @staticmethod
     def _refresh_reference(smoke, relative, path):

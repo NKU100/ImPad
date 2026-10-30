@@ -22,8 +22,9 @@ from scripts.ci.candidate_selection import (
     dependency_lock_sha256, module_source_hashes, prepare_module,
     route_configuration_sha256, source_tree_sha256, write_local_runtime_assets,
 )
-from scripts.ci.redroid_prepare_apps import write_candidate
-from scripts.ci.static_regression import run_regression
+from scripts.ci.semantic_protocol import (execution_identity_sha256, plan_execution_sha256,
+    snapshot_sha256, validate_check_report)
+from scripts.test_semantic_protocol import check_report, catalog as semantic_catalog, plan as semantic_plan, snapshot as semantic_snapshot
 from scripts.test_dexkit_gradle_integration import parsed_workflows
 
 
@@ -422,7 +423,7 @@ class RuntimeValidationWorkflowTest(unittest.TestCase):
 
 
 
-    def test_workflows_never_infer_initial_migration_from_a_missing_acceptance_table(self):
+    def test_workflow_keeps_pinned_history_separate_from_schema2_candidate_verification(self):
         workflows = parsed_workflows()
         runtime = workflows['runtime-validation.yml']
         prepare_steps = runtime['jobs']['prepare']['steps']
@@ -433,57 +434,331 @@ class RuntimeValidationWorkflowTest(unittest.TestCase):
         result_step = next(step for step in runtime['jobs']['result']['steps']
                            if step.get('name') == 'Validate pipeline acceptance without publishing support')
         self.assertNotIn('--initial-migration', result_step['run'])
+        self.assertIn('requires a prepared schema2 candidate', result_step['run'])
+        self.assertIn('requires a schema2 APK file snapshot report', result_step['run'])
+        self.assertIn('selected schema2 complete plan', result_step['run'])
+        self.assertIn("compatibility/{os.environ['APP_ID']}/acceptance.json", result_step['run'])
         registration_step = next(step for step in workflows['compatibility-app.yml']['jobs']['runtime-result']['steps']
                                  if step.get('name') == 'Record verified acceptance or rejection')
         self.assertNotIn('--initial-migration', registration_step['run'])
-        self.assertIn('acceptance"', registration_step['run'])
+        self.assertIn('--acceptance "$acceptance"', registration_step['run'])
+        self.assertIn("expected_acceptance_path=\"compatibility/${APP_ID}/acceptance-v2.json\"",
+                      registration_step['run'])
+        self.assertIn('read_semantic_acceptance_table', registration_step['run'])
+        self.assertIn('assert_evidence_archive_unchanged', registration_step['run'])
+        self.assertIn('evidencePaths differ from the ordered v2 archive mapping',
+                      registration_step['run'])
+        self.assertIn('history_sha256_before', registration_step['run'])
+        self.assertIn('git -C tested add -- "${stage_paths[@]}"', registration_step['run'])
+        self.assertIn('git -C tested diff --cached --name-only -z', registration_step['run'])
+        self.assertIn('--verify-index', registration_step['run'])
+        self.assertNotIn('git -C tested add "compatibility/${APP_ID}/acceptance.json"',
+                         registration_step['run'])
 
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
-            env = dict(os.environ, APP_ID='qq', PYTHONPATH=str(Path.cwd()))
-            regression = subprocess.run(['bash', '-e', '-c', regression_step['run']], cwd=root,
+            shutil.copytree(Path.cwd() / 'compatibility', root / 'compatibility')
+            from scripts.ci.semantic_migration import load_migration_bundle
+            bundle = load_migration_bundle(root)
+            self.assertEqual(4, len(bundle.profiles))
+            for app_id in ('wechat', 'qq', 'wecom'):
+                historical = root / f'compatibility/{app_id}/acceptance.json'
+                self.assertEqual((Path.cwd() / f'compatibility/{app_id}/acceptance.json').read_bytes(),
+                                 historical.read_bytes())
+
+    def test_registration_shell_stages_the_registered_table_and_exact_archived_evidence(self):
+        """Catch registration staging only acceptance-v2 while leaving sibling evidence uncommitted."""
+        step = next(
+            item for item in parsed_workflows()['compatibility-app.yml']['jobs']['runtime-result']['steps']
+            if item.get('name') == 'Record verified acceptance or rejection')
+        with tempfile.TemporaryDirectory() as temporary:
+            workspace = Path(temporary)
+            tested = workspace / 'tested'
+            tested.mkdir()
+            shutil.copytree(Path.cwd() / 'compatibility', tested / 'compatibility')
+            init = subprocess.run(['/usr/bin/git', 'init', '-b', 'main', str(tested)],
+                                  capture_output=True, text=True)
+            self.assertEqual(0, init.returncode, init.stderr)
+            subprocess.run(['/usr/bin/git', '-C', str(tested), 'add', 'compatibility'],
+                           check=True, capture_output=True, text=True)
+            subprocess.run(['/usr/bin/git', '-C', str(tested), '-c', 'user.name=fixture',
+                            '-c', 'user.email=fixture@example.invalid', 'commit', '-m', 'baseline'],
+                           check=True, capture_output=True, text=True)
+            tested_head = subprocess.run(['/usr/bin/git', '-C', str(tested), 'rev-parse', 'HEAD'],
+                                         check=True, capture_output=True, text=True).stdout.strip()
+
+            from scripts.ci.acceptance import validate_semantic_acceptance_table
+            from scripts.test_semantic_acceptance import SemanticAcceptanceTest
+            semantic_fixture = SemanticAcceptanceTest()
+            semantic_fixture.setUp()
+            self.addCleanup(semantic_fixture.doCleanups)
+            record_id = '6dc4c347-4f7d-4bb8-9c05-6e8ef712bf11'
+            archive = Path('compatibility/wechat/acceptance-evidence') / record_id
+            refs = [
+                ('static', archive / 'reports/static.json', b'{"kind":"static"}\n'),
+                ('regression', archive / 'reports/regression.json', b'{"kind":"regression"}\n'),
+                ('runtime', archive / 'reports/runtime.json', b'{"kind":"runtime"}\n'),
+                ('file', archive / 'runtime/logcat.txt', b'captured runtime evidence\n'),
+            ]
+            record = semantic_fixture.record.copy()
+            record['recordId'] = record_id
+            record['rawStageEvidence'] = {
+                'static': {'path': refs[0][1].as_posix(),
+                           'sha256': hashlib.sha256(refs[0][2]).hexdigest()},
+                'regression': {'path': refs[1][1].as_posix(),
+                               'sha256': hashlib.sha256(refs[1][2]).hexdigest()},
+                'runtime': {'path': refs[2][1].as_posix(),
+                            'sha256': hashlib.sha256(refs[2][2]).hexdigest()},
+                'files': [{'path': refs[3][1].as_posix(),
+                           'sha256': hashlib.sha256(refs[3][2]).hexdigest()}],
+            }
+            mappings = [
+                {'sourcePath': f'/fixture/source/{index}', 'path': relative.as_posix(),
+                 'sha256': hashlib.sha256(payload).hexdigest()}
+                for index, (_, relative, payload) in enumerate(refs)
+            ]
+            manifest_path = (archive / 'manifest.json').as_posix()
+            record['evidenceArchive'] = {
+                'path': archive.as_posix(), 'manifestPath': manifest_path,
+                'manifestSha256': '', 'files': mappings,
+            }
+            for _, relative, payload in refs:
+                target = tested / relative
+                target.parent.mkdir(parents=True, exist_ok=True)
+                target.write_bytes(payload)
+            manifest = {'schemaVersion': 1, 'recordId': record_id, 'files': mappings}
+            manifest_bytes = (json.dumps(manifest, indent=2) + '\n').encode()
+            record['evidenceArchive']['manifestSha256'] = hashlib.sha256(manifest_bytes).hexdigest()
+            (tested / manifest_path).write_bytes(manifest_bytes)
+            table = {'schemaVersion': 2, 'appId': 'wechat', 'records': [record]}
+            validate_semantic_acceptance_table(table, 'wechat', repository=semantic_fixture.root)
+            table_fixture = workspace / 'acceptance-v2.json'
+            table_fixture.write_text(json.dumps(table, indent=2) + '\n')
+            table_path = Path('compatibility/wechat/acceptance-v2.json')
+            (tested / table_path).parent.mkdir(parents=True, exist_ok=True)
+
+            evidence_paths = [relative.as_posix() for _, relative, _ in refs] + [manifest_path]
+            registration_fixture = workspace / 'registered.json'
+            registration_fixture.write_text(json.dumps({
+                'schemaVersion': 2, 'status': 'REGISTERED', 'recordId': record_id,
+                'acceptancePath': table_path.as_posix(), 'recordCount': 1,
+                'evidencePaths': evidence_paths,
+                'evidenceManifest': {'path': manifest_path,
+                                    'sha256': hashlib.sha256(manifest_bytes).hexdigest()},
+            }))
+            bin_dir = workspace / 'bin'
+            bin_dir.mkdir()
+            commands_log = workspace / 'external-commands.jsonl'
+            python_wrapper = bin_dir / 'python3'
+            python_wrapper.write_text(textwrap.dedent(f'''\
+                #!{sys.executable}
+                import json, os, pathlib, shutil, sys
+                args = sys.argv[1:]
+                if args[:2] == ['-m', 'scripts.ci.runtime_task'] and args[2:3] == ['register']:
+                    output = pathlib.Path(args[args.index('--output') + 1])
+                    shutil.copyfile(os.environ['REGISTERED_TABLE_FIXTURE'],
+                                    pathlib.Path('tested/compatibility/wechat/acceptance-v2.json'))
+                    output.parent.mkdir(parents=True, exist_ok=True)
+                    shutil.copyfile(os.environ['REGISTERED_RESULT_FIXTURE'], output)
+                    if os.environ.get('STAGE_EXTRA_PATH'):
+                        extra = pathlib.Path('tested/unexpected-staged.json')
+                        extra.write_text('unexpected\\n')
+                        import subprocess
+                        subprocess.run(['/usr/bin/git', '-C', 'tested', 'add', str(extra.name)], check=True)
+                    if os.environ.get('MUTATE_HISTORICAL'):
+                        pathlib.Path('tested/compatibility/wechat/acceptance.json').write_bytes(b'tampered\\n')
+                    raise SystemExit(0)
+                os.execv({sys.executable!r}, [{sys.executable!r}, *args])
+            '''))
+            python_wrapper.chmod(0o755)
+            git_wrapper = bin_dir / 'git'
+            git_wrapper.write_text(textwrap.dedent(f'''\
+                #!{sys.executable}
+                import json, pathlib, sys
+                args = sys.argv[1:]
+                if len(args) >= 3 and args[0] == '-C' and args[2] in ('commit', 'push'):
+                    with pathlib.Path({str(commands_log)!r}).open('a') as log:
+                        log.write(json.dumps(args) + '\\n')
+                    raise SystemExit(0)
+                import os
+                os.execv('/usr/bin/git', ['/usr/bin/git', *args])
+            '''))
+            git_wrapper.chmod(0o755)
+            gh_wrapper = bin_dir / 'gh'
+            gh_wrapper.write_text(textwrap.dedent(f'''\
+                #!{sys.executable}
+                import json, os, pathlib, sys
+                args = sys.argv[1:]
+                if args[:2] == ['pr', 'view']:
+                    print(json.dumps({{'headRefOid': os.environ.get('FIXTURE_PR_HEAD', {tested_head!r}),
+                                      'headRefName': 'adapt/wechat',
+                                      'baseRefName': os.environ.get('FIXTURE_PR_BASE', 'main'),
+                                      'state': os.environ.get('FIXTURE_PR_STATE', 'OPEN')}}))
+                elif args[:2] == ['auth', 'setup-git'] or args[:2] == ['pr', 'ready']:
+                    pass
+                else:
+                    raise SystemExit('unexpected gh command: ' + repr(args))
+            '''))
+            gh_wrapper.chmod(0o755)
+            runtime_smoke = workspace / 'runtime-result/evidence/runtime-smoke/evidence/smoke-report.json'
+            runtime_smoke.parent.mkdir(parents=True)
+            runtime_smoke.write_text('{}\n')
+            env = dict(os.environ, PATH=f'{bin_dir}:{os.environ["PATH"]}',
+                       APP_ID='wechat', GITHUB_WORKSPACE=str(workspace),
+                       GITHUB_OUTPUT=str(workspace / 'github-output'),
+                       GITHUB_REPOSITORY='NKU100/ImPad',
+                       PYTHONPATH=str(Path(__file__).resolve().parents[1]),
+                       GH_TOKEN='fixture-token', ADAPTATION_PR='https://github.com/NKU100/ImPad/pull/1',
+                       TESTED_HEAD=tested_head, RUNTIME_CONCLUSION='success',
+                       REGISTERED_TABLE_FIXTURE=str(table_fixture),
+                       REGISTERED_RESULT_FIXTURE=str(registration_fixture))
+            result = subprocess.run(['bash', '-e', '-c', step['run']], cwd=workspace,
+                                    env=env, capture_output=True, text=True)
+            self.assertEqual(0, result.returncode, result.stderr)
+
+            staged = subprocess.run(['/usr/bin/git', '-C', str(tested), 'diff', '--cached',
+                                     '--name-only'], check=True, capture_output=True,
+                                    text=True).stdout.splitlines()
+            self.assertEqual(sorted([table_path.as_posix(), *evidence_paths]), sorted(staged))
+            self.assertEqual((Path.cwd() / 'compatibility/wechat/acceptance.json').read_bytes(),
+                             (tested / 'compatibility/wechat/acceptance.json').read_bytes())
+            commands = [json.loads(line) for line in commands_log.read_text().splitlines()]
+            self.assertEqual(['commit', 'push'], [args[2] for args in commands])
+            current_head = subprocess.run(['/usr/bin/git', '-C', str(tested), 'rev-parse', 'HEAD'],
+                                          check=True, capture_output=True, text=True).stdout.strip()
+            self.assertEqual(tested_head, current_head)
+
+            v1 = tested / 'compatibility/wechat/acceptance.json'
+            v1_bytes = v1.read_bytes()
+            recorded_commands = len(commands)
+            archive_files = [(tested / relative, payload) for _, relative, payload in refs]
+            manifest_file = tested / manifest_path
+
+            def clean_index_and_restore_fixture():
+                subprocess.run(['/usr/bin/git', '-C', str(tested), 'reset', '--quiet', 'HEAD'],
+                               check=True, capture_output=True, text=True)
+                (tested / 'unexpected-staged.json').unlink(missing_ok=True)
+                v1.write_bytes(v1_bytes)
+                for target, payload in archive_files:
+                    if target.is_symlink():
+                        target.unlink()
+                    target.parent.mkdir(parents=True, exist_ok=True)
+                    target.write_bytes(payload)
+                manifest_file.write_bytes(manifest_bytes)
+                table_fixture.write_text(json.dumps(table, indent=2) + '\n')
+                registration_fixture.write_text(json.dumps({
+                    'schemaVersion': 2, 'status': 'REGISTERED', 'recordId': record_id,
+                    'acceptancePath': table_path.as_posix(), 'recordCount': 1,
+                    'evidencePaths': evidence_paths,
+                    'evidenceManifest': {'path': manifest_path,
+                                         'sha256': hashlib.sha256(manifest_bytes).hexdigest()},
+                }))
+
+            def assert_registration_rejected(label, *, edit_result=None, edit_table=None,
+                                             tamper=None, extra_env=None, staged_extra=False):
+                clean_index_and_restore_fixture()
+                if edit_result:
+                    payload = json.loads(registration_fixture.read_text())
+                    edit_result(payload)
+                    registration_fixture.write_text(json.dumps(payload))
+                if edit_table:
+                    payload = json.loads(table_fixture.read_text())
+                    edit_table(payload)
+                    table_fixture.write_text(json.dumps(payload, indent=2) + '\n')
+                if tamper:
+                    tamper()
+                result = subprocess.run(
+                    ['bash', '-e', '-c', step['run']], cwd=workspace,
+                    env=dict(env, **(extra_env or {})), capture_output=True, text=True)
+                self.assertNotEqual(0, result.returncode, f'{label} unexpectedly succeeded')
+                self.assertEqual(recorded_commands,
+                                 len(commands_log.read_text().splitlines()),
+                                 f'{label} reached the commit/push stubs')
+                staged_now = subprocess.run(
+                    ['/usr/bin/git', '-C', str(tested), 'diff', '--cached', '--name-only'],
+                    check=True, capture_output=True, text=True).stdout.splitlines()
+                if staged_extra:
+                    self.assertEqual(sorted([table_path.as_posix(), *evidence_paths,
+                                             'unexpected-staged.json']), sorted(staged_now),
+                                     result.stderr)
+                else:
+                    self.assertEqual([], staged_now, f'{label} staged unexpected paths: {staged_now}')
+
+            assert_registration_rejected(
+                'duplicate evidence path',
+                edit_result=lambda payload: payload['evidencePaths'].append(payload['evidencePaths'][0]))
+            assert_registration_rejected(
+                'wrong registered schema',
+                edit_result=lambda payload: payload.__setitem__('schemaVersion', 1))
+            assert_registration_rejected(
+                'wrong registered status',
+                edit_result=lambda payload: payload.__setitem__('status', 'PENDING'))
+            assert_registration_rejected(
+                'wrong v2 acceptance path',
+                edit_result=lambda payload: payload.__setitem__(
+                    'acceptancePath', 'compatibility/wechat/acceptance.json'))
+            assert_registration_rejected(
+                'absolute evidence path',
+                edit_result=lambda payload: payload['evidencePaths'].__setitem__(
+                    0, '/tmp/untrusted.json'))
+            assert_registration_rejected(
+                'traversal evidence path',
+                edit_result=lambda payload: payload['evidencePaths'].__setitem__(
+                    0, '../acceptance.json'))
+            assert_registration_rejected(
+                'wrong record UUID',
+                edit_result=lambda payload: payload.__setitem__(
+                    'recordId', '12345678-1234-1234-1234-123456789abc'))
+            assert_registration_rejected(
+                'wrong manifest digest',
+                edit_result=lambda payload: payload['evidenceManifest'].__setitem__('sha256', '0' * 64))
+            assert_registration_rejected(
+                'wrong manifest path',
+                edit_result=lambda payload: payload['evidenceManifest'].__setitem__(
+                    'path', 'compatibility/wechat/acceptance-evidence/other/manifest.json'))
+            assert_registration_rejected(
+                'evidence path order changed',
+                edit_result=lambda payload: payload['evidencePaths'].reverse())
+            assert_registration_rejected(
+                'invalid registered table status',
+                edit_table=lambda payload: payload['records'][0].__setitem__('status', 'PENDING'))
+            assert_registration_rejected(
+                'wrong app acceptance table',
+                edit_table=lambda payload: payload.__setitem__('appId', 'qq'))
+            assert_registration_rejected(
+                'archive content hash mismatch',
+                tamper=lambda: archive_files[3][0].write_bytes(b'changed raw evidence\n'))
+            assert_registration_rejected(
+                'archive symlink',
+                tamper=lambda: (archive_files[3][0].unlink(),
+                                archive_files[3][0].symlink_to(archive_files[0][0])))
+            assert_registration_rejected(
+                'manifest content mismatch',
+                tamper=lambda: manifest_file.write_bytes(manifest_bytes + b' '))
+            assert_registration_rejected(
+                'unregistered staged file', extra_env={'STAGE_EXTRA_PATH': '1'}, staged_extra=True)
+            assert_registration_rejected(
+                'closed PR', extra_env={'FIXTURE_PR_STATE': 'CLOSED'})
+            assert_registration_rejected(
+                'head changed in PR', extra_env={'FIXTURE_PR_BASE': 'main',
+                                                  'FIXTURE_PR_STATE': 'OPEN',
+                                                  'FIXTURE_PR_HEAD': 'f' * 40})
+            assert_registration_rejected(
+                'frozen v1 bytes changed during registration',
+                extra_env={'MUTATE_HISTORICAL': '1'})
+
+            for staged_change in (False, True):
+                clean_index_and_restore_fixture()
+                v1.write_bytes(b'changed frozen v1 bytes\n')
+                if staged_change:
+                    subprocess.run(['/usr/bin/git', '-C', str(tested), 'add',
+                                    'compatibility/wechat/acceptance.json'], check=True,
+                                   capture_output=True, text=True)
+                result = subprocess.run(['bash', '-e', '-c', step['run']], cwd=workspace,
                                         env=env, capture_output=True, text=True)
-            self.assertNotEqual(0, regression.returncode)
-            rows = json.loads((root / 'work/runtime-smoke/regression/results.json').read_text())
-            self.assertEqual('FAILED', rows[0]['status'])
-            self.assertIn('Acceptance table is missing', rows[0]['error'])
-            self.assertNotIn('NO_HISTORICAL_SAMPLES', regression.stdout)
-
-            corrupted = root / 'compatibility/qq/acceptance.json'
-            corrupted.parent.mkdir(parents=True)
-            corrupted.write_text('{not-json')
-            invalid = subprocess.run(['bash', '-e', '-c', regression_step['run']], cwd=root,
-                                     env=env, capture_output=True, text=True)
-            self.assertNotEqual(0, invalid.returncode)
-            invalid_rows = json.loads((root / 'work/runtime-smoke/regression/results.json').read_text())
-            self.assertEqual('FAILED', invalid_rows[0]['status'])
-            self.assertNotIn('NO_HISTORICAL_SAMPLES', invalid.stdout)
-
-            verify_step = next(step for step in runtime['jobs']['result']['steps']
-                               if step.get('name') == 'Validate pipeline acceptance without publishing support')
-            verify_script = re.search(r"python3 - <<'PY'\n(.*?)\nPY", verify_step['run'], re.S)
-            self.assertIsNotNone(verify_script)
-            (root / 'compatibility/qq/acceptance.json').unlink()
-            verify_env = dict(os.environ, CANDIDATE_STATUS='PREPARED', APP_ID='qq',
-                              SMOKE_CONCLUSION='success',
-                              GITHUB_STEP_SUMMARY=str(root / 'summary.md'), PYTHONPATH=str(Path.cwd()))
-            verify = subprocess.run([sys.executable, '-c', verify_script.group(1)], cwd=root,
-                                    env=verify_env, capture_output=True, text=True)
-            self.assertNotEqual(0, verify.returncode)
-            self.assertIn('Acceptance table is missing', verify.stderr + verify.stdout)
-            self.assertFalse((root / 'runtime-result/runtime-candidate-report.json').exists())
-
-            prepare_result = workflows['compatibility-app.yml']['jobs']['runtime-result']
-            register_script = registration_step['run']
-            run_env = dict(os.environ, APP_ID='qq',
-                           RUNTIME_CONCLUSION='success', ADAPTATION_PR='https://example.invalid/pr/1',
-                           TESTED_HEAD='a' * 40, GITHUB_WORKSPACE=str(root),
-                           GITHUB_OUTPUT=str(root / 'output'), GITHUB_STEP_SUMMARY=str(root / 'summary'))
-            registered = subprocess.run(['bash', '-e', '-c', register_script], cwd=root,
-                                        env=run_env, capture_output=True, text=True)
-            self.assertNotEqual(0, registered.returncode)
-            self.assertIn('test -f "$acceptance"', register_script)
-            self.assertFalse((root / 'runtime-result/registered.json').exists())
+                self.assertNotEqual(0, result.returncode)
+                self.assertEqual(recorded_commands, len(commands_log.read_text().splitlines()))
+                clean_index_and_restore_fixture()
 
     def test_operation_and_exact_candidate_artifact_contracts_are_enforced(self):
         workflows = parsed_workflows()
@@ -772,7 +1047,7 @@ class RuntimeValidationWorkflowTest(unittest.TestCase):
 
 
 class AdaptationArtifactHandoffTest(unittest.TestCase):
-    def test_real_uploaded_adaptation_files_convert_and_pass_consumer_path_validation(self):
+    def test_uploaded_adaptation_fixture_converts_to_independent_schema2_candidate(self):
         workflows = parsed_workflows()
         producer_steps = workflows['compatibility-app.yml']['jobs']['adapt']['steps']
         export = next(step for step in producer_steps if step.get('name') == 'Export validated runtime inputs')
@@ -807,18 +1082,7 @@ class AdaptationArtifactHandoffTest(unittest.TestCase):
             identity = {'packageName': policy.package_name, 'versionName': '9.3.1',
                         'versionCode': 14378, 'abi': 'arm64-v8a', 'apkSha256': candidate_sha,
                         'signerSha256': policy.signer_sha256}
-            rule_id, strategy_id = 'qq_device_type_001', 'qq_tablet_001'
-            target = {'descriptor': 'Lx/Y;->a()V',
-                      'shape': {'parameters': [], 'returnType': 'void', 'isStatic': True}}
-            plan = {'selection': 'UNIQUE', 'ruleId': rule_id, 'strategyId': strategy_id,
-                    'targets': {'device_type': target}}
-            route = {'appId': 'qq', 'candidates': [rule_id]}
-            route_sha = hashlib.sha256(json.dumps(route, sort_keys=True, separators=(',', ':')).encode()).hexdigest()
-            catalog = {'schemaVersion': 1, 'appId': 'qq', 'ruleCatalogSha256': 'd' * 64,
-                       'definitions': [{'ruleId': rule_id, 'strategyId': strategy_id,
-                                        'requiredTargetIds': ['device_type']}],
-                       'bindings': [{'ruleId': rule_id, 'min': 14000, 'max': None}],
-                       'strategyIds': [strategy_id]}
+            catalog = semantic_catalog()
 
             source_root = Path.cwd()
             sources = module_source_hashes(source_root)
@@ -843,7 +1107,6 @@ class AdaptationArtifactHandoffTest(unittest.TestCase):
             adaptation = {'appId': 'qq', 'status': 'STATIC_VERIFIED_PENDING_RUNTIME',
                           'identity': identity,
                           'sourceUrl': 'https://downv6.qq.com/qqweb/QQ_1/android_apk/9.3.1.apk',
-                          'expectedPlan': plan,
                           'adaptationSummary': {'fixture': True},
                           'apkFiles': [{'path': 'apk-inputs/base.apk', 'role': 'base', 'sha256': candidate_sha},
                                        {'path': 'apk-inputs/native.apk', 'role': 'split', 'sha256': split_sha}]}
@@ -886,14 +1149,33 @@ class AdaptationArtifactHandoffTest(unittest.TestCase):
                 self.assertEqual('qq', app_id)
                 self.assertEqual(consumer_root.resolve() / f'qq-{candidate_sha}.apk', Path(apk).resolve())
                 self.assertEqual([split_bytes], [path.read_bytes() for path in abi_splits])
-                report = {'appId': 'qq', 'analysisScope': 'STATIC_ONLY', 'identity': identity,
-                          'inputHashes': [{'path': str(Path(apk).resolve()), 'sha256': candidate_sha},
-                                          {'path': str(abi_splits[0]), 'sha256': split_sha}],
-                          'ruleCatalogSha256': catalog['ruleCatalogSha256'], 'ruleCatalog': catalog,
-                          'executionIdentity': execution, 'routeCandidates': [rule_id],
-                          'selection': {'status': 'SELECTED', 'selectedRuleId': rule_id,
-                                        'strategyId': strategy_id, 'targets': plan['targets']},
-                          'rules': []}
+                report = check_report()
+                report['identity'] = identity
+                report['ruleCatalog'] = catalog
+                report['inputHashes'] = [{'path': str(Path(apk).resolve()), 'sha256': candidate_sha},
+                                         {'path': str(Path(abi_splits[0]).resolve()), 'sha256': split_sha}]
+                snap = semantic_snapshot()
+                dex_hashes = ['c' * 64, 'e' * 64]
+                snap['loaders'][0]['dexSha256'] = dex_hashes
+                snap['archives'] = [
+                    {'loaderId': 'loader-0', 'containerIndex': 0, 'kind': 'ZIP',
+                     'containerSha256': candidate_sha, 'dexSha256': [dex_hashes[0]]},
+                    {'loaderId': 'loader-0', 'containerIndex': 1, 'kind': 'ZIP',
+                     'containerSha256': split_sha, 'dexSha256': [dex_hashes[1]]},
+                ]
+                snap['contentSha256'] = snapshot_sha256(snap)
+                complete_plan = semantic_plan()
+                complete_plan['snapshotSha256'] = snap['contentSha256']
+                complete_plan['hooks'][0]['source']['dexSha256'] = dex_hashes[0]
+                plan_digest = plan_execution_sha256(complete_plan)
+                report['snapshot'] = snap
+                report['recognizers'][0]['plans'] = [{'plan': complete_plan,
+                    'executionSha256': plan_digest, 'evidence': ['synthetic schema2 fixture']}]
+                report['selection'].update(plan=complete_plan, executionSha256=plan_digest,
+                    evidenceByRecognizer={'qq_cached_device_enum': ['synthetic schema2 fixture']})
+                report['executionIdentity'].update(execution)
+                report['executionIdentity']['cacheIdentitySha256'] = execution_identity_sha256(report['executionIdentity'])
+                validate_check_report(report, expected_app_id='qq', expected_identity=identity)
                 Path(report_path).write_text(json.dumps(report, indent=2) + '\n')
                 return report
 
@@ -915,17 +1197,18 @@ class AdaptationArtifactHandoffTest(unittest.TestCase):
 
             candidate_path = consumer_root / 'candidate-report.json'
             candidate = json.loads(candidate_path.read_text())
-            self.assertEqual(1, candidate['schemaVersion'])
+            self.assertEqual(2, candidate['schemaVersion'])
             self.assertEqual('PREPARED', candidate['status'])
             self.assertEqual(2, len(candidate['apkFiles']))
             self.assertEqual(identity, candidate['identity'])
-            self.assertEqual('UNIQUE', candidate['expectedPlan']['selection'])
+            self.assertTrue(candidate['expectedPlan']['hooks'])
             self.assertEqual(candidate_sha, hashlib.sha256((consumer_root / f'qq-{candidate_sha}.apk').read_bytes()).hexdigest())
             for row in candidate['apkFiles']:
                 path = consumer_root / row['path']
                 self.assertTrue(path.is_file())
                 self.assertEqual(row['sha256'], hashlib.sha256(path.read_bytes()).hexdigest())
             static = json.loads((consumer_root / candidate['staticReport']).read_text())
+            self.assertEqual(static['selection']['plan'], candidate['expectedPlan'])
             self.assertEqual(candidate['staticReportSha256'],
                              hashlib.sha256((consumer_root / candidate['staticReport']).read_bytes()).hexdigest())
             for row in static['inputHashes']:
@@ -936,84 +1219,11 @@ class AdaptationArtifactHandoffTest(unittest.TestCase):
 
             module_path = consumer_root / 'module/app-debug.apk'
             candidate['module'] = prepare_module(module_path, static, source_root)
-            write_candidate(candidate, consumer_root)
-            candidate_path.write_text(json.dumps(candidate, indent=2) + '\n')
-
-            regression_dir = consumer_root / 'regression'
-            regression_dir.mkdir()
-            history_bytes = b'fixed historical regression APK'
-            history_sha = hashlib.sha256(history_bytes).hexdigest()
-            history_apk = regression_dir / 'history.apk'
-            history_apk.write_bytes(history_bytes)
-            history_identity = dict(identity, versionName='9.3.0', apkSha256=history_sha)
-            historical = {'recordId': 'accepted-qq-1', 'schemaVersion': 1, 'appId': 'qq',
-                          'status': 'VERIFIED', 'identity': history_identity,
-                          'source': {'type': 'official', 'url': adaptation['sourceUrl'],
-                                     'apkFiles': [{'path': f'apk-inputs/{history_sha}.apk',
-                                                   'role': 'base', 'sha256': history_sha}]},
-                          'expectedPlan': plan, 'ruleOrder': 1, 'firstForRule': True,
-                          'firstRecordId': 'accepted-qq-1', 'ruleCatalogSha256': catalog['ruleCatalogSha256'],
-                          'route': route, 'module': candidate['module'],
-                          'stageEvidence': {name: {'path': f'{name}.json', 'sha256': str(index) * 64}
-                                            for index, name in enumerate(('static', 'regression', 'runtime'), 1)}}
-            acceptance_path = consumer_root / 'compatibility/qq/acceptance.json'
-            acceptance_path.parent.mkdir(parents=True)
-            acceptance_path.write_text(json.dumps({'schemaVersion': 1, 'appId': 'qq',
-                                                   'records': [historical]}, indent=2) + '\n')
-
-            def regression_check(repository, apk, digest, log, offline=False, app_id='qq'):
-                report = {'appId': 'qq', 'analysisScope': 'STATIC_ONLY', 'identity': history_identity,
-                          'inputHashes': [{'path': 'history.apk', 'sha256': history_sha}],
-                          'ruleCatalogSha256': catalog['ruleCatalogSha256'], 'ruleCatalog': catalog,
-                          'routeCandidates': [rule_id],
-                          'selection': {'status': 'SELECTED', 'selectedRuleId': rule_id,
-                                        'strategyId': strategy_id, 'targets': plan['targets']}}
-                log.with_suffix('.json').write_text(json.dumps(report, indent=2) + '\n')
-                return report
-
-            with patch('scripts.ci.acceptance.load_rule_catalog', return_value=catalog), \
-                 patch('scripts.ci.static_regression.ensure_apk', return_value=history_apk), \
-                 patch('scripts.ci.static_regression.check_apk', side_effect=regression_check):
-                rows = run_regression('qq', regression_dir, consumer_root / 'cache', consumer_root)
-            self.assertEqual('PASSED', rows[0]['status'])
-            self.assertEqual(hashlib.sha256(acceptance_path.read_bytes()).hexdigest(),
-                             rows[0]['acceptanceSnapshotSha256'])
-            self.assertIs(rows[0]['initialMigration'], False)
-            regression_path = regression_dir / 'results.json'
-            self.assertEqual(rows, json.loads(regression_path.read_text()))
-            regression_report_path = regression_dir / rows[0]['staticEvidence']['path']
-            self.assertTrue(regression_report_path.is_file())
-            self.assertEqual(rows[0]['staticEvidence']['sha256'],
-                             hashlib.sha256(regression_report_path.read_bytes()).hexdigest())
-
-            smoke_path = consumer_root / 'smoke.json'
-            smoke_path.write_text(json.dumps({'status': 'ACCEPTANCE_UNAVAILABLE',
-                                              'reason': 'Fixture stops before device acceptance'}))
-            result_path = consumer_root / 'result.json'
-            cli_stdout = StringIO()
-            with redirect_stdout(cli_stdout):
-                verify_cli(['--app-id', 'qq', '--candidate', str(candidate_path),
-                            '--module-apk', str(module_path), '--regression', str(regression_path),
-                            '--smoke', str(smoke_path), '--evidence-root', str(consumer_root),
-                            '--acceptance', str(acceptance_path), '--repository', str(source_root),
-                            '--conclusion', 'failure', '--output', str(result_path)])
-            result = json.loads(result_path.read_text())
-            self.assertEqual({'schemaVersion': 1, 'outcome': 'UNAVAILABLE',
-                              'failedStage': 'runtime'},
-                             json.loads(cli_stdout.getvalue()))
-            self.assertNotIn('_acceptanceSnapshotObject', result)
-            self.assertEqual(1, result['schemaVersion'])
-            self.assertEqual('UNAVAILABLE', result['outcome'])
-            self.assertEqual(candidate_sha, result['candidate']['identity']['apkSha256'])
-            self.assertEqual(candidate['module']['sha256'], result['module']['sha256'])
-            self.assertEqual(hashlib.sha256(acceptance_path.read_bytes()).hexdigest(),
-                             result['acceptanceSnapshot']['sha256'])
-            self.assertEqual(regression_path.relative_to(consumer_root).as_posix(),
-                             result['stageEvidence']['regression']['path'])
-            for stage, reference in result['stageEvidence'].items():
-                path = consumer_root / reference['path']
-                self.assertTrue(path.is_file(), f'{stage} stage reference was not uploaded')
-                self.assertEqual(reference['sha256'], hashlib.sha256(path.read_bytes()).hexdigest())
+            self.assertEqual(2, candidate['module']['schemaVersion'])
+            self.assertEqual(candidate['ruleCatalogSha256'], candidate['module']['ruleCatalogSha256'])
+            self.assertEqual(candidate['expectedPlan'], static['selection']['plan'])
+            self.assertEqual(candidate['staticReportSha256'],
+                             hashlib.sha256((consumer_root / candidate['staticReport']).read_bytes()).hexdigest())
 
 
 class RegressionSnapshotBindingTest(unittest.TestCase):

@@ -709,6 +709,10 @@ jobs:
           runtime_smoke=runtime-result/evidence/runtime-smoke/evidence/smoke-report.json
           acceptance="${GITHUB_WORKSPACE}/tested/compatibility/${APP_ID}/acceptance.json"
           test -f "$acceptance"
+          historical_acceptance="compatibility/${APP_ID}/acceptance.json"
+          expected_acceptance_path="compatibility/${APP_ID}/acceptance-v2.json"
+          git -C tested diff --quiet HEAD -- "$historical_acceptance"
+          history_sha256_before="$(sha256sum "$acceptance" | cut -d' ' -f1)"
           python3 -m scripts.ci.runtime_task register \
             --app-id "$APP_ID" \
             --candidate runtime-result/inputs/candidate-report.json \
@@ -721,13 +725,190 @@ jobs:
             --conclusion "$RUNTIME_CONCLUSION" \
             --expected-head "$TESTED_HEAD" \
             --output runtime-result/registered.json
+          test "$(sha256sum "$acceptance" | cut -d' ' -f1)" = "$history_sha256_before"
+          git -C tested diff --quiet HEAD -- "$historical_acceptance"
           pr_state="$(gh pr view "$ADAPTATION_PR" --repo "$GITHUB_REPOSITORY" --json headRefOid,headRefName,baseRefName,state)"
           test "$(jq -r .headRefOid <<< "$pr_state")" = "$TESTED_HEAD"
           test "$(jq -r .baseRefName <<< "$pr_state")" = main
           test "$(jq -r .state <<< "$pr_state")" = OPEN
           pr_branch="$(jq -r .headRefName <<< "$pr_state")"
-          git -C tested add "compatibility/${APP_ID}/acceptance.json"
-          git -C tested diff --cached --quiet && { echo 'Trusted registration produced no acceptance change' >&2; exit 1; }
+
+          registered_acceptance_path="$expected_acceptance_path"
+          mkdir -p runtime-result
+          cat > runtime-result/validate-registered.py <<'PY'
+          import argparse
+          import hashlib
+          import json
+          import os
+          from pathlib import Path, PurePosixPath
+          import subprocess
+          import sys
+          import uuid
+
+          from scripts.ci.acceptance import (
+              assert_evidence_archive_unchanged,
+              read_semantic_acceptance_table,
+          )
+
+          parser = argparse.ArgumentParser()
+          parser.add_argument('--app-id', required=True)
+          parser.add_argument('--acceptance-path', required=True)
+          parser.add_argument('--registered', type=Path, required=True)
+          parser.add_argument('--stage-manifest', type=Path, required=True)
+          parser.add_argument('--paths-nul', type=Path, required=True)
+          parser.add_argument('--verify-index', action='store_true')
+          parser.add_argument('--staged-nul', type=Path)
+          args = parser.parse_args()
+
+          repo_path = Path('tested')
+          if repo_path.is_symlink():
+              raise ValueError('Trusted tested checkout cannot be a symbolic link')
+          repo = repo_path.resolve(strict=True)
+          if not repo.is_dir():
+              raise ValueError('Trusted tested checkout is not a directory')
+
+          def safe_repo_file(relative):
+              if (not isinstance(relative, str) or not relative or '\0' in relative
+                      or '\\' in relative):
+                  raise ValueError('Registered evidence path is malformed')
+              try:
+                  relative.encode('utf-8')
+              except UnicodeEncodeError as error:
+                  raise ValueError('Registered evidence path is not UTF-8 encodable') from error
+              pure = PurePosixPath(relative)
+              if (pure.is_absolute() or pure.as_posix() != relative
+                      or any(part in ('', '.', '..') for part in pure.parts)):
+                  raise ValueError('Registered evidence path is not canonical and repository-relative')
+              current = repo
+              for part in pure.parts:
+                  current = current / part
+                  if current.is_symlink():
+                      raise ValueError('Registered evidence path contains a symbolic link')
+              if not current.is_file():
+                  raise ValueError('Registered evidence file is missing or not regular')
+              current.resolve(strict=True).relative_to(repo)
+              return current
+
+          registered = json.loads(args.registered.read_text())
+          if (not isinstance(registered, dict)
+                  or set(registered) != {'schemaVersion', 'status', 'recordId', 'acceptancePath',
+                                         'recordCount', 'evidencePaths', 'evidenceManifest'}
+                  or type(registered.get('schemaVersion')) is not int
+                  or registered['schemaVersion'] != 2
+                  or registered.get('status') != 'REGISTERED'
+                  or registered.get('acceptancePath') != args.acceptance_path
+                  or type(registered.get('recordCount')) is not int
+                  or registered['recordCount'] < 1):
+              raise ValueError('Register output schema, status, or acceptance path is invalid')
+
+          record_id = registered.get('recordId')
+          try:
+              if not isinstance(record_id, str) or str(uuid.UUID(record_id)) != record_id:
+                  raise ValueError
+          except (ValueError, AttributeError) as error:
+              raise ValueError('Register output recordId is not a canonical UUID') from error
+
+          table_file = safe_repo_file(args.acceptance_path)
+          table_bytes = table_file.read_bytes()
+          table = json.loads(table_bytes.decode('utf-8'))
+          validated_table_bytes = read_semantic_acceptance_table(
+              table_file, args.app_id, repository=repo)
+          if validated_table_bytes != table_bytes:
+              raise ValueError('Acceptance table changed while the registered result was validated')
+          records = table.get('records') if isinstance(table, dict) else None
+          if not isinstance(records, list):
+              raise ValueError('Validated acceptance table does not contain a record list')
+          if len(records) != registered['recordCount']:
+              raise ValueError('Register output recordCount differs from the validated table')
+          matches = [record for record in records if record.get('recordId') == record_id]
+          if len(matches) != 1 or matches[0].get('status') != 'VERIFIED':
+              raise ValueError('Registered VERIFIED record is missing or ambiguous in the v2 table')
+
+          record = matches[0]
+          archive = record.get('evidenceArchive')
+          archive_root = f'compatibility/{args.app_id}/acceptance-evidence/{record_id}'
+          if not isinstance(archive, dict) or archive.get('path') != archive_root:
+              raise ValueError('Registered evidence archive does not match app and record UUID')
+          manifest_ref = registered.get('evidenceManifest')
+          if (not isinstance(manifest_ref, dict) or set(manifest_ref) != {'path', 'sha256'}
+                  or manifest_ref.get('path') != archive.get('manifestPath')
+                  or manifest_ref.get('sha256') != archive.get('manifestSha256')):
+              raise ValueError('Register output manifest identity differs from the acceptance record')
+
+          mappings = archive.get('files')
+          if not isinstance(mappings, list) or not mappings:
+              raise ValueError('Registered evidence archive has no file mappings')
+          expected_paths = [item.get('path') for item in mappings] + [archive.get('manifestPath')]
+          evidence_paths = registered.get('evidencePaths')
+          if (not isinstance(evidence_paths, list) or not evidence_paths
+                  or any(not isinstance(path, str) for path in evidence_paths)
+                  or len(evidence_paths) != len(set(evidence_paths))
+                  or evidence_paths != expected_paths):
+              raise ValueError('Register evidencePaths differ from the ordered v2 archive mapping')
+          for path in evidence_paths:
+              if not path.startswith(archive_root + '/'):
+                  raise ValueError('Registered evidence file is outside its record archive')
+              safe_repo_file(path)
+
+          assert_evidence_archive_unchanged(repo, archive)
+          expected_digests = {args.acceptance_path: hashlib.sha256(table_bytes).hexdigest()}
+          for item in mappings:
+              path = item['path']
+              if path in expected_digests:
+                  raise ValueError('Registered archive path collides with the acceptance table')
+              expected_digests[path] = item['sha256']
+          manifest_path = archive['manifestPath']
+          if manifest_path in expected_digests:
+              raise ValueError('Registered manifest path collides with another staged file')
+          expected_digests[manifest_path] = archive['manifestSha256']
+          stage_manifest = {'paths': [args.acceptance_path, *evidence_paths],
+                            'digests': expected_digests}
+
+          if args.verify_index:
+              if args.staged_nul is None:
+                  raise ValueError('Staged path listing is required for index verification')
+              staged_raw = args.staged_nul.read_bytes()
+              staged = staged_raw[:-1].split(b'\0') if staged_raw.endswith(b'\0') else []
+              staged_paths = [item.decode('utf-8') for item in staged]
+              if (len(staged_paths) != len(set(staged_paths))
+                      or set(staged_paths) != set(stage_manifest['paths'])):
+                  raise ValueError('Staged paths are not exactly the v2 table and registered evidence')
+              for path, expected_sha in expected_digests.items():
+                  blob = subprocess.check_output(['git', '-C', 'tested', 'show', f':{path}'])
+                  if hashlib.sha256(blob).hexdigest() != expected_sha:
+                      raise ValueError(f'Staged index blob differs from verified bytes: {path}')
+          else:
+              args.stage_manifest.parent.mkdir(parents=True, exist_ok=True)
+              args.stage_manifest.write_text(json.dumps(stage_manifest, sort_keys=True) + '\n')
+              args.paths_nul.write_bytes(b''.join(path.encode('utf-8') + b'\0'
+                                                  for path in evidence_paths))
+          PY
+          stage_manifest=runtime-result/registered-stage.json
+          evidence_paths_nul=runtime-result/registered-evidence-paths.nul
+          staged_paths_nul=runtime-result/staged-paths.nul
+          python3 runtime-result/validate-registered.py \
+            --app-id "$APP_ID" --acceptance-path "$expected_acceptance_path" \
+            --registered runtime-result/registered.json \
+            --stage-manifest "$stage_manifest" --paths-nul "$evidence_paths_nul"
+          test "$(sha256sum "$acceptance" | cut -d' ' -f1)" = "$history_sha256_before"
+          git -C tested diff --quiet HEAD -- "$historical_acceptance"
+          stage_paths=("$registered_acceptance_path")
+          while IFS= read -r -d '' evidence_path; do
+            stage_paths+=("$evidence_path")
+          done < "$evidence_paths_nul"
+          git -C tested add -- "${stage_paths[@]}"
+          git -C tested diff --cached --quiet -- "$registered_acceptance_path" && {
+            echo 'Trusted registration produced no schema2 acceptance change' >&2
+            exit 1
+          }
+          git -C tested diff --cached --name-only -z > "$staged_paths_nul"
+          python3 runtime-result/validate-registered.py \
+            --app-id "$APP_ID" --acceptance-path "$expected_acceptance_path" \
+            --registered runtime-result/registered.json \
+            --stage-manifest "$stage_manifest" --paths-nul "$evidence_paths_nul" \
+            --verify-index --staged-nul "$staged_paths_nul"
+          test "$(sha256sum "$acceptance" | cut -d' ' -f1)" = "$history_sha256_before"
+          git -C tested diff --cached --quiet HEAD -- "$historical_acceptance"
           git -C tested config user.name 'github-actions[bot]'
           git -C tested config user.email '41898282+github-actions[bot]@users.noreply.github.com'
           git -C tested commit -m "Record ${APP_ID} runtime acceptance"

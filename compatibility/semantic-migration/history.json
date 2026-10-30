@@ -1,0 +1,92 @@
+{
+  "schemaVersion": 1,
+  "purpose": "HISTORICAL_CATALOG_AUDIT",
+  "tables": [
+    {
+      "appId": "wechat",
+      "path": "compatibility/wechat/acceptance.json",
+      "sha256": "dbd541c7b18cfddcf119bb274761d9bf3d6c017d3b6e44f666cf686222ce9cbc",
+      "records": [
+        {
+          "recordId": "f81be9fa-e117-4f6c-8e9b-21fc5da8b026",
+          "catalogSha256": "d20ce5e104ddab86b4833f12cfda8d226a696857cde3d08204c1456064a60774",
+          "catalog": {
+            "path": "compatibility/semantic-migration/historical-catalogs/d20ce5e104ddab86b4833f12cfda8d226a696857cde3d08204c1456064a60774.json",
+            "sha256": "2b67b192f8063dc7b1c4e054f8703673295e2f368d4a03b5efff6bb838d43477"
+          },
+          "provenance": {
+            "type": "PINNED_STATIC_REPORT",
+            "path": "evidence/wechat-unification-task1/runtime/candidate/static-check.json",
+            "sha256": "d692c830acab2c3d0991d4e6d1924c4eddb7307432333d7e7ad195a0cb3ff843"
+          }
+        },
+        {
+          "recordId": "7912a05e-c827-4d50-bbe4-56ce075fffe5",
+          "catalogSha256": "c8c3a978bb57a939cd643c1f49e6e92d9455cf132bc2fca3ce2bc2ec764f516a",
+          "catalog": {
+            "path": "compatibility/semantic-migration/historical-catalogs/c8c3a978bb57a939cd643c1f49e6e92d9455cf132bc2fca3ce2bc2ec764f516a.json",
+            "sha256": "3df1409f20a4a2c7d2b360a3ddcd1551cf9a5ff49c00af696ea423a847fe47cd"
+          },
+          "provenance": {
+            "type": "PINNED_GIT_SOURCE_RECONSTRUCTION",
+            "sourceCommit": "eade8ff4283829d9386ea9c191962205ca95ae78",
+            "sources": [
+              {
+                "path": "compat-rules/src/main/kotlin/io/github/nku100/impad/rules/RuleCatalog.kt",
+                "sha256": "39b0580823460b834029c6114754ed7584625783f21996f5f97368b865644c3a"
+              },
+              {
+                "path": "compat-rules/src/main/kotlin/io/github/nku100/impad/rules/wechat/WeChatTabletLoginRule.kt",
+                "sha256": "9427fc866ff31f963496b69929a1aae8a5712a03342401451aa947262a055f18"
+              },
+              {
+                "path": "compat-rules/src/main/kotlin/io/github/nku100/impad/rules/wechat/WeChatTabletLoginRule002.kt",
+                "sha256": "8da03eb6772f84068cdd451186191e4818f7df71b3a507f041f457fa3e5ffc24"
+              }
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "appId": "qq",
+      "path": "compatibility/qq/acceptance.json",
+      "sha256": "34c459bb3dfe1e2ec4de62bb7a8760466209448a1e49b54882ae443d26599aee",
+      "records": [
+        {
+          "recordId": "882ecfff-4b7f-4dcb-bd78-fbb3c68afb32",
+          "catalogSha256": "cc3a3cbf6cfdaea6aedf0e27b6154af544a59550d8e86cfa5d663b4ccfaef66a",
+          "catalog": {
+            "path": "compatibility/semantic-migration/historical-catalogs/cc3a3cbf6cfdaea6aedf0e27b6154af544a59550d8e86cfa5d663b4ccfaef66a.json",
+            "sha256": "9c4d29135dae00eb36062cd8340f38fb7fe62b389b8bd968dab91ae95aadb098"
+          },
+          "provenance": {
+            "type": "PINNED_STATIC_REPORT",
+            "path": "evidence/task-5-qq-runtime/cleaned-final/bundle/static-check.json",
+            "sha256": "5d4069539cd9441e3e1f22daf393721880be4d83ec5d0cf4cfe91e0e5b2a2635"
+          }
+        }
+      ]
+    },
+    {
+      "appId": "wecom",
+      "path": "compatibility/wecom/acceptance.json",
+      "sha256": "759cc4a75730a325574df25af21558eb73fcbf832bcc3ef76fa433158f0f7081",
+      "records": [
+        {
+          "recordId": "07d11380-be09-44fc-b266-d08cba0f0597",
+          "catalogSha256": "abf1a3e62b8c6b6ec8aa484f0e8b3209cb521efec4f587330cc8a7ac7a4d2774",
+          "catalog": {
+            "path": "compatibility/semantic-migration/historical-catalogs/abf1a3e62b8c6b6ec8aa484f0e8b3209cb521efec4f587330cc8a7ac7a4d2774.json",
+            "sha256": "228a058178cdf4ced576f0a06e1dd2d6c61c899792c8916cf5a85b2cf8666446"
+          },
+          "provenance": {
+            "type": "PINNED_STATIC_REPORT",
+            "path": "evidence/task-6-wecom-runtime/cleaned-final/bundle/static-check.json",
+            "sha256": "ebc862c6da57fbcdff4166aaed710d34e26bb01fbba420dd6ba0c8d48e2d4388"
+          }
+        }
+      ]
+    }
+  ]
+}

@@ -11,8 +11,9 @@ from unittest.mock import patch
 
 from scripts.ci.apps.qq import packet_capture, request_protocol
 from scripts.ci import redroid_app_smoke
-from scripts.ci import runtime_task
-from scripts.testdata.runtime_replay import prepare_candidate_bundle, qq_packet
+from scripts.ci import candidate_selection, runtime_task
+from scripts.testdata.runtime_replay import (prepare_candidate_bundle, qq_packet,
+    synthetic_qq_lifecycle_lines)
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -42,6 +43,22 @@ class RuntimeEventParserTest(unittest.TestCase):
                           'classLoader': 'dalvik.system.PathClassLoader'}, evidence['qfixEvidence'])
         self.assertEqual({'qfixReadyBeforeNative': True, 'hookInstalledBeforeRequest': True},
                          evidence['timingEvidence'])
+
+    def test_historical_schema1_report_stays_out_of_the_schema2_candidate_gate(self):
+        legacy = json.loads((FIXTURE / 'static-template.json').read_text())
+        with self.assertRaisesRegex(ValueError, 'Semantic checker report has an invalid schema'):
+            candidate_selection.recognition_identity(legacy)
+
+    def test_candidate_bundle_uses_an_explicit_synthetic_schema2_report(self):
+        with tempfile.TemporaryDirectory() as directory:
+            candidate_root, _, candidate, static, _ = prepare_candidate_bundle(
+                'qq', Path(directory))
+            provenance = json.loads((candidate_root / 'synthetic-fixture-provenance.json').read_text())
+            self.assertEqual(2, static['schemaVersion'])
+            self.assertEqual('APK_FILE_SNAPSHOT', static['analysisScope'])
+            self.assertEqual('SYNTHETIC_TEST_ONLY', provenance['kind'])
+            self.assertFalse(provenance['deviceBusinessValidation'])
+            self.assertEqual('qq', candidate['appId'])
 
     def test_existing_impad_tag_remains_accepted(self):
         lines = self.as_impad_lines(self.lines)
@@ -84,7 +101,7 @@ class RuntimeEventParserTest(unittest.TestCase):
                 self.assertEqual({'qfixReadyBeforeNative': False, 'hookInstalledBeforeRequest': False},
                                  evidence['timingEvidence'])
 
-    def test_production_smoke_report_reaches_raw_verifier_and_evaluator(self):
+    def test_synthetic_schema2_report_reaches_runtime_verifier_but_not_business_acceptance(self):
         with tempfile.TemporaryDirectory() as directory:
             output = Path(directory) / 'output'
             report, candidate, module = self.produce_with_run_candidate(Path(directory), output)
@@ -92,14 +109,15 @@ class RuntimeEventParserTest(unittest.TestCase):
             self.assertEqual('REQUEST_APP_ID_CONTRAST', report['acceptanceKind'])
             self.assertEqual('LOADED', report['nativeEvidence']['status'])
             self.assertEqual('READY', report['qfixEvidence']['status'])
-            self.assertEqual({'qfixReadyBeforeNative': True, 'hookInstalledBeforeRequest': True},
-                             report['timingEvidence'])
+            self.assertTrue(report['timingEvidence']['qfixReadyBeforeNative'])
+            self.assertTrue(report['timingEvidence']['hookInstalledBeforeRequest'])
             self.assertEqual('INSTALLED_1', report['runtimeDiagnostics']['hookInstallation'])
 
             verified_files = self.validate_historical_raw_evidence(report, output, candidate, module)
             self.assertEqual({
                 'apps/qq/events-disabled.jsonl', 'apps/qq/capture-disabled.json',
                 'apps/qq/events-enabled.jsonl', 'apps/qq/capture-enabled.json',
+                'apps/qq/processes-disabled.txt', 'apps/qq/processes-enabled.txt',
                 'apps/qq/logcat-enabled.txt',
             }, set(verified_files))
 
@@ -122,9 +140,9 @@ class RuntimeEventParserTest(unittest.TestCase):
             with patch.object(packet_capture, 'observer_source_digest', return_value=observer_sha):
                 result = runtime_task.evaluate_validation(
                     candidate_for_evaluator, module, static, regression, smoke_for_evaluator, 'success')
-            self.assertEqual('VERIFIED', result['outcome'])
-            self.assertEqual({'static', 'regression', 'runtime'}, set(result['stageEvidence']))
-            self.assertNotIn('recordId', result)
+            self.assertEqual('CANDIDATE_REJECTED', result['outcome'])
+            self.assertEqual('candidate', result['failedStage'])
+            self.assertIn('Candidate APK identity or expected complete plan is invalid', result['diagnostics'])
 
     def test_frozen_observer_capture_is_rejected_under_current_collector_source_digest(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -189,7 +207,7 @@ class RuntimeEventParserTest(unittest.TestCase):
                     existing = forged_log.read_text().splitlines()
                     ordinary = [line for line in existing if 'rule-runtime event=' not in line]
                     nested = [self.nested_header(line, outer_pid, outer_tag)
-                              for line in self.lifecycle_lines]
+                              for line in synthetic_qq_lifecycle_lines(candidate, module)]
                     forged_log.write_text('\n'.join(ordinary + nested) + '\n')
 
                     forged = json.loads(json.dumps(report))
@@ -204,7 +222,7 @@ class RuntimeEventParserTest(unittest.TestCase):
                         forged_log.read_text(), {OWNER_PID}, self.request_times)
                     self.assertEqual('NOT_OBSERVED', parsed['nativeEvidence']['status'])
                     self.assertEqual('NOT_OBSERVED', parsed['qfixEvidence']['status'])
-                    with self.assertRaisesRegex(ValueError, 'lifecycle summary does not match'):
+                    with self.assertRaisesRegex(ValueError, 'Scoped module lifecycle log is empty'):
                         self.validate_historical_raw_evidence(forged, case_root, candidate, module)
 
     def test_duplicate_or_missing_lifecycle_events_fail_their_exact_count(self):
@@ -247,7 +265,7 @@ class RuntimeEventParserTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             report, candidate, module = self.produce_with_run_candidate(
-                root, root / 'output', self.as_impad_lines(self.lines))
+                root, root / 'output', use_impad_tag=True)
             self.assertEqual('RUNTIME_SMOKE_VERIFIED', report['status'])
             self.assertEqual('INSTALLED_1', report['runtimeDiagnostics']['hookInstallation'])
             files = self.validate_historical_raw_evidence(report, root / 'output', candidate, module)
@@ -349,7 +367,7 @@ class RuntimeEventParserTest(unittest.TestCase):
         return f'10-20 01:00:00.000 {outer_pid:5d} {outer_pid:5d} I {outer_tag}: nested {inner}'
 
     def produce_with_run_candidate(self, workdir, output, lifecycle_lines=None,
-                                   use_fixture_observer=True):
+                                   use_fixture_observer=True, use_impad_tag=False):
         candidate_root, candidate_path, candidate, _, module_apk = prepare_candidate_bundle('qq', workdir)
         candidate['_root'] = str(candidate_root)
         module = candidate['module']
@@ -409,15 +427,21 @@ class RuntimeEventParserTest(unittest.TestCase):
             (evidence / f'events-{label}.jsonl').write_text(
                 ''.join(json.dumps(event, separators=(',', ':')) + '\n' for event in events))
             (evidence / f'capture-{label}.json').write_text(json.dumps(raw, indent=2) + '\n')
+            (evidence / f'processes-{label}.txt').write_text(
+                f'{pid} com.tencent.mobileqq:MSF\n')
             report = dict(raw, moduleEnabled=enabled, scopeVerified=True,
                           observerSha256=observer, collectorBinarySha256='c' * 64,
                           ndkVersion='29.0.14206865', apkSha256=profile['identity']['apkSha256'],
                           appUid=uid, moduleApkSha256=instance.module_hash,
                           processName='com.tencent.mobileqq:MSF')
             if enabled:
-                rows = (FIXTURE / 'lifecycle.log').read_text().splitlines()
+                rows = []
                 if lifecycle_lines is not None:
-                    rows = [line for line in rows if 'rule-runtime event=' not in line] + lifecycle_lines
+                    rows = lifecycle_lines
+                else:
+                    rows = synthetic_qq_lifecycle_lines(candidate, module)
+                if use_impad_tag:
+                    rows = [line.replace('LSPosedFramework:', 'ImPad:') for line in rows]
                 (evidence / 'logcat-enabled.txt').write_text('\n'.join(rows) + '\n')
             return report
 
@@ -439,6 +463,10 @@ class RuntimeEventParserTest(unittest.TestCase):
                     patch.object(redroid_app_smoke.smoke, 'snapshot'), \
                     patch.object(redroid_app_smoke.runtime_probe, 'manager_state',
                                  return_value={'scopeVerified': True}), \
+                    patch.object(redroid_app_smoke.runtime_probe, 'installed_identity',
+                                 return_value={'packageName': 'io.github.nku100.impad',
+                                     'baseApkPath': '/data/app/io.github.nku100.impad/base.apk',
+                                     'baseApkSha256': module['sha256']}), \
                     patch.object(redroid_app_smoke.AppSmoke, 'capture', autospec=True,
                                  side_effect=lambda _self, enabled, profile:
                                  capture_events(enabled, profile)):

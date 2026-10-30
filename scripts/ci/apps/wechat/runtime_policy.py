@@ -1,4 +1,9 @@
 """WeChat-specific UI assertions used by the shared runtime smoke runner."""
+from scripts.ci.semantic_hook_evidence import (
+    THREADTIME as _THREADTIME,
+    derive_semantic_hook_evidence,
+)
+
 import re
 import xml.etree.ElementTree as ET
 from pathlib import PurePosixPath
@@ -9,15 +14,6 @@ login_navigation_labels = (
     "log in", "login", "log in via mobile number", "log in with phone number",
     "log in on tablet only", "agree", "accept", "allow", "while using the app",
     "登录", "手机号登录", "同意",
-)
-
-_THREADTIME = re.compile(
-    r'^(?P<timestamp>\d\d-\d\d \d\d:\d\d:\d\d\.\d{3})\s+'
-    r'(?P<pid>\d+)\s+(?P<tid>\d+)\s+(?P<priority>[VDIWEF])\s+'
-    r'(?P<tag>ImPad|LSPosedFramework):\s+(?P<message>.*)$'
-)
-_MODULE_ENVELOPE = re.compile(
-    r'^\((?P<process>[^)]+)\)\[io\.github\.nku100\.impad,ImPad,[^,\]\s]+,\d+,\d+\]\s+(?P<body>.*)$'
 )
 
 
@@ -241,128 +237,5 @@ def scoped_module_log_lines(logcat, process_text, package_name):
     return '\n'.join(selected) + ('\n' if selected else '')
 
 
-def _log_fields(body, prefix, expected_keys):
-    if not body.startswith(prefix + ' '):
-        raise ValueError('Runtime lifecycle event prefix is invalid')
-    fields = {}
-    for token in body[len(prefix) + 1:].split():
-        if '=' not in token:
-            raise ValueError('Runtime lifecycle event field is malformed')
-        key, value = token.split('=', 1)
-        if key in fields:
-            raise ValueError('Runtime lifecycle event contains a duplicate field')
-        fields[key] = value
-    if set(fields) != set(expected_keys):
-        raise ValueError('Runtime lifecycle event fields do not match the schema')
-    return fields
-
-
 def derive_hook_evidence(process_text, logs, candidate, module, installed_module=None):
-    identity = candidate.get('identity', {})
-    plan = candidate.get('expectedPlan', {})
-    package_name = identity.get('packageName')
-    if (package_name != 'com.tencent.mm' or not isinstance(plan, dict)
-            or any(not isinstance(plan.get(key), str)
-                   or not re.fullmatch(r'[^/\s]+', plan[key])
-                   for key in ('ruleId', 'strategyId'))
-            or not isinstance(module.get('dexkit'), dict)):
-        raise ValueError('WeChat module lifecycle expectation is incomplete')
-    processes = {}
-    for line in process_text.splitlines():
-        fields = line.split()
-        if len(fields) != 2 or not fields[0].isdigit():
-            continue
-        pid, name = int(fields[0]), fields[1]
-        if name == package_name or name.startswith(package_name + ':'):
-            if pid in processes and processes[pid] != name:
-                raise ValueError('Process table contains a duplicate PID identity')
-            processes[pid] = name
-    main_pids = [pid for pid, name in processes.items() if name == package_name]
-    if len(main_pids) != 1:
-        raise ValueError('Process table must contain exactly one WeChat main process')
-    main_pid = main_pids[0]
-    parsed = []
-    for line in logs.splitlines():
-        if not line:
-            continue
-        outer = _THREADTIME.fullmatch(line)
-        if not outer:
-            raise ValueError('Scoped WeChat module log has an invalid threadtime header')
-        envelope = _MODULE_ENVELOPE.fullmatch(outer['message'])
-        if (not envelope or int(outer['pid']) not in processes
-                or envelope['process'] != processes[int(outer['pid'])]):
-            raise ValueError('Scoped WeChat module log is not bound to its outer process identity')
-        parsed.append({'line': line, 'timestamp': outer['timestamp'], 'pid': int(outer['pid']),
-                       'body': envelope['body']})
-    if not parsed:
-        raise ValueError('Scoped WeChat module log is empty')
-    main_rows = lambda predicate: [row for row in parsed if row['pid'] == main_pid and predicate(row['body'])]
-    rule_id, strategy_id = plan['ruleId'], plan['strategyId']
-    version_code, apk_input_count = identity.get('versionCode'), len(candidate.get('apkFiles', []))
-    status_rows = main_rows(lambda body: body.startswith('status='))
-    installed_rows = main_rows(lambda body: body.startswith('installed '))
-    tinker_rows = main_rows(lambda body: body.startswith('rule-runtime event=tinker_ready '))
-    native_rows = main_rows(lambda body: body.startswith('rule-runtime event=native_loaded '))
-    hook_rows = main_rows(lambda body: body.startswith('rule-runtime event=hook_installed '))
-    if any(len(rows) != 1 for rows in (status_rows, installed_rows, tinker_rows, native_rows, hook_rows)):
-        raise ValueError('WeChat main process must emit exactly one compatible, Tinker, native and hook record')
-    status = re.fullmatch(
-        r'status=COMPATIBLE rule plan=([^/\s]+)/([^\s]+) versionCode=(\d+) apkInputs=(\d+) cacheHit=(true|false)',
-        status_rows[0]['body'],
-    )
-    if (not status or status.group(1) != rule_id or status.group(2) != strategy_id
-            or int(status.group(3)) != version_code or int(status.group(4)) != apk_input_count):
-        raise ValueError('WeChat compatibility record differs from the prepared candidate plan')
-    if installed_rows[0]['body'] != hook_installation_log:
-        raise ValueError('WeChat installed-hook count differs from the required target set')
-    tinker = _log_fields(tinker_rows[0]['body'], 'rule-runtime event=tinker_ready',
-                         {'elapsedRealtimeNs', 'contextPackage', 'loaderClass'})
-    native = _log_fields(native_rows[0]['body'], 'rule-runtime event=native_loaded',
-                         {'elapsedRealtimeNs', 'apiSha256', 'nativeSha256', 'nativeAbi',
-                          'packagingMode', 'sourceApkPath', 'nativeLoadPath'})
-    hook = _log_fields(hook_rows[0]['body'], 'rule-runtime event=hook_installed',
-                       {'elapsedRealtimeNs', 'ruleId', 'strategyId', 'hookCount', 'processName'})
-    if (tinker['contextPackage'] != package_name
-            or not re.fullmatch(r'[A-Za-z_$][A-Za-z0-9_$.]*', tinker['loaderClass'])
-            or hook['ruleId'] != rule_id or hook['strategyId'] != strategy_id
-            or hook['processName'] != package_name or hook['hookCount'] != '2'):
-        raise ValueError('WeChat lifecycle events do not match the main package and selected plan')
-    dexkit, abi = module['dexkit'], identity.get('abi')
-    if (native['apiSha256'] != dexkit.get('dexkitAndroidApiSha256')
-            or native['nativeSha256'] != dexkit.get('dexkitAndroidArm64NativeSha256')
-            or native['nativeAbi'] != abi or native['packagingMode'] not in {'APK_DIRECT', 'EXTRACTED_FILE'}):
-        raise ValueError('WeChat native lifecycle identity differs from the verified module')
-    if installed_module is not None and native['sourceApkPath'] != installed_module.get('baseApkPath'):
-        raise ValueError('WeChat native source APK path differs from the installed module APK')
-    if native['packagingMode'] == 'APK_DIRECT':
-        expected_load = native['sourceApkPath'] + f'!/lib/{abi}/libdexkit.so'
-        if native['nativeLoadPath'] != expected_load:
-            raise ValueError('WeChat direct native load path does not identify the module APK entry')
-    else:
-        path = PurePosixPath(native['nativeLoadPath'])
-        if not path.is_absolute() or path.name != 'libdexkit.so' or abi not in path.parts:
-            raise ValueError('WeChat extracted native load path is not bound to the expected ABI')
-    times = [tinker['elapsedRealtimeNs'], native['elapsedRealtimeNs'], hook['elapsedRealtimeNs']]
-    if (not all(value.isdigit() for value in times)
-            or not int(times[0]) < int(times[1]) < int(times[2])
-            or status_rows[0]['timestamp'] > hook_rows[0]['timestamp']):
-        raise ValueError('WeChat lifecycle event ordering is invalid')
-    records = [row['line'] for row in parsed if ('status=COMPATIBLE' in row['body']
-               or 'waiting for Tinker' in row['body'] or row['body'].startswith('installed '))]
-    diagnostics = {'moduleLoaded': 'OBSERVED', 'compatibility': 'COMPATIBLE',
-                   'hookInstallation': 'INSTALLED_2', 'resolvedHooks': [],
-                   'records': list(dict.fromkeys(records))[-12:]}
-    lifecycle = {
-        'tinkerEvidence': {'status': 'READY', 'contextPackage': tinker['contextPackage'],
-                           'loaderClass': tinker['loaderClass']},
-        'nativeEvidence': {'status': 'LOADED', 'apiSha256': native['apiSha256'],
-                           'nativeSha256': native['nativeSha256'], 'nativeAbi': native['nativeAbi'],
-                           'packagingMode': native['packagingMode'], 'sourceApkPath': native['sourceApkPath'],
-                           'nativeLoadPath': native['nativeLoadPath']},
-        'hookEvidence': {'status': 'INSTALLED', 'ruleId': rule_id, 'strategyId': strategy_id,
-                         'hookCount': 2, 'processName': package_name},
-        'hookCount': 2,
-        'timingEvidence': {'tinkerBeforeNative': True, 'nativeBeforeHook': True,
-                           'compatibleBeforeHook': True},
-    }
-    return diagnostics, lifecycle
+    return derive_semantic_hook_evidence(process_text, logs, candidate, module, installed_module)

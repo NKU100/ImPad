@@ -1,0 +1,104 @@
+{
+  "schemaVersion": 1,
+  "cases": [
+    {
+      "name": "single_dex",
+      "steps": [
+        "load A"
+      ],
+      "diskVersion": "A",
+      "expectedMarker": "A",
+      "rejectedAttribution": "missing live provenance"
+    },
+    {
+      "name": "multi_dex",
+      "steps": [
+        "load A and distinct Extra"
+      ],
+      "diskVersion": "A+Extra",
+      "expectedMarker": "A",
+      "rejectedAttribution": "omitted second DEX"
+    },
+    {
+      "name": "split_class",
+      "steps": [
+        "parent A",
+        "child Extra"
+      ],
+      "diskVersion": "base A; child Extra",
+      "expectedMarker": "Extra",
+      "rejectedAttribution": "split incorrectly excluded"
+    },
+    {
+      "name": "parent_first",
+      "steps": [
+        "parent A",
+        "child B"
+      ],
+      "diskVersion": "A and B",
+      "expectedMarker": "A",
+      "rejectedAttribution": "certifying child B"
+    },
+    {
+      "name": "delegate_last",
+      "steps": [
+        "parent A",
+        "delegate-last B"
+      ],
+      "diskVersion": "A and B",
+      "expectedMarker": "B",
+      "rejectedAttribution": "certifying parent A"
+    },
+    {
+      "name": "whole_class_override",
+      "steps": [
+        "child B before A",
+        "query oldOnly"
+      ],
+      "diskVersion": "B then A",
+      "expectedMarker": "B",
+      "rejectedAttribution": "resurrecting A.oldOnly"
+    },
+    {
+      "name": "loaded_then_replace",
+      "steps": [
+        "load A",
+        "replace archive by B",
+        "execute retained Class"
+      ],
+      "diskVersion": "B",
+      "expectedMarker": "A",
+      "rejectedAttribution": "certifying current disk B"
+    },
+    {
+      "name": "loaded_then_prepend",
+      "steps": [
+        "load A",
+        "prepend B",
+        "execute retained Class"
+      ],
+      "diskVersion": "B then A",
+      "expectedMarker": "A",
+      "rejectedAttribution": "certifying injected B"
+    },
+    {
+      "name": "export_completeness",
+      "steps": [
+        "duplicate A/B class definitions",
+        "export bridge DEX"
+      ],
+      "diskVersion": "A and B",
+      "expectedMarker": "A",
+      "rejectedAttribution": "discarding duplicate definitions silently"
+    },
+    {
+      "name": "unknown_loader",
+      "steps": [
+        "custom nonstandard loadClass"
+      ],
+      "diskVersion": "A",
+      "expectedMarker": "A",
+      "rejectedAttribution": "assuming standard delegation"
+    }
+  ]
+}

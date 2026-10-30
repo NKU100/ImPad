@@ -1,0 +1,24 @@
+{
+  "schemaVersion": 1,
+  "appId": "qq",
+  "ruleCatalogSha256": "cc3a3cbf6cfdaea6aedf0e27b6154af544a59550d8e86cfa5d663b4ccfaef66a",
+  "definitions": [
+    {
+      "ruleId": "qq_device_type_001",
+      "strategyId": "qq_tablet_001",
+      "requiredTargetIds": [
+        "device_type"
+      ]
+    }
+  ],
+  "bindings": [
+    {
+      "ruleId": "qq_device_type_001",
+      "min": 14378,
+      "max": null
+    }
+  ],
+  "strategyIds": [
+    "qq_tablet_001"
+  ]
+}

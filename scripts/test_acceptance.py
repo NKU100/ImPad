@@ -2,6 +2,7 @@ import copy
 import hashlib
 import json
 from pathlib import Path
+import shutil
 import tempfile
 import unittest
 from contextlib import redirect_stderr
@@ -9,12 +10,64 @@ from io import StringIO
 from unittest.mock import patch
 
 from scripts.ci import acceptance
-from scripts.ci.acceptance import AcceptanceSnapshot, load_records, make_record, select_representatives
+from scripts.ci.acceptance import AcceptanceSnapshot, build_semantic_acceptance_record, load_records, make_record, select_representatives
 from scripts.ci.app_policy import get_policy
 from scripts.ci.runtime_task import evaluate_validation, verify_cli
 
 
 class AcceptanceTest(unittest.TestCase):
+    def semantic_stage_fixture(self):
+        from scripts.test_semantic_validation import SemanticValidationTest
+
+        source = SemanticValidationTest('runTest')
+        source.setUp()
+        self.addCleanup(source.doCleanups)
+        candidate, module, static, rows, reports = source.models('wechat')
+        root = source.root
+        candidate.update(schemaVersion=2, status='PREPARED')
+        candidate['apkFiles'] = [
+            {'path': f'apk-inputs/input-{index}.apk', 'role': 'base' if index == 0 else 'split',
+             'sha256': row['sha256']}
+            for index, row in enumerate(static['inputHashes'])
+        ]
+        candidate['sourceUrl'] = 'https://dldir1v6.qq.com/weixin/android/wechat-test.apk'
+        candidate['staticReport'] = 'static/candidate.json'
+        static_path = root / candidate['staticReport']
+        static_path.parent.mkdir(parents=True, exist_ok=True)
+        static_bytes = json.dumps(static, sort_keys=True, separators=(',', ':')).encode()
+        static_path.write_bytes(static_bytes)
+        candidate['staticReportSha256'] = hashlib.sha256(static_bytes).hexdigest()
+
+        module['sha256'] = 'f' * 64
+        regression_root = root / 'regression'
+        fixed_root = regression_root / 'fixed'
+        fixed_root.mkdir(parents=True)
+        for row in rows:
+            path = fixed_root / f"{row['recordId']}.json"
+            path.write_text(json.dumps(reports[row['recordId']]))
+            row['staticEvidence'] = {'path': f'fixed/{path.name}',
+                                     'sha256': hashlib.sha256(path.read_bytes()).hexdigest()}
+        regression_path = regression_root / 'results.json'
+        regression_path.write_text(json.dumps(rows))
+        regression = {'status': 'PASSED', 'records': rows,
+                      'evidence': {'path': str(regression_path),
+                                   'sha256': hashlib.sha256(regression_path.read_bytes()).hexdigest()}}
+        smoke_path = root / 'runtime/smoke.json'
+        smoke_path.parent.mkdir(parents=True)
+        smoke = {'status': 'RUNTIME_SMOKE_VERIFIED', 'appId': 'wechat',
+                 'packageName': candidate['identity']['packageName'],
+                 'abi': candidate['identity']['abi'],
+                 'apkSha256': candidate['identity']['apkSha256'],
+                 'moduleApkSha256': module['sha256'],
+                 'moduleSourceTreeSha256': module['sourceTreeSha256'],
+                 'ruleCatalogSha256': module['ruleCatalogSha256'],
+                 'recognitionSha256': module['recognitionSha256'],
+                 'dependencyLockSha256': module['dependencyLockSha256'],
+                 'evidence': [{'path': 'runtime.log', 'sha256': '9' * 64}],
+                 'evidenceReport': {'path': 'runtime/smoke.json', 'sha256': '8' * 64}}
+        smoke_path.write_text(json.dumps(smoke))
+        return candidate, module, static, regression, smoke, root
+
     def test_signed_mirror_acceptance_requires_pinned_archive_and_public_https(self):
         candidate, module, static, _, _ = self.fixture()
         record = {
@@ -271,27 +324,27 @@ class AcceptanceTest(unittest.TestCase):
         return candidate, module, static, regression, smoke
 
     def test_candidate_pass_does_not_override_regression_failure(self):
-        candidate, module, static, regression, smoke = self.fixture()
+        candidate, module, static, regression, smoke, root = self.semantic_stage_fixture()
         regression['status'] = 'FAILED'
-        result = evaluate_validation(candidate, module, static, regression, smoke, 'success')
+        result = evaluate_validation(candidate, module, static, regression, smoke, 'success', repository=root)
         self.assertEqual('REGRESSION_FAILED', result['outcome'])
 
     def test_runtime_incompatibility_requires_raw_replay_and_cannot_override_other_gates(self):
-        candidate, module, static, regression, smoke = self.fixture()
+        candidate, module, static, regression, smoke, root = self.semantic_stage_fixture()
         smoke['status'] = 'RUNTIME_REJECTED'
-        unconfirmed = evaluate_validation(candidate, module, static, regression, smoke, 'failure')
+        unconfirmed = evaluate_validation(candidate, module, static, regression, smoke, 'failure', repository=root)
         self.assertEqual('ERROR', unconfirmed['outcome'])
         confirmed = evaluate_validation(candidate, module, static, regression, smoke, 'failure',
-                                        runtime_rejection=True)
+                                        runtime_rejection=True, repository=root)
         self.assertEqual('RUNTIME_INCOMPATIBLE', confirmed['outcome'])
         regression['status'] = 'FAILED'
         failed = evaluate_validation(candidate, module, static, regression, smoke, 'failure',
-                                     runtime_rejection=True)
+                                     runtime_rejection=True, repository=root)
         self.assertEqual('REGRESSION_FAILED', failed['outcome'])
         regression['status'] = 'PASSED'
         for conclusion in ('cancelled', 'skipped'):
             cancelled = evaluate_validation(candidate, module, static, regression, smoke, conclusion,
-                                            runtime_rejection=True)
+                                            runtime_rejection=True, repository=root)
             self.assertEqual('CANCELLED', cancelled['outcome'])
 
     def test_evaluator_result_does_not_claim_boolean_trust(self):
@@ -300,9 +353,10 @@ class AcceptanceTest(unittest.TestCase):
         self.assertNotIn('trustedEvidence', result)
 
     def test_validation_result_keeps_static_regression_and_runtime_report_references(self):
-        candidate, module, static, regression, smoke = self.fixture()
-        result = evaluate_validation(candidate, module, static, regression, smoke, 'success')
-        self.assertEqual({'static': {'path': 'static-check.json', 'sha256': '3' * 64},
+        candidate, module, static, regression, smoke, root = self.semantic_stage_fixture()
+        result = evaluate_validation(candidate, module, static, regression, smoke, 'success', repository=root)
+        self.assertEqual({'static': {'path': candidate['staticReport'],
+                                    'sha256': candidate['staticReportSha256']},
                           'regression': regression['evidence'], 'runtime': smoke['evidenceReport']},
                          result['stageEvidence'])
 
@@ -339,29 +393,28 @@ class AcceptanceTest(unittest.TestCase):
         result = evaluate_validation(candidate, module, static, regression, smoke, 'success')
         self.assertNotEqual('VERIFIED', result['outcome'])
 
-    def test_record_draft_revalidates_files_and_never_writes_acceptance_table(self):
-        candidate, module, static, regression, smoke = self.fixture()
-        with tempfile.TemporaryDirectory() as temporary:
-            root = Path(temporary)
-            acceptance_path = root / 'acceptance.json'
-            raw_snapshot = b'{"schemaVersion":1,"appId":"qq","records":[]}\n'
-            snapshot = AcceptanceSnapshot(acceptance_path.resolve(), raw_snapshot,
-                                          hashlib.sha256(raw_snapshot).hexdigest(), b'[]', True)
-            validation = evaluate_validation(candidate, module, static, regression, smoke, 'success')
-            validation['acceptanceSnapshot'] = {'path': str(acceptance_path.resolve()),
-                                                'sha256': snapshot.sha256,
-                                                'recordIds': [], 'initialMigration': True}
-            validation['_acceptanceSnapshotObject'] = snapshot
-            with patch('scripts.ci.runtime_task.verify_validation_files', return_value=validation) as verifier:
-                record = make_record(candidate, module, validation, candidate_path=root / 'candidate.json',
-                                     module_apk=root / 'module.apk', regression_path=root / 'regression.json',
-                                     smoke_path=root / 'smoke.json', evidence_root=root,
-                                     acceptance_path=acceptance_path, initial_migration=True)
-            self.assertIs(snapshot, verifier.call_args.kwargs['acceptance_snapshot'])
-            self.assertEqual(candidate['identity'], record['identity'])
-            self.assertEqual('VERIFIED', record['status'])
-            self.assertEqual(record['recordId'], record['firstRecordId'])
-            self.assertFalse((root / 'acceptance.json').exists())
+    def test_verified_schema2_draft_preserves_source_and_does_not_write_acceptance_table(self):
+        candidate, module, static, regression, smoke, root = self.semantic_stage_fixture()
+        validation = evaluate_validation(candidate, module, static, regression, smoke, 'success', repository=root)
+        self.assertEqual('VERIFIED', validation['outcome'])
+        record_id = '7e6b3b7c-61f0-45a8-9c74-7d8b4b890a13'
+        archive_root = f'compatibility/wechat/acceptance-evidence/{record_id}'
+        refs = [validation['stageEvidence'][name]
+                for name in ('static', 'regression', 'runtime')]
+        refs.extend(validation['runtime']['evidence'])
+        names = ['static-report.json', 'regression-report.json', 'runtime-report.json',
+                 'raw/raw-0000-runtime.log']
+        mappings = [{'sourcePath': ref['path'], 'path': f'{archive_root}/{name}',
+                     'sha256': ref['sha256']} for ref, name in zip(refs, names)]
+        archive = {'path': archive_root, 'manifestPath': f'{archive_root}/manifest.json',
+                   'manifestSha256': 'a' * 64, 'files': mappings}
+        record = build_semantic_acceptance_record(validation, evidence_archive=archive,
+                                                  record_id=record_id)
+        self.assertEqual(2, record['schemaVersion'])
+        self.assertEqual(candidate['sourceUrl'], record['source']['url'])
+        self.assertEqual(candidate['identity'], record['identity'])
+        self.assertEqual(candidate['expectedPlan'], record['completePlan'])
+        self.assertFalse((root / 'compatibility/wechat/acceptance-v2.json').exists())
 
     def test_make_record_rejects_forged_verified_dictionary_without_files(self):
         candidate, module, _, _, _ = self.fixture()

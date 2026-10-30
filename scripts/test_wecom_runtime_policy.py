@@ -1,6 +1,9 @@
 import unittest
 
+from scripts.test_semantic_hook_evidence import lifecycle_fixture as semantic_lifecycle_fixture
+
 from scripts.ci.apps.wecom.runtime_policy import (
+    derive_hook_evidence,
     derive_installed_identities,
     hook_diagnostics,
     launcher_component,
@@ -57,6 +60,19 @@ class WeComRuntimePolicyTest(unittest.TestCase):
         nested = f'log says topResumedActivity=ActivityRecord{{abc u0 {PACKAGE}/.LoginQrCodeForAndroidPad t9}}'
         self.assertFalse(qr_page_ready(nested, ui, PACKAGE, 'LoginQrCodeForAndroidPad'))
         self.assertFalse(qr_page_ready(QR_ACTIVITY, ui, PACKAGE, 'LoginQrCodeForAndroidPad'))
+
+    def test_hook_evidence_binds_protocol_two_complete_plan_and_native_identity(self):
+        candidate, module, processes, logs, installed, _ = semantic_lifecycle_fixture('wecom')
+        diagnostics, lifecycle = derive_hook_evidence(processes, logs, candidate, module, installed)
+        self.assertEqual('INSTALLED_3', diagnostics['hookInstallation'])
+        self.assertEqual('READY', lifecycle['tinkerEvidence']['status'])
+        self.assertEqual('INSTALLED', lifecycle['hookEvidence']['status'])
+        self.assertEqual(candidate['expectedPlan'], lifecycle['hookEvidence']['completePlan'])
+        self.assertEqual(candidate['expectedExecutionSha256'], lifecycle['hookEvidence']['executionSha256'])
+        self.assertNotIn('ruleId', lifecycle['hookEvidence'])
+        with self.assertRaises(ValueError):
+            derive_hook_evidence(processes, logs.replace('nativeSha256=' + 'd' * 64,
+                                                         'nativeSha256=' + 'e' * 64), candidate, module)
 
     def test_hook_diagnostics_require_compatibility_and_installation_records(self):
         good = "I ImPad: status=COMPATIBLE\nI ImPad: installed 3 WeCom hooks"

@@ -378,6 +378,21 @@ jobs:
           acceptance_path = Path(f"compatibility/{os.environ['APP_ID']}/acceptance.json")
           if not acceptance_path.is_file():
               raise FileNotFoundError(f'Acceptance table is missing: {acceptance_path}')
+          candidate_path = directory / 'candidate-report.json'
+          candidate = json.loads(candidate_path.read_text())
+          if candidate.get('schemaVersion') != 2 or candidate.get('status') != 'PREPARED':
+              raise ValueError('Runtime verifier requires a prepared schema2 candidate')
+          static_path = (candidate_path.parent / candidate['staticReport']).resolve()
+          if not static_path.is_relative_to(candidate_path.parent.resolve()):
+              raise ValueError('Static checker report escapes the candidate artifact root')
+          static = json.loads(static_path.read_text())
+          if static.get('schemaVersion') != 2 or static.get('analysisScope') != 'APK_FILE_SNAPSHOT':
+              raise ValueError('Runtime verifier requires a schema2 APK file snapshot report')
+          selection = static.get('selection', {})
+          if (selection.get('status') != 'SELECTED' or not isinstance(selection.get('plan'), dict)
+                  or selection['plan'] != candidate.get('expectedPlan')
+                  or selection.get('executionSha256') != candidate.get('expectedExecutionSha256')):
+              raise ValueError('Runtime candidate does not match the selected schema2 complete plan')
           if not smoke_report.is_file():
               smoke_report.parent.mkdir(parents=True, exist_ok=True)
               smoke_report.write_text(json.dumps({'status': 'ACCEPTANCE_UNAVAILABLE', 'reason': 'Runtime report artifact is missing'}) + '\n')

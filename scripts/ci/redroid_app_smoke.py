@@ -14,6 +14,7 @@ import time
 from scripts.ci import runtime_smoke as smoke
 from scripts.ci.apps.qq import packet_capture, prepare_probe, request_protocol, runtime_policy, runtime_probe
 from scripts.ci.redroid_environment_probe import Probe, SERIAL, CONTAINER, MAGISK, checked_digest
+from scripts.ci.semantic_hook_evidence import derive_semantic_hook_evidence
 
 FINGERPRINT = 'redroid/redroid_arm64_only/redroid_arm64_only:14/UD2A.240505.001.W1/eng.frank.20240527.152423:userdebug/test-keys'
 _THREADTIME_HEADER = re.compile(
@@ -29,6 +30,7 @@ _LSPOSED_RUNTIME_EVENT = re.compile(
 
 
 def extract_qq_lifecycle_evidence(logs, owner_pids, request_times):
+    """Read legacy rule-ID lifecycle logs for pinned v1 replay fixtures only."""
     events = {}
     for line in logs.splitlines():
         header = _THREADTIME_HEADER.fullmatch(line)
@@ -82,6 +84,7 @@ def install_candidate(adb, root, candidate):
 
 
 def qq_compatible_hook_installed(logs: str, owner_pids):
+    """Read legacy compatibility markers for pinned v1 replay fixtures only."""
     owner_pids = {str(pid) for pid in owner_pids}
     compatible, installed = set(), set()
     for line in logs.splitlines():
@@ -95,6 +98,78 @@ def qq_compatible_hook_installed(logs: str, owner_pids):
         if 'installed 1 QQ hooks' in line:
             installed.add(fields[2])
     return bool(compatible & installed)
+
+
+def capture_qq_process_snapshot(smoke_client, evidence_directory, owner_pids):
+    """Persist the device ps snapshot and bind one current MSF owner to captured packets."""
+    raw = smoke_client.su('ps -A -o PID,NAME').stdout
+    process_text = raw.decode(errors='strict') if isinstance(raw, bytes) else raw
+    if not isinstance(process_text, str):
+        raise ValueError('QQ process snapshot is not text')
+    rows = []
+    for line in process_text.splitlines():
+        fields = line.split()
+        if len(fields) == 2 and fields[0].isdigit() and fields[1] == 'com.tencent.mobileqq:MSF':
+            rows.append(int(fields[0]))
+    owners = set(owner_pids)
+    if len(rows) != 1 or owners != {rows[0]}:
+        raise ValueError('QQ capture must have exactly one current MSF owner matching packet ownership')
+    (Path(evidence_directory) / 'processes-enabled.txt').write_text(process_text)
+    return process_text
+
+
+def extract_qq_semantic_lifecycle_evidence(logs, owner_pids, request_times, candidate,
+                                           module, process_text, installed_module=None):
+    """Decode v2 lifecycle evidence scoped to the one verified current QQ MSF owner."""
+    process_rows = []
+    for line in process_text.splitlines():
+        fields = line.split()
+        if len(fields) == 2 and fields[0].isdigit():
+            pid = int(fields[0])
+            if fields[1] == 'com.tencent.mobileqq:MSF':
+                process_rows.append(pid)
+    owners = set(owner_pids)
+    if len(process_rows) != 1 or owners != set(process_rows):
+        raise ValueError('QQ lifecycle owner differs from the unique current MSF process')
+
+    scoped = []
+    for line in logs.splitlines():
+        header = _THREADTIME_HEADER.fullmatch(line)
+        if header and int(header.group(3)) in owners and header.group(6) in {'ImPad', 'LSPosedFramework'}:
+            scoped.append(line)
+    scoped_logs = '\n'.join(scoped)
+    diagnostics, lifecycle = derive_semantic_hook_evidence(
+        process_text, scoped_logs, candidate, module, installed_module)
+
+    positive_request_times = [value for value in request_times if type(value) is int and value > 0]
+    if not positive_request_times:
+        raise ValueError('QQ capture has no positive request observation time')
+    hook_times = []
+    for line in scoped:
+        header = _THREADTIME_HEADER.fullmatch(line)
+        message = header.group(7) or ''
+        if message.startswith('('):
+            envelope = _LSPOSED_RUNTIME_EVENT.fullmatch(message)
+            if not envelope:
+                continue
+            message = envelope.group(1)
+        event = _RUNTIME_EVENT.fullmatch(message)
+        if event and event.group(1) == 'hook_installed':
+            fields = dict(part.split('=', 1) for part in (event.group(2) or '').split() if '=' in part)
+            value = fields.get('elapsedRealtimeNs', '')
+            if value.isdigit() and int(value) > 0:
+                hook_times.append(int(value))
+    if len(hook_times) != 1 or any(hook_times[0] >= value for value in positive_request_times):
+        raise ValueError('QQ hook installation must precede every captured request')
+
+    qfix_time = lifecycle['qfixEvidence']['elapsedRealtimeNs']
+    native_time = lifecycle['nativeEvidence']['elapsedRealtimeNs']
+    lifecycle['timingEvidence'].update(
+        qfixReadyBeforeNative=qfix_time < native_time,
+        qfixBeforeNative=qfix_time < native_time,
+        hookInstalledBeforeRequest=True,
+    )
+    return diagnostics, lifecycle
 
 
 def query_target():
@@ -152,7 +227,7 @@ def pipeline_report(report, candidate, module_identity=None, evidence_root=None)
         'moduleApkSha256': 'sha256',
         'moduleSourceTreeSha256': 'sourceTreeSha256',
         'ruleCatalogSha256': 'ruleCatalogSha256',
-        'routeSha256': 'routeSha256',
+        'recognitionSha256': 'recognitionSha256',
         'dependencyLockSha256': 'dependencyLockSha256',
     }
     module_identity = module_identity if isinstance(module_identity, dict) else {}
@@ -344,6 +419,14 @@ class AppSmoke:
                     smoke.su('rm -f ' + remote + '.pid', check=False)
         result = capture.result()
         (smoke.EVIDENCE / ('capture-' + label + '.json')).write_text(json.dumps(result, indent=2))
+        if enabled:
+            if not result.get('frames'):
+                raise RuntimeError('Enabled QQ request capture has no observed frames')
+            if len({owner.get('pid') for owner in result.get('owners', [])
+                    if isinstance(owner, dict)}) != 1:
+                raise RuntimeError('Enabled QQ capture has ambiguous packet owners')
+            capture_qq_process_snapshot(smoke, smoke.EVIDENCE,
+                                        {int(owner['pid']) for owner in result.get('owners', [])})
         smoke.save('logcat-' + label + '.txt', smoke.adb('logcat', '-d', '-v', 'threadtime', check=False))
         if not result['captureHealthy'] or not result['ownershipVerified']:
             raise RuntimeError('Capture incomplete or unowned')
@@ -365,7 +448,7 @@ class AppSmoke:
             (smoke.EVIDENCE / f'installed-apks-{label}-{stage}.json').write_text(
                 json.dumps(installed, indent=2) + '\n')
 
-    def qq(self, profile):
+    def qq(self, profile, candidate):
         smoke.configure_app_id('qq')
         smoke.EVIDENCE = self.probe.output / 'apps' / 'qq'
         smoke.EVIDENCE.mkdir(parents=True, exist_ok=True)
@@ -389,22 +472,22 @@ class AppSmoke:
             report['enabled'] = on
             proof = runtime_policy.build_request_identity_proof(expectation, off, on)
             report['requestIdentityEvidence'] = proof
+            if not on['frames']:
+                raise RuntimeError('Enabled QQ request capture has no observed frames')
             owners = {str(owner['pid']) for owner in on['owners']}
             logs = (smoke.EVIDENCE / 'logcat-enabled.txt').read_text()
-            if not qq_compatible_hook_installed(logs, {int(pid) for pid in owners}):
-                raise RuntimeError('No fresh compatible and installed hook in captured MSF owner')
-            report['runtimeDiagnostics'] = smoke.hook_diagnostics('\n'.join(
-                line for line in logs.splitlines() if len(fields := line.split()) > 5 and fields[2] in owners
-                and fields[5].rstrip(':') in ('ImPad', 'LSPosedFramework')))
-            lifecycle = extract_qq_lifecycle_evidence(
+            process_text = (smoke.EVIDENCE / 'processes-enabled.txt').read_text()
+            installed_module = runtime_probe.installed_identity(smoke, smoke.MODULE)
+            report['runtimeDiagnostics'], lifecycle = extract_qq_semantic_lifecycle_evidence(
                 logs, {int(owner) for owner in owners},
                 [frame.get('firstObservedMonotonicNs') for frame in on['frames']],
-            )
+                candidate, self.module_identity, process_text, installed_module)
+            report['runtimeLifecycleEvidence'] = lifecycle
             report.update(lifecycle)
             if (lifecycle['nativeEvidence']['status'] != 'LOADED'
                     or lifecycle['qfixEvidence']['status'] != 'READY'
-                    or lifecycle['timingEvidence'] != {'qfixReadyBeforeNative': True,
-                                                       'hookInstalledBeforeRequest': True}):
+                    or not lifecycle['timingEvidence']['qfixReadyBeforeNative']
+                    or not lifecycle['timingEvidence']['hookInstalledBeforeRequest']):
                 raise RuntimeError('Native, QFix, or hook-before-request evidence is missing')
             dexkit = self.module_identity.get('dexkit', {})
             if (self.module_identity.get('sha256') != self.module_hash
@@ -418,7 +501,7 @@ class AppSmoke:
             report.update(moduleApkSha256=self.module_hash,
                           moduleSourceTreeSha256=self.module_identity['sourceTreeSha256'],
                           ruleCatalogSha256=self.module_identity['ruleCatalogSha256'],
-                          routeSha256=self.module_identity['routeSha256'],
+                          recognitionSha256=self.module_identity['recognitionSha256'],
                           dependencyLockSha256=self.module_identity['dependencyLockSha256'])
         except Exception as error:
             report['reason'] = f'{type(error).__name__}: {error}'
@@ -443,7 +526,7 @@ class AppSmoke:
         from scripts.ci.redroid_ui_smoke import probe as ui_probe
         app = candidate['appId']
         if app == 'qq':
-            report = self.qq(self.inputs[app])
+            report = self.qq(self.inputs[app], candidate)
         else:
             self.restart()
             runtime_inputs = {app: dict(self.inputs[app])}

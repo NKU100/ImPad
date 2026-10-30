@@ -1,0 +1,26 @@
+{
+  "schemaVersion": 1,
+  "appId": "wecom",
+  "ruleCatalogSha256": "abf1a3e62b8c6b6ec8aa484f0e8b3209cb521efec4f587330cc8a7ac7a4d2774",
+  "definitions": [
+    {
+      "ruleId": "wecom_local_001",
+      "strategyId": "wecom_local_tablet_001",
+      "requiredTargetIds": [
+        "device_type",
+        "app_pad",
+        "service_pad"
+      ]
+    }
+  ],
+  "bindings": [
+    {
+      "ruleId": "wecom_local_001",
+      "min": 70675,
+      "max": null
+    }
+  ],
+  "strategyIds": [
+    "wecom_local_tablet_001"
+  ]
+}
