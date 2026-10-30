@@ -448,6 +448,26 @@ class AppSmoke:
             (smoke.EVIDENCE / f'installed-apks-{label}-{stage}.json').write_text(
                 json.dumps(installed, indent=2) + '\n')
 
+    def load_qq_candidate(self):
+        candidate_path = self.root / 'candidate-report.json'
+        try:
+            candidate = json.loads(candidate_path.read_text())
+        except FileNotFoundError as error:
+            raise ValueError('QQ semantic candidate report is missing') from error
+        except (OSError, UnicodeError, json.JSONDecodeError) as error:
+            raise ValueError('QQ semantic candidate report is unreadable') from error
+        if (not isinstance(candidate, dict) or type(candidate.get('schemaVersion')) is not int
+                or candidate.get('schemaVersion') != 2):
+            raise ValueError('QQ semantic candidate report must use schema version 2')
+        if candidate.get('appId') != 'qq':
+            raise ValueError('QQ semantic candidate report appId does not match qq')
+        profile = self.inputs.get('qq')
+        if (not isinstance(profile, dict) or not isinstance(profile.get('identity'), dict)
+                or not isinstance(candidate.get('identity'), dict)
+                or candidate['identity'] != profile['identity']):
+            raise ValueError('QQ semantic candidate identity does not match prepared input')
+        return candidate
+
     def qq(self, profile, candidate):
         smoke.configure_app_id('qq')
         smoke.EVIDENCE = self.probe.output / 'apps' / 'qq'
@@ -546,6 +566,8 @@ class AppSmoke:
         thread.start()
         reports = []
         failure = None
+        qq_candidate = None
+        qq_candidate_error = None
         try:
             self.setup()
             for app in ('wechat', 'wecom'):
@@ -560,7 +582,14 @@ class AppSmoke:
                         runtime_inputs[app]['candidateReport'] = candidate
                 reports.append(ui_probe(app, self.probe.output / 'apps', runtime_inputs, self.module_hash))
             if 'qq' in self.inputs:
-                reports.append(self.qq(self.inputs['qq']))
+                try:
+                    qq_candidate = self.load_qq_candidate()
+                except ValueError as error:
+                    qq_candidate_error = str(error)
+                    reports.append({'appId': 'qq', 'status': 'ACCEPTANCE_UNAVAILABLE',
+                                    'reason': qq_candidate_error})
+                    raise
+                reports.append(self.qq(self.inputs['qq'], qq_candidate))
         except Exception as error:
             failure = f'{type(error).__name__}: {error}'
             raise
@@ -568,8 +597,25 @@ class AppSmoke:
             self.memory_stop.set()
             thread.join(timeout=20)
             candidate_path = self.root / 'candidate-report.json'
-            if candidate_path.is_file():
-                candidate = json.loads(candidate_path.read_text())
+            if 'qq' in self.inputs and qq_candidate is None:
+                try:
+                    qq_candidate = self.load_qq_candidate()
+                except ValueError as error:
+                    qq_candidate_error = qq_candidate_error or str(error)
+            if 'qq' in self.inputs and qq_candidate is None:
+                result = {
+                    'schemaVersion': 2,
+                    'appId': 'qq',
+                    'status': 'ACCEPTANCE_UNAVAILABLE',
+                    'reason': failure or qq_candidate_error or 'QQ semantic candidate is unavailable',
+                    'moduleApkSha256': self.module_hash,
+                }
+                evidence = self.probe.output / 'evidence'
+                evidence.mkdir(exist_ok=True)
+                (evidence / 'smoke-report.json').write_text(json.dumps(result, indent=2) + '\n')
+            elif candidate_path.is_file():
+                candidate = (qq_candidate if 'qq' in self.inputs
+                             else json.loads(candidate_path.read_text()))
                 result = pipeline_report(reports[0] if len(reports) == 1 and failure is None else {
                     'status': 'ACCEPTANCE_UNAVAILABLE',
                     'reason': failure or 'Candidate runtime did not return one report',

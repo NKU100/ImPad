@@ -2,6 +2,7 @@ import json
 import hashlib
 import shutil
 import tempfile
+import threading
 import unittest
 from pathlib import Path
 from types import SimpleNamespace
@@ -13,6 +14,107 @@ from scripts.test_semantic_hook_evidence import lifecycle_fixture
 
 
 class ReDroidApplicationSmokeTest(unittest.TestCase):
+    @staticmethod
+    def _qq_execute_identity():
+        return {
+            'packageName': 'com.tencent.mobileqq', 'versionName': '9.3.70',
+            'versionCode': 16410, 'abi': 'arm64-v8a',
+            'apkSha256': 'a' * 64, 'signerSha256': 'b' * 64,
+        }
+
+    @staticmethod
+    def _qq_execute_fixture(root, candidate=None):
+        output = root / 'output'
+        output.mkdir()
+        identity = ReDroidApplicationSmokeTest._qq_execute_identity()
+        (root / 'inputs.json').write_text(json.dumps({'qq': {'identity': identity}}))
+        if candidate is not None:
+            (root / 'candidate-report.json').write_text(json.dumps(candidate))
+        instance = object.__new__(app.AppSmoke)
+        instance.root = root.resolve()
+        instance.probe = SimpleNamespace(output=output)
+        instance.inputs = {'qq': {'identity': identity}}
+        instance.module_hash = 'c' * 64
+        instance.module_identity = {
+            'sha256': instance.module_hash,
+            'sourceTreeSha256': 'd' * 64,
+            'ruleCatalogSha256': 'e' * 64,
+            'recognitionSha256': 'f' * 64,
+            'dependencyLockSha256': '1' * 64,
+        }
+        instance.memory_stop = threading.Event()
+        instance.memory = []
+        instance.memory_errors = []
+        return instance, identity
+
+    def test_execute_passes_exact_schema2_qq_candidate_to_real_qq_signature(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            identity = self._qq_execute_identity()
+            instance, _ = self._qq_execute_fixture(root, {
+                'schemaVersion': 2, 'appId': 'qq', 'status': 'PREPARED',
+                'identity': identity,
+            })
+            candidate = json.loads((root / 'candidate-report.json').read_text())
+            runtime_report = {'appId': 'qq', 'status': 'RUNTIME_SMOKE_VERIFIED', 'evidence': []}
+            thread = SimpleNamespace(start=lambda: None, join=unittest.mock.Mock())
+            with patch.object(instance, 'setup') as setup, \
+                    patch.object(instance, 'monitor') as monitor, \
+                    patch.object(app.threading, 'Thread', return_value=thread), \
+                    patch.object(app.AppSmoke, 'qq', autospec=True,
+                                 return_value=runtime_report) as qq, \
+                    patch.object(app.smoke, 'adb', side_effect=AssertionError('ADB accessed')):
+                instance.execute()
+
+            setup.assert_called_once_with()
+            monitor.assert_not_called()
+            qq.assert_called_once_with(instance, instance.inputs['qq'], candidate)
+            thread.join.assert_called_once_with(timeout=20)
+            self.assertTrue(instance.memory_stop.is_set())
+            smoke_report = json.loads((root / 'output/evidence/smoke-report.json').read_text())
+            self.assertEqual('RUNTIME_SMOKE_VERIFIED', smoke_report['status'])
+            self.assertEqual('qq', smoke_report['appId'])
+
+    def test_execute_rejects_missing_or_mismatched_qq_candidate_and_saves_failclosed_evidence(self):
+        qq_identity = self._qq_execute_identity()
+        other_identity = {
+            'packageName': 'com.tencent.mm', 'versionName': '8.0.80',
+            'versionCode': 3220, 'abi': 'arm64-v8a',
+            'apkSha256': '9' * 64, 'signerSha256': '8' * 64,
+        }
+        bad_candidates = (
+            None,
+            {'schemaVersion': 2, 'appId': 'wechat', 'status': 'PREPARED',
+             'identity': other_identity},
+            {'schemaVersion': 2, 'appId': 'qq', 'status': 'PREPARED',
+             'identity': dict(qq_identity, apkSha256='9' * 64)},
+            {'schemaVersion': 1, 'appId': 'qq', 'status': 'PREPARED',
+             'identity': qq_identity},
+        )
+        for candidate in bad_candidates:
+            with self.subTest(candidate=candidate), tempfile.TemporaryDirectory() as temporary:
+                root = Path(temporary)
+                instance, _ = self._qq_execute_fixture(root, candidate)
+                thread = SimpleNamespace(start=lambda: None, join=unittest.mock.Mock())
+                with patch.object(instance, 'setup') as setup, \
+                        patch.object(instance, 'monitor'), \
+                        patch.object(app.threading, 'Thread', return_value=thread), \
+                        patch.object(app.AppSmoke, 'qq', autospec=True) as qq, \
+                        patch.object(app.smoke, 'adb', side_effect=AssertionError('ADB accessed')):
+                    with self.assertRaises(ValueError):
+                        instance.execute()
+
+                setup.assert_called_once_with()
+                qq.assert_not_called()
+                thread.join.assert_called_once_with(timeout=20)
+                self.assertTrue(instance.memory_stop.is_set())
+                app_report = json.loads((root / 'output/app-reports.json').read_text())
+                smoke_report = json.loads((root / 'output/evidence/smoke-report.json').read_text())
+                self.assertEqual('qq', app_report[0]['appId'])
+                self.assertEqual('ACCEPTANCE_UNAVAILABLE', app_report[0]['status'])
+                self.assertEqual('qq', smoke_report['appId'])
+                self.assertEqual('ACCEPTANCE_UNAVAILABLE', smoke_report['status'])
+
     def test_wecom_summary_only_fixture_is_rejected_without_production_raw_captures(self):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
