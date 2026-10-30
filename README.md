@@ -1,35 +1,40 @@
 # I’m Pad / ImPad
 
-ImPad 是通过 LSPosed 为微信、QQ 和企业微信提供平板登录界面适配的 Android 模块。
+ImPad 是一个 LSPosed 模块，为微信、QQ 和企业微信适配平板登录界面。模块没有独立界面，启用后会在目标应用中生效。
 
-模块通过共享规则识别目标应用中的平板登录入口，具体已验证版本见[已验证版本与范围](docs/support.md)。应用更新后需要重新验证兼容性。
+## 下载
 
-## 安装与使用
+- [ImPad 最新版](https://github.com/NKU100/ImPad/releases/latest)
+- [LSPosed 模块仓库最新版](https://github.com/Xposed-Modules-Repo/io.github.nku100.impad/releases/latest)
 
-- Android 9 或更高版本、ARM64（`arm64-v8a`）且已 Root 的设备。
-- 已安装并正常运行 LSPosed。
+请从上述官方来源获取安装包。更新内容可查看[发布说明](https://github.com/NKU100/ImPad/releases)。
+
+## 安装与升级
+
+设备需运行 Android 9 或更高版本，使用 ARM64（`arm64-v8a`）架构并已 Root，且已安装并正常运行支持 modern 模块的 LSPosed。
 
 1. 安装 ImPad APK。
-2. 在 LSPosed 中启用 ImPad，并为要使用的目标应用勾选作用域。
-3. 强制停止目标应用后重新打开。
+2. 在 LSPosed 中启用 ImPad，并为需要适配的应用勾选作用域。
+3. 强行停止目标应用，再重新打开。
 
-模块没有独立启动界面或配置页面。遇到应用更新或行为异常时，先核对当前[验收范围](docs/support.md)。
+升级时从官方来源下载新版并安装，然后检查 LSPosed 中的模块状态和作用域，再强行停止并重开目标应用。若安装时出现签名冲突，请先核对安装包来源和设备上已有版本。
 
-## 指定 APK 或 XAPK 验证或适配
+## 常见问题
 
-在 GitHub Actions 中选择 **Check WeChat compatibility**、**Check QQ compatibility** 或 **Check WeCom compatibility** 对应应用入口，再选择 `operation`。可填写精确 HTTPS APK 或 XAPK 下载直链 `apk_url`；留空时流水线按该应用的官方发现策略选择候选。手动链接允许第三方镜像，但所有 APK 都必须通过该应用的官方证书、包名、版本和 ABI 校验；XAPK 保留原始 base 和 splits，逐包验签后整体安装。填写 URL 后会检查指定安装包；不会换成官网最新版。`module_run_id` 和 `module_artifact` 是可选参数，仅用于 `verify`；留空时使用默认构建。
+**模块没有图标或独立界面？**
 
-- `verify` 运行候选静态检查、固定代表回归和独立运行验收；不调用模型、不创建 PR，也不写入正式验收登记。
-- `adapt` 允许在候选确实需要适配时提出新规则。新规则使用新的不可变 ID 和候选临时路由，然后回到相同的静态、回归、构建和独立运行 gate；通过前不会成为正式支持。
+这是正常情况。ImPad 通过 LSPosed 在目标应用中运行，请到 LSPosed 启用模块并设置作用域。
 
-本地精确候选准备命令及其边界见[开发与兼容性维护](docs/development.md)。
+**启用后没有效果？**
 
-## 验证范围
+检查模块是否已启用、目标应用是否在作用域内，并强行停止后重新打开应用。应用升级或热更新可能影响适配效果。
 
-无账号验收验证模块加载与平板登录入口，不证明真实账号登录、服务端接受或双设备会话共存。具体测试环境、结果与限制见[验证记录](docs/validation/runtime-feature-matching-final.md)。
+## 反馈
+
+请在 [GitHub Issues](https://github.com/NKU100/ImPad/issues) 提交问题，并附上目标应用名称与版本、ImPad 版本、设备 Android 版本、具体现象及相关日志。请勿上传账号凭据、二维码或令牌。
 
 ## 许可证
 
-本项目采用 [GPL-3.0-only](LICENSE)。私下修改并使用无需发布修改版；分发修改版时须按许可证要求提供对应源码并继续使用 GPL v3 授权，参见 [GNU GPL FAQ](https://www.gnu.org/licenses/gpl-faq.en.html#GPLRequireSourcePostedPublic)。
+本项目采用 [GPL-3.0-only](https://github.com/NKU100/ImPad/blob/main/LICENSE)。第三方组件的许可证见 [第三方许可证](https://github.com/NKU100/ImPad/blob/main/THIRD_PARTY_NOTICES.md)。
 
-第三方组件的许可证见 [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)。开发、构建与候选验证说明见[开发文档](docs/development.md)。
+开发、构建与维护说明见[开发文档](https://github.com/NKU100/ImPad/blob/main/docs/development.md)。
