@@ -51,6 +51,12 @@ class RuleExecutionFingerprintTest {
         assertTrue(manifest.ruleSources.any { it.path.endsWith("QqDeviceTypeRule.kt") })
         assertTrue(manifest.ruleSources.any { it.path.endsWith("RuleSession.kt") })
         assertTrue(manifest.resolverSources.any { it.path.endsWith("RuleSelector.kt") })
+        assertTrue(manifest.resolverSources.any {
+            it.path == "compat-core/src/main/kotlin/io/github/nku100/impad/compat/code/CodeSnapshot.kt"
+        })
+        assertTrue(manifest.resolverSources.any {
+            it.path == "app/src/main/kotlin/io/github/nku100/impad/runtime/StartupLoaderLayoutReader.kt"
+        })
         assertTrue(manifest.strategySources.any { it.path.endsWith("QqHookInstaller.kt") })
         assertFalse(manifest.moduleSources.any { it.path == "compatibility/resolution-modes.json" })
         assertTrue(manifest.moduleSources.any { it.path.endsWith("RuleExecutionFingerprint.kt") })
@@ -69,6 +75,17 @@ class RuleExecutionFingerprintTest {
         assertEquals("c9cd12a14b75409bebd2f73e4dfc5ff575df3eb8", report.dexkitSourceCommit)
         assertEquals("34a8c16d548aa7d8562128f4d2293cec4e0f9896bb1f46224dcd532e878900f5", report.dexkitApiSha256)
         assertEquals(manifest.dexkitLinuxX8664NativeSha256, report.dexkitLinuxX8664NativeSha256)
+    }
+
+    @Test
+    fun resolverFingerprintIncludesEveryRuntimeSource() {
+        val root = File("..").canonicalFile
+        val expected = File(root, "app/src/main/kotlin/io/github/nku100/impad/runtime").walkTopDown()
+            .filter { it.isFile && it.extension == "kt" && !it.name.startsWith("._") }
+            .map { it.relativeTo(root).invariantSeparatorsPath }.toSet()
+        val actual = RuleExecutionFingerprint.loadManifest().resolverSources.map { it.path }.toSet()
+        assertTrue(expected.isNotEmpty())
+        assertTrue(actual.containsAll(expected), "Unfingerprinted runtime sources: ${expected - actual}")
     }
 
     @Test

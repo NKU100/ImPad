@@ -26,14 +26,12 @@ class WeChatHookInstaller(
     fun install(tabletMethod: Method, loginMethod: Method): InstallOutcome =
         installer.install(hookSpecs(tabletMethod, loginMethod))
 
-    private fun hookSpecs(tabletMethod: Method, loginMethod: Method) = listOf(
-        HookSpec(tabletMethod, "wechatpad_tablet", HookCallback(callbacks::tabletDetection)),
-        HookSpec(loginMethod, "wechatpad_login", HookCallback(callbacks::loginEntry)),
-    )
+    private fun hookSpecs(tabletMethod: Method, loginMethod: Method) = prepareBound(tabletMethod, loginMethod, callbacks)
 
     private fun hookSpecsForPlan(plan: ResolvedPlan, tabletMethod: Method, loginMethod: Method) =
         when (plan.rule) {
-            RuleRef(RULE_ID, STRATEGY_ID), RuleRef(RULE_ID_002, STRATEGY_ID_002) ->
+            RuleRef(RULE_ID, STRATEGY_ID), RuleRef(RULE_ID_002, STRATEGY_ID_002),
+            RuleRef(RULE_ID_003, STRATEGY_ID_003) ->
                 hookSpecs(tabletMethod, loginMethod)
             else -> null
         }
@@ -43,10 +41,21 @@ class WeChatHookInstaller(
         private const val STRATEGY_ID = "wechat_tablet_login_behavior_001"
         private const val RULE_ID_002 = "wechat_tablet_login_002"
         private const val STRATEGY_ID_002 = "wechat_tablet_login_behavior_002"
+        private const val RULE_ID_003 = "wechat_tablet_login_003"
+        private const val STRATEGY_ID_003 = "wechat_tablet_login_behavior_003"
         private val TARGET_IDS = setOf("tablet", "login")
 
+        internal fun prepareBound(methods: Map<String, Method>, callbacks: WeChatHookCallbacks) =
+            prepareBound(methods.getValue("tablet"), methods.getValue("login"), callbacks)
+
+        private fun prepareBound(tabletMethod: Method, loginMethod: Method, callbacks: WeChatHookCallbacks) = listOf(
+            HookSpec(tabletMethod, "wechatpad_tablet", HookCallback(callbacks::tabletDetection)),
+            HookSpec(loginMethod, "wechatpad_login", HookCallback(callbacks::loginEntry)),
+        )
+
         internal fun supports(plan: ResolvedPlan): Boolean =
-            (plan.rule == RuleRef(RULE_ID, STRATEGY_ID) || plan.rule == RuleRef(RULE_ID_002, STRATEGY_ID_002)) &&
+            (plan.rule in setOf(RuleRef(RULE_ID, STRATEGY_ID), RuleRef(RULE_ID_002, STRATEGY_ID_002),
+                RuleRef(RULE_ID_003, STRATEGY_ID_003))) &&
                 plan.targets.keys == TARGET_IDS
     }
 }

@@ -14,14 +14,16 @@ class QqAppAdapter : AppAdapter {
     override fun prepareClassLoader(
         loader: ClassLoader,
         registrar: HookRegistrar,
+        onLaterReady: () -> Unit,
         onReady: (Context, ClassLoader) -> Unit,
     ) {
         val application = loader.loadClass("com.tencent.common.app.QFixApplicationImplProxy")
         val attach = application.getDeclaredMethod("attachBaseContext", Context::class.java)
-        PostAttachClassLoaderBridge(registrar).installWithContext(
+        PostAttachClassLoaderBridge(registrar).installMonitoredWithContext(
             attach,
             "impad_qq_classloader_bootstrap",
-            onReady,
+            onReady = onReady,
+            onLaterReady = onLaterReady,
         )
     }
 

@@ -22,12 +22,14 @@ class WeComAppAdapter : AppAdapter {
     override fun prepareClassLoader(
         loader: ClassLoader,
         registrar: HookRegistrar,
+        onLaterReady: () -> Unit,
         onReady: (Context, ClassLoader) -> Unit,
     ) {
-        TinkerClassLoaderBridge(registrar).installWithContext(
+        TinkerClassLoaderBridge(registrar).installMonitoredWithContext(
             loader,
             "impad_wecom_tinker_bootstrap",
-            onReady,
+            onReady = onReady,
+            onLaterReady = onLaterReady,
         )
     }
 

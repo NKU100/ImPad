@@ -43,18 +43,14 @@ tasks.processResources {
 
 val ruleSourceRoot = projectDir.resolve("src/main/kotlin")
 val resolverSourceRoot = rootProject.file("compat-core/src/main/kotlin/io/github/nku100/impad/compat/rules")
+val codeResolverSourceRoot = rootProject.file("compat-core/src/main/kotlin/io/github/nku100/impad/compat/code")
 val qqStrategySourceRoot = rootProject.file("app/src/main/kotlin/io/github/nku100/impad/apps/qq")
 val wecomStrategySourceRoot = rootProject.file("app/src/main/kotlin/io/github/nku100/impad/apps/wecom")
 val wechatStrategySourceRoot = rootProject.file("app/src/main/kotlin/io/github/nku100/impad/apps/wechat")
-val androidResolverSourceFiles = listOf(
-    rootProject.file("app/src/main/kotlin/io/github/nku100/impad/runtime/TargetMethodResolver.kt"),
-    rootProject.file("app/src/main/kotlin/io/github/nku100/impad/runtime/RuleRuntimeResolver.kt"),
-    rootProject.file("app/src/main/kotlin/io/github/nku100/impad/runtime/RuleResolutionCache.kt"),
-    rootProject.file("app/src/main/kotlin/io/github/nku100/impad/runtime/InstalledBuildIdentityReader.kt"),
-    rootProject.file("app/src/main/kotlin/io/github/nku100/impad/runtime/AndroidDexKitRuntime.kt"),
-    rootProject.file("app/src/main/kotlin/io/github/nku100/impad/runtime/RuleInstallCoordinator.kt"),
-    rootProject.file("app/src/main/kotlin/io/github/nku100/impad/ImPadModule.kt"),
-)
+val androidResolverSourceFiles = rootProject.fileTree("app/src/main/kotlin/io/github/nku100/impad/runtime") {
+    include("**/*.kt")
+    exclude("**/._*")
+}.files + rootProject.file("app/src/main/kotlin/io/github/nku100/impad/ImPadModule.kt")
 val strategyRuntimeSourceFiles = listOf(
     rootProject.file("app/src/main/kotlin/io/github/nku100/impad/runtime/HookInstaller.kt"),
     rootProject.file("app/src/main/kotlin/io/github/nku100/impad/runtime/HookCall.kt"),
@@ -88,7 +84,10 @@ val fingerprintResource = layout.buildDirectory.file("generated/ruleExecutionFin
 val generateRuleExecutionFingerprint = tasks.register("generateRuleExecutionFingerprint") {
     inputs.files(fileTree(ruleSourceRoot) { include("**/*.kt") }).withPropertyName("ruleSources")
         .withPathSensitivity(PathSensitivity.RELATIVE)
-    inputs.files(fileTree(resolverSourceRoot) { include("**/*.kt") }).withPropertyName("resolverSources")
+    inputs.files(
+        fileTree(resolverSourceRoot) { include("**/*.kt") },
+        fileTree(codeResolverSourceRoot) { include("**/*.kt") },
+    ).withPropertyName("resolverSources")
         .withPathSensitivity(PathSensitivity.RELATIVE)
     inputs.files(androidResolverSourceFiles).withPropertyName("androidResolverSources")
     inputs.files(fileTree(qqStrategySourceRoot) { include("**/*.kt") })
@@ -162,6 +161,9 @@ val generateRuleExecutionFingerprint = tasks.register("generateRuleExecutionFing
             "resolverSources" to (sources(
                 resolverSourceRoot,
                 "compat-core/src/main/kotlin/io/github/nku100/impad/compat/rules",
+            ) + sources(
+                codeResolverSourceRoot,
+                "compat-core/src/main/kotlin/io/github/nku100/impad/compat/code",
             ) + androidResolverSourceFiles.sortedBy { it.relativeTo(rootProject.projectDir).invariantSeparatorsPath }
                 .map { file ->
                     require(file.isFile) { "Missing Android rule resolver source: $file" }

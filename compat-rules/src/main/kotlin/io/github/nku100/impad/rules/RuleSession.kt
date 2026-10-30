@@ -16,6 +16,7 @@ import com.android.tools.smali.dexlib2.iface.instruction.ReferenceInstruction
 import com.android.tools.smali.dexlib2.iface.instruction.RegisterRangeInstruction
 import com.android.tools.smali.dexlib2.iface.instruction.TwoRegisterInstruction
 import com.android.tools.smali.dexlib2.iface.reference.MethodReference
+import com.android.tools.smali.dexlib2.iface.reference.FieldReference
 import com.android.tools.smali.dexlib2.iface.reference.TypeReference
 import java.io.File
 import java.lang.reflect.Modifier
@@ -66,6 +67,7 @@ data class RuleInstruction(
     val branchTarget: Int? = null,
     val methodReference: RuleInstructionReference? = null,
     val typeReference: String? = null,
+    val fieldReference: String? = null,
 )
 
 data class RuleMethod(
@@ -81,6 +83,7 @@ data class RuleMethod(
     val opNames: List<String> = emptyList(),
     val numericLiterals: List<RuleNumericLiteral> = emptyList(),
     internal val sourceDexIndex: Int = 0,
+    internal val sourceIdentity: Any? = null,
 )
 
 data class RuleClassField(val name: String, val accessFlags: Int)
@@ -91,10 +94,19 @@ data class RuleClass(
     val fields: List<RuleClassField>,
 )
 
+data class RuleSessionSnapshotContext(val snapshotSha256: String, val namespaceId: String)
+
 interface RuleSession : AutoCloseable {
     fun findMethods(query: MethodQuery): List<RuleMethod>
     fun findClasses(typeName: String): List<RuleClass>
     fun readInstructions(method: RuleMethod): List<RuleInstruction> = emptyList()
+    fun snapshotContext(): RuleSessionSnapshotContext? = null
+    fun sourceOf(method: RuleMethod): io.github.nku100.impad.compat.rules.TargetCodeSource =
+        throw UnsupportedOperationException("This session has no startup code snapshot")
+    fun inContextOf(method: RuleMethod): RuleSession =
+        throw UnsupportedOperationException("This session has no loader namespace model")
+    fun inNamespace(loaderId: String): RuleSession =
+        throw UnsupportedOperationException("This session has no loader namespace model")
 
     companion object {
         fun open(apkFiles: List<File>): RuleSession = open(apkFiles, DexKitSessionBackend::open)
@@ -203,7 +215,7 @@ private fun deleteDexApks(files: List<File>, primaryFailure: Throwable?) {
 private val DEX_ENTRY = Regex("classes(?:[2-9]|[1-9][0-9]+)?\\.dex")
 
 @OptIn(DexKitExperimentalApi::class)
-private class DexKitSessionBackend private constructor(
+internal class DexKitSessionBackend private constructor(
     private val bridge: DexKitBridge,
     private val dexApk: File,
 ) : RuleSessionBackend {
@@ -315,6 +327,7 @@ private fun readDexMethodInstructions(dexApk: File, descriptor: String): List<Ru
                 )
             },
             typeReference = ((instruction as? ReferenceInstruction)?.reference as? TypeReference)?.type,
+            fieldReference = ((instruction as? ReferenceInstruction)?.reference as? FieldReference)?.toString(),
         )
         address += instruction.codeUnits
         result

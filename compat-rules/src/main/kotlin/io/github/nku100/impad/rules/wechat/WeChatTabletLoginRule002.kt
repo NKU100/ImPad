@@ -6,6 +6,7 @@ import io.github.nku100.impad.compat.rules.ResolvedTarget
 import io.github.nku100.impad.compat.rules.RuleDefinition
 import io.github.nku100.impad.compat.rules.RuleRef
 import io.github.nku100.impad.compat.rules.RuleResolution
+import io.github.nku100.impad.rules.AnalysisIncompleteException
 import io.github.nku100.impad.rules.MethodQuery
 import io.github.nku100.impad.rules.RuleInstruction
 import io.github.nku100.impad.rules.RuleInstructionReference
@@ -24,15 +25,17 @@ object WeChatTabletLoginRule002 : RuleQuery {
         requiredTargetIds = targetIds,
     )
 
-    override fun resolve(session: RuleSession): RuleResolution {
+    override fun resolve(session: RuleSession): RuleResolution = resolve(session, reloadedCache = false)
+
+    internal fun resolve(session: RuleSession, reloadedCache: Boolean, originalCacheAllowed: Boolean = false): RuleResolution {
         val modelGates = session.findMethods(
             MethodQuery(requiredStrings = setOf(LENOVO_MODEL), staticOnly = true, returnType = "boolean"),
         ).filter(::isModelGate)
         val tablets = session.findMethods(
             MethodQuery(requiredStrings = TABLET_MODEL_MARKERS, staticOnly = true, returnType = "boolean"),
-        ).filter { isTabletDecision(session, it, modelGates) }
+        ).filter { isTabletDecision(session, it, modelGates, reloadedCache, originalCacheAllowed) }
 
-        val helpers = tablets.singleOrNull()?.let { tabletHelpers(session, it) }.orEmpty()
+        val helpers = tablets.singleOrNull()?.let { tabletHelpers(session, it, reloadedCache) }.orEmpty()
         val logins = if (helpers.size == 1) {
             session.findMethods(
                 MethodQuery(requiredStrings = setOf(LOGIN_TRACE_METHOD), staticOnly = true, returnType = "void"),
@@ -59,10 +62,35 @@ object WeChatTabletLoginRule002 : RuleQuery {
         return RuleResolution.Unique(
             plan = ResolvedPlan(
                 rule = RuleRef(RULE_ID, STRATEGY_ID),
-                targets = matches.mapValues { (_, methods) -> methods.single().toTarget() },
+                targets = matches.mapValues { (id, methods) ->
+                    // A cached wrapper can bypass the aggregate check, so hook the wrapper for the newer rule.
+                    if (id == "tablet" && reloadedCache) helpers.single().toTarget() else methods.single().toTarget()
+                },
             ),
             candidateCounts = counts,
         )
+    }
+
+    internal fun forEachCompletePath(session: RuleSession, emit: (WeChatLoginPath) -> Unit) {
+        val tablets = session.findMethods(MethodQuery(requiredStrings = TABLET_MODEL_MARKERS, staticOnly = true, returnType = "boolean"))
+        val logins = session.findMethods(MethodQuery(requiredStrings = setOf(LOGIN_TRACE_METHOD), staticOnly = true, returnType = "void"))
+        tablets.forEach { tablet ->
+            session.inContextOf(tablet).use { tabletView ->
+                val gates = tabletView.findMethods(MethodQuery(requiredStrings = setOf(LENOVO_MODEL), staticOnly = true, returnType = "boolean"))
+                    .filter(::isModelGate)
+                if (isTabletDecision(tabletView, tablet, gates, reloadedCache = true, originalCacheAllowed = true)) {
+                    tabletHelpers(tabletView, tablet, cachedHelpersAllowed = true).forEach { helper ->
+                        if (session.resolvesInvocation(helper, tablet)) logins.forEach { login ->
+                            session.inContextOf(login).use { loginView ->
+                                if (isLoginEntry(loginView, login, helper) && session.resolvesInvocation(login, helper)) {
+                                    emit(WeChatLoginPath(tablet, helper, login, "aggregate"))
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
     }
 
     private fun isModelGate(method: RuleMethod): Boolean =
@@ -77,6 +105,8 @@ object WeChatTabletLoginRule002 : RuleQuery {
         session: RuleSession,
         method: RuleMethod,
         modelGates: List<RuleMethod>,
+        reloadedCache: Boolean,
+        originalCacheAllowed: Boolean,
     ): Boolean {
         if (!method.isStatic || method.returnType != "boolean" || method.parameterTypes.size != 1 ||
             method.parameterTypes.single() in PRIMITIVE_TYPES ||
@@ -93,7 +123,11 @@ object WeChatTabletLoginRule002 : RuleQuery {
         if (linkedModelGates.size != 1) return false
 
         val instructions = session.readInstructions(method)
-        if (instructions.isEmpty() || !hasCachedBooleanEarlyReturn(instructions)) return false
+        if (instructions.isEmpty()) return false
+        if (reloadedCache) {
+            if (!WeChatCachedBooleanReturn.matches(instructions) &&
+                !(originalCacheAllowed && hasCachedBooleanEarlyReturn(instructions))) return false
+        } else if (!hasCachedBooleanEarlyReturn(instructions)) return false
         val hierarchy = classHierarchy(session, method.parameterTypes.single())
         if (hierarchy.isEmpty()) return false
 
@@ -231,7 +265,7 @@ object WeChatTabletLoginRule002 : RuleQuery {
             }
             index++
         }
-        return null
+        throw AnalysisIncompleteException("WeChat Boolean return path exceeded $MAX_LOCAL_PATH_INSTRUCTIONS instructions")
     }
 
     private fun constantsBefore(instructions: List<RuleInstruction>, endIndex: Int): Map<Int, Int> {
@@ -294,14 +328,22 @@ object WeChatTabletLoginRule002 : RuleQuery {
         return hierarchy
     }
 
-    private fun tabletHelpers(session: RuleSession, tablet: RuleMethod): List<RuleMethod> =
-        session.findMethods(
+    private fun tabletHelpers(session: RuleSession, tablet: RuleMethod, cachedHelpersAllowed: Boolean): List<RuleMethod> {
+        val cacheField = if (cachedHelpersAllowed) session.readInstructions(tablet).windowed(2)
+            .firstOrNull { (read, branch) ->
+                read.opcode == SGET_OBJECT && read.fieldReference?.endsWith(":Ljava/lang/Boolean;") == true &&
+                    branch.opcode == IF_EQZ && branch.registerA == read.registerA
+            }?.first()?.fieldReference else null
+        return session.findMethods(
             MethodQuery(declaredClass = tablet.className, parameterTypes = emptyList(), staticOnly = true, returnType = "boolean"),
         ).filter { helper ->
             helper.isStatic && helper.parameterTypes.isEmpty() && helper.returnType == "boolean" &&
                 helper.invokes.count { it.matches(tablet) } == 1 &&
-                WeChatLoginControlFlow.forwardsBooleanResult(session.readInstructions(helper), tablet.reference())
+                (WeChatLoginControlFlow.forwardsBooleanResult(session.readInstructions(helper), tablet.reference()) ||
+                    (cacheField != null && WeChatLoginControlFlow.forwardsCachedBooleanResult(
+                        session.readInstructions(helper), tablet.reference(), cacheField)))
         }
+    }
 
     private fun isLoginEntry(session: RuleSession, method: RuleMethod, tabletHelper: RuleMethod): Boolean =
         method.isStatic && method.parameterTypes.size == 2 && method.parameterTypes.first() == VIEW &&

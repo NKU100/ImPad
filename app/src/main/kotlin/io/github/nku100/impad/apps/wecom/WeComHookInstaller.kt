@@ -18,13 +18,7 @@ class WeComHookInstaller(
         if (!supports(plan)) return InstallOutcome.Failed("Unsupported WeCom rule or strategy")
         if (methods.keys != TARGET_IDS) return InstallOutcome.Failed("WeCom rule plan methods are incomplete")
 
-        return installer.install(
-            listOf(
-                HookSpec(methods.getValue("device_type"), DEVICE_TYPE_HOOK_ID, HookCallback(callbacks::deviceType)),
-                HookSpec(methods.getValue("app_pad"), APPLICATION_PAD_HOOK_ID, HookCallback(callbacks::applicationIsPad)),
-                HookSpec(methods.getValue("service_pad"), SERVICE_PAD_HOOK_ID, HookCallback(callbacks::serviceIsPad)),
-            ),
-        )
+        return installer.install(prepareBound(methods, callbacks))
     }
 
     companion object {
@@ -34,6 +28,12 @@ class WeComHookInstaller(
         private const val LOCAL_RULE_ID = "wecom_local_001"
         private const val LOCAL_STRATEGY_ID = "wecom_local_tablet_001"
         private val TARGET_IDS = setOf("device_type", "app_pad", "service_pad")
+
+        internal fun prepareBound(methods: Map<String, Method>, callbacks: WeComHookCallbacks) = listOf(
+            HookSpec(methods.getValue("device_type"), DEVICE_TYPE_HOOK_ID, HookCallback(callbacks::deviceType)),
+            HookSpec(methods.getValue("app_pad"), APPLICATION_PAD_HOOK_ID, HookCallback(callbacks::applicationIsPad)),
+            HookSpec(methods.getValue("service_pad"), SERVICE_PAD_HOOK_ID, HookCallback(callbacks::serviceIsPad)),
+        )
 
         internal fun supports(plan: ResolvedPlan): Boolean =
             plan.rule.ruleId == LOCAL_RULE_ID && plan.rule.strategyId == LOCAL_STRATEGY_ID &&

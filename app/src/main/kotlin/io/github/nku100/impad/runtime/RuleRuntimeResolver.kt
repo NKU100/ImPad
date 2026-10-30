@@ -31,6 +31,9 @@ class RuleRuntimeResolver(
         require(build.apkFileSha256.size == build.apkFiles.size && build.apkFileSha256.isNotEmpty()) {
             "Rule resolution requires a content hash for every installed APK and split"
         }
+        require(build.runtimeCodeFiles.size == build.runtimeCodeSha256.size) {
+            "Runtime code inputs require a content hash for every file"
+        }
         val route = VersionRouter.candidates(build.identity.versionCode, catalog.bindings)
         val key = RuleResolutionCacheKey(
             appId = catalog.appId,
@@ -53,6 +56,7 @@ class RuleRuntimeResolver(
             dexkitSourceCommit = executionIdentity.dexkitSourceCommit,
             dexkitLockSha256 = executionIdentity.dexkitLockSha256,
             executionIdentitySha256 = executionIdentity.cacheIdentitySha256,
+            runtimeCodeSha256 = build.runtimeCodeSha256,
         )
         val cached = try {
             cache.read(key)
@@ -68,7 +72,7 @@ class RuleRuntimeResolver(
             )
         }
 
-        val outcome = openSession(build.apkFiles).use { session ->
+        val outcome = openSession(build.runtimeCodeFiles.ifEmpty { build.apkFiles }).use { session ->
             SharedRuleResolver.resolve(build.identity, catalog, session)
         }
         val plan = (outcome as? SelectionOutcome.Selected)?.plan

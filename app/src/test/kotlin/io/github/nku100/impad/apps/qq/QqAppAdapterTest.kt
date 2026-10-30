@@ -13,12 +13,14 @@ class QqAppAdapterTest {
     fun ruleBridgeDeliversTheAttachContextAndItsLoaderOnlyAfterSuccess() {
         var callback: HookCallback? = null
         var attached = false
+        var laterReadyCalls = 0
         var readyContext: android.content.Context? = null
         var readyLoader: ClassLoader? = null
         val context = HostContext(javaClass.classLoader!!)
         QqAppAdapter().prepareClassLoader(
             javaClass.classLoader!!,
             HookRegistrar { _, _, hook -> callback = hook; HookRegistration {} },
+            onLaterReady = { laterReadyCalls++ },
         ) { observedContext, observedLoader ->
             assertTrue(attached)
             readyContext = observedContext
@@ -33,5 +35,7 @@ class QqAppAdapterTest {
 
         assertSame(context, readyContext)
         assertSame(context.classLoader, readyLoader)
+        callback!!.intercept(HookCall(null, arrayOf(context)) { "later" })
+        assertEquals(1, laterReadyCalls)
     }
 }

@@ -39,4 +39,5 @@ dependencies {
     implementation(libs.flatbuffers.java)
     implementation(libs.kotlinx.serialization.json)
     testImplementation(kotlin("test"))
+    testImplementation(libs.smali.dexlib2)
 }

@@ -13,6 +13,7 @@ import com.android.tools.smali.dexlib2.immutable.instruction.ImmutableInstructio
 import com.android.tools.smali.dexlib2.immutable.instruction.ImmutableInstruction10x
 import com.android.tools.smali.dexlib2.immutable.instruction.ImmutableInstruction11n
 import com.android.tools.smali.dexlib2.immutable.instruction.ImmutableInstruction11x
+import com.android.tools.smali.dexlib2.immutable.instruction.ImmutableInstruction12x
 import com.android.tools.smali.dexlib2.immutable.instruction.ImmutableInstruction21c
 import com.android.tools.smali.dexlib2.immutable.instruction.ImmutableInstruction21s
 import com.android.tools.smali.dexlib2.immutable.instruction.ImmutableInstruction21t
@@ -39,6 +40,11 @@ internal object WeChatForwardRuleDexFixture {
         val loginCallsTabletHelper: Boolean = true,
         val wrapperForwardsResult: Boolean = true,
         val loginBooleanControlsVisibility: Boolean = true,
+        val reloadCachedResult: Boolean = false,
+        val cachedWrapper: Boolean = false,
+        val wrapperEarlyReturn: Boolean = false,
+        val wrapperForceTablet: Boolean = false,
+        val returnPathPadding: Int = 0,
     )
 
     fun apk(options: Options = Options()): File {
@@ -111,7 +117,9 @@ internal object WeChatForwardRuleDexFixture {
         body += Code(ImmutableInstruction11n(Opcode.CONST_4, 3, 0))
         body += Code(ImmutableInstruction21c(Opcode.SGET_OBJECT, 0, cache.reference()))
         body += Branch21(Opcode.IF_EQZ, 0, "compute")
-        body += Code(invokeVirtual(0, ImmutableMethodReference(BOOLEAN, "booleanValue", emptyList(), "Z")))
+        if (options.reloadCachedResult) body += Code(ImmutableInstruction21c(Opcode.SGET_OBJECT, 2, cache.reference()))
+        body += Code(invokeVirtual(if (options.reloadCachedResult) 2 else 0,
+            ImmutableMethodReference(BOOLEAN, "booleanValue", emptyList(), "Z")))
         body += Code(ImmutableInstruction11x(Opcode.MOVE_RESULT, 0))
         body += Code(ImmutableInstruction11x(Opcode.RETURN, 0))
         body += Label("compute")
@@ -155,6 +163,7 @@ internal object WeChatForwardRuleDexFixture {
         body += Code(ImmutableInstruction21c(Opcode.SPUT_OBJECT, 0, cache.reference()))
         body += Code(ImmutableInstruction11x(Opcode.RETURN, if (options.widthControlsResult) 4 else 3))
         body += Label("widthFalse")
+        repeat(options.returnPathPadding) { body += Code(ImmutableInstruction10x(Opcode.NOP)) }
         body += Code(ImmutableInstruction21c(Opcode.SGET_OBJECT, 0, booleanField("FALSE")))
         body += Code(ImmutableInstruction21c(Opcode.SPUT_OBJECT, 0, cache.reference()))
         body += Code(ImmutableInstruction11x(Opcode.RETURN, 3))
@@ -176,7 +185,45 @@ internal object WeChatForwardRuleDexFixture {
         if (!options.wrapperForwardsResult) {
             wrapperCode.add(wrapperCode.lastIndex, ImmutableInstruction11n(Opcode.CONST_4, 0, 0))
         }
-        val wrapper = staticMethod(owner, "isTablet", emptyList(), "Z", 1, wrapperCode)
+        val lock = ImmutableField(owner, "lock", "Ljava/lang/Object;", ACC_PRIVATE or ACC_STATIC, null, emptySet(), emptySet())
+        val cachedWrapper = mutableListOf<Node>(
+            Code(ImmutableInstruction21c(Opcode.NEW_INSTANCE, 2, ImmutableTypeReference(WIDTH_ACCESSOR_DESCRIPTOR))),
+            Code(ImmutableInstruction35c(Opcode.INVOKE_DIRECT, 1, 2, 0, 0, 0, 0,
+                ImmutableMethodReference(WIDTH_ACCESSOR, "<init>", emptyList(), "V"))),
+            Code(ImmutableInstruction21c(Opcode.SGET_OBJECT, 0, cache.reference())),
+            Branch21(Opcode.IF_EQZ, 0, "cold"),
+            Code(invokeVirtual(0, ImmutableMethodReference(BOOLEAN, "booleanValue", emptyList(), "Z"))),
+            Code(ImmutableInstruction11x(Opcode.MOVE_RESULT, 0)),
+            Jump("end"),
+            Label("cold"),
+            Code(ImmutableInstruction21c(Opcode.SGET_OBJECT, 0, lock.reference())),
+            Code(ImmutableInstruction11x(Opcode.MONITOR_ENTER, 0)),
+            Code(ImmutableInstruction35c(Opcode.INVOKE_STATIC, 1, 2, 0, 0, 0, 0,
+                ImmutableMethodReference(owner, "decide", listOf(WIDTH_ACCESSOR), "Z"))),
+            Code(ImmutableInstruction11x(Opcode.MOVE_RESULT, 1)),
+            Code(ImmutableInstruction11x(Opcode.MONITOR_EXIT, 0)),
+            Code(ImmutableInstruction12x(Opcode.MOVE, 0, 1)),
+            Label("end"),
+        )
+        if (!options.wrapperForwardsResult) cachedWrapper += Code(ImmutableInstruction11n(Opcode.CONST_4, 0, 0))
+        cachedWrapper += Code(ImmutableInstruction11x(Opcode.RETURN, 0))
+        if (options.wrapperForceTablet) cachedWrapper.addAll(2, listOf(
+            Code(ImmutableInstruction21c(Opcode.SGET_BOOLEAN, 0, ImmutableFieldReference(owner, "disabled", "Z"))),
+            Branch21(Opcode.IF_EQZ, 0, "cacheEntry"),
+            Code(ImmutableInstruction11n(Opcode.CONST_4, 0, 1)),
+            Jump("end"),
+            Label("cacheEntry"),
+        ))
+        if (options.wrapperEarlyReturn) cachedWrapper.addAll(0, listOf(
+            Code(ImmutableInstruction21c(Opcode.SGET_BOOLEAN, 2, ImmutableFieldReference(owner, "disabled", "Z"))),
+            Branch21(Opcode.IF_EQZ, 2, "cacheEntry"),
+            Code(ImmutableInstruction11n(Opcode.CONST_4, 0, 0)),
+            Code(ImmutableInstruction11x(Opcode.RETURN, 0)),
+            Label("cacheEntry"),
+        ))
+        val wrapper = if (options.cachedWrapper) {
+            staticMethod(owner, "isTablet", emptyList(), "Z", 3, assemble(cachedWrapper))
+        } else staticMethod(owner, "isTablet", emptyList(), "Z", 1, wrapperCode)
         return ImmutableClassDef(
             owner,
             ACC_PUBLIC,
@@ -184,7 +231,8 @@ internal object WeChatForwardRuleDexFixture {
             emptyList(),
             null,
             emptySet(),
-            listOf(cache),
+            (if (options.cachedWrapper) listOf(cache, lock) else listOf(cache)) +
+                if (options.wrapperEarlyReturn || options.wrapperForceTablet) listOf(ImmutableField(owner, "disabled", "Z", ACC_PRIVATE or ACC_STATIC, null, emptySet(), emptySet())) else emptyList(),
             listOf(detector, wrapper),
         )
     }

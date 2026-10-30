@@ -48,6 +48,7 @@ internal object WeChatRuleDexFixture {
         loginSemanticAnchor: Boolean = true,
         loginCallsTabletGate: Boolean = true,
         duplicateTabletAcrossDex: Boolean = false,
+        proveCallFlow: Boolean = false,
     ): File {
         val path = Files.createTempFile("wechat-rule-fixture", ".apk").toFile()
         val tabletClasses = tabletOwners.map {
@@ -64,9 +65,10 @@ internal object WeChatRuleDexFixture {
                 tabletComparisonRegisterSeed,
                 tabletGetterOpcode,
                 widthComparisonControlsReturnedValue,
+                proveCallFlow,
             )
         }
-        val loginClasses = loginOwners.map { loginClass(it, tabletOwners.firstOrNull(), loginSemanticAnchor, loginCallsTabletGate) }
+        val loginClasses = loginOwners.map { loginClass(it, tabletOwners.firstOrNull(), loginSemanticAnchor, loginCallsTabletGate, proveCallFlow) }
         val dexGroups = buildList {
             add(tabletClasses + loginClasses + widthEnvironmentClasses())
             if (duplicateTabletAcrossDex) {
@@ -77,7 +79,7 @@ internal object WeChatRuleDexFixture {
                             tabletOwners.single(), tabletSemanticAnchor, tabletReadsModel, tabletUsesDisplayMetrics,
                             tabletWidthThreshold, tabletWidthBranchOpcode, tabletWidthRegister,
                             tabletWidthBranchOffset, tabletDecoyThreshold, tabletComparisonRegisterSeed,
-                            tabletGetterOpcode, widthComparisonControlsReturnedValue,
+                            tabletGetterOpcode, widthComparisonControlsReturnedValue, proveCallFlow,
                         ),
                     ),
                 )
@@ -112,6 +114,7 @@ internal object WeChatRuleDexFixture {
         comparisonRegisterSeed: Int?,
         getterOpcode: Opcode,
         widthComparisonControlsReturnedValue: Boolean,
+        proveCallFlow: Boolean,
     ): ImmutableClassDef {
         val fields = if (readsModel) listOf(
             ImmutableField(owner, "modelName", "Ljava/lang/String;", ACC_PRIVATE or ACC_STATIC, null, emptySet(), emptySet()),
@@ -194,8 +197,9 @@ internal object WeChatRuleDexFixture {
             emptySet(),
             ImmutableMethodImplementation(
                 1,
-                listOf(
-                    ImmutableInstruction35c(
+                buildList {
+                    if (proveCallFlow) add(ImmutableInstruction11n(Opcode.CONST_4, 0, 0))
+                    add(ImmutableInstruction35c(
                         Opcode.INVOKE_STATIC,
                         1,
                         0,
@@ -204,9 +208,10 @@ internal object WeChatRuleDexFixture {
                         0,
                         0,
                         ImmutableMethodReference(owner, "detect", listOf(ENVIRONMENT), "Z"),
-                    ),
-                    ImmutableInstruction11x(Opcode.RETURN, 0),
-                ),
+                    ))
+                    if (proveCallFlow) add(ImmutableInstruction11x(Opcode.MOVE_RESULT, 0))
+                    add(ImmutableInstruction11x(Opcode.RETURN, 0))
+                },
                 emptyList(),
                 emptyList(),
             ),
@@ -248,7 +253,7 @@ internal object WeChatRuleDexFixture {
         ),
     )
 
-    private fun loginClass(owner: String, tabletOwner: String?, anchors: Boolean, linksToTablet: Boolean): ImmutableClassDef {
+    private fun loginClass(owner: String, tabletOwner: String?, anchors: Boolean, linksToTablet: Boolean, proveCallFlow: Boolean): ImmutableClassDef {
         val instructions = mutableListOf<com.android.tools.smali.dexlib2.iface.instruction.Instruction>()
         if (anchors) {
             instructions += ImmutableInstruction21c(Opcode.CONST_STRING, 0, ImmutableStringReference(LOGIN_OWNER))
@@ -266,11 +271,18 @@ internal object WeChatRuleDexFixture {
                 ImmutableMethodReference(tabletOwner, "tabletEnabled", emptyList(), "Z"),
             )
         }
+        if (proveCallFlow) {
+            if (linksToTablet && tabletOwner != null) {
+                instructions += ImmutableInstruction11x(Opcode.MOVE_RESULT, 0)
+                instructions += com.android.tools.smali.dexlib2.immutable.instruction.ImmutableInstruction21t(Opcode.IF_NEZ, 0, 7)
+            }
+            instructions += ImmutableInstruction21s(Opcode.CONST_16, 0, 8)
+        }
         instructions += ImmutableInstruction35c(
             Opcode.INVOKE_VIRTUAL,
             2,
             1,
-            2,
+            if (proveCallFlow) 0 else 2,
             0,
             0,
             0,

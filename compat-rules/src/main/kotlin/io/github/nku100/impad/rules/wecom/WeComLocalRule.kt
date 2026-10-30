@@ -23,6 +23,31 @@ object WeComLocalRule : RuleQuery {
     )
 
     override fun resolve(session: RuleSession): RuleResolution {
+        val matches = matchingMethods(session)
+        val counts = matches.mapValues { it.value.size }
+        if (matches.values.any { it.size > 1 }) {
+            return RuleResolution.Ambiguous(
+                counts,
+                listOf("Multiple DEX method definitions matched a WeCom local tablet feature"),
+            )
+        }
+        if (matches.values.any { it.isEmpty() }) {
+            return RuleResolution.Missing(
+                counts,
+                listOf("A required WeCom local tablet feature was missing"),
+            )
+        }
+
+        return RuleResolution.Unique(
+            plan = ResolvedPlan(
+                rule = RuleRef(RULE_ID, STRATEGY_ID),
+                targets = matches.mapValues { (_, definitions) -> definitions.single().toTarget() },
+            ),
+            candidateCounts = counts,
+        )
+    }
+
+    internal fun matchingMethods(session: RuleSession): Map<String, List<RuleMethod>> {
         val deviceType = session.findMethods(
             MethodQuery(
                 parameterTypes = emptyList(),
@@ -46,31 +71,10 @@ object WeComLocalRule : RuleQuery {
             ),
         ).filter(::isServicePad)
 
-        val matches = linkedMapOf(
+        return linkedMapOf(
             "device_type" to deviceType,
             "app_pad" to applicationPad,
             "service_pad" to servicePad,
-        )
-        val counts = matches.mapValues { it.value.size }
-        if (matches.values.any { it.size > 1 }) {
-            return RuleResolution.Ambiguous(
-                counts,
-                listOf("Multiple DEX method definitions matched a WeCom local tablet feature"),
-            )
-        }
-        if (matches.values.any { it.isEmpty() }) {
-            return RuleResolution.Missing(
-                counts,
-                listOf("A required WeCom local tablet feature was missing"),
-            )
-        }
-
-        return RuleResolution.Unique(
-            plan = ResolvedPlan(
-                rule = RuleRef(RULE_ID, STRATEGY_ID),
-                targets = matches.mapValues { (_, definitions) -> definitions.single().toTarget() },
-            ),
-            candidateCounts = counts,
         )
     }
 

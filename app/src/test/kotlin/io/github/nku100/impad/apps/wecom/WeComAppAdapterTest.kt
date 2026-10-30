@@ -52,8 +52,9 @@ class WeComAppAdapterTest {
         var readyContext: Context? = null
         var readyLoader: ClassLoader? = null
         var installResult: PlanInstallOutcome? = null
+        var laterReadyCalls = 0
 
-        adapter.prepareClassLoader(loader, registrar) { context, contextLoader ->
+        adapter.prepareClassLoader(loader, registrar, onLaterReady = { laterReadyCalls++ }) { context, contextLoader ->
             assertTrue(attached)
             readyContext = context
             readyLoader = contextLoader
@@ -75,6 +76,10 @@ class WeComAppAdapterTest {
             listOf("impad_wecom_tinker_bootstrap", "impad_wecom_device_type", "impad_wecom_app_pad", "impad_wecom_service_pad"),
             registrar.attemptedIds,
         )
+        registrar.callbacks.getValue("impad_wecom_tinker_bootstrap").intercept(
+            HookCall(application, arrayOf(attachContext, 0L, 0L)) { "later" },
+        )
+        assertEquals(1, laterReadyCalls)
         var originalCalls = 0
         assertEquals(0x20004, registrar.callbacks.getValue("impad_wecom_device_type")
             .intercept(HookCall(null, emptyArray()) { originalCalls++; 1 }))

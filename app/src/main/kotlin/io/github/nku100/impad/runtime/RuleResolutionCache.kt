@@ -30,6 +30,7 @@ data class RuleResolutionCacheKey(
     val dexkitSourceCommit: String,
     val dexkitLockSha256: String,
     val executionIdentitySha256: String,
+    val runtimeCodeSha256: List<String> = emptyList(),
 )
 
 @Serializable

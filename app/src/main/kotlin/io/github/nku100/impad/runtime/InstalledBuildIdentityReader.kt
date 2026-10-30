@@ -21,6 +21,8 @@ data class InstalledBuild(
     val installFingerprint: String,
     val dataDirectory: File,
     val apkFileSha256: List<String> = emptyList(),
+    val runtimeCodeFiles: List<File> = emptyList(),
+    val runtimeCodeSha256: List<String> = emptyList(),
 )
 
 data class PackageApkIdentity(

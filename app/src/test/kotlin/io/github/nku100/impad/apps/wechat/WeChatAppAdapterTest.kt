@@ -51,8 +51,9 @@ class WeChatAppAdapterTest {
         var readyContext: Context? = null
         var readyLoader: ClassLoader? = null
         var installResult: PlanInstallOutcome? = null
+        var laterReadyCalls = 0
 
-        adapter.prepareClassLoader(loader, registrar) { readyContextValue, readyLoaderValue ->
+        adapter.prepareClassLoader(loader, registrar, onLaterReady = { laterReadyCalls++ }) { readyContextValue, readyLoaderValue ->
             assertTrue(attached)
             readyContext = readyContextValue
             readyLoader = readyLoaderValue
@@ -68,6 +69,10 @@ class WeChatAppAdapterTest {
         assertIs<PlanInstallOutcome.Installed>(installResult)
         assertEquals(listOf("impad_wechat_tinker_bootstrap", "wechatpad_tablet", "wechatpad_login"),
                      registrar.attemptedIds)
+        registrar.callbacks.getValue("impad_wechat_tinker_bootstrap").intercept(
+            HookCall(application, arrayOf(context, 0L, 0L)) { "later" },
+        )
+        assertEquals(1, laterReadyCalls)
     }
 
     @Test

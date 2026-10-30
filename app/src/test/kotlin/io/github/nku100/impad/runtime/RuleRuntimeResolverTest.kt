@@ -26,6 +26,27 @@ import org.junit.jupiter.api.Test
 
 class RuleRuntimeResolverTest {
     @Test
+    fun patchedProcessSearchesOnlyMergedCodeAndInvalidatesCacheWhenPatchChanges() = withFiles { directory, base, split ->
+        val cache = RuleResolutionCache(directory.resolve("cache").toFile())
+        val openedInputs = mutableListOf<List<java.io.File>>()
+        val resolver = RuleRuntimeResolver(catalog(), cache) { inputs ->
+            openedInputs += inputs
+            EmptySession
+        }
+        val original = build(base, split, "a".repeat(64))
+        resolver.resolve(original)
+        val patched = original.copy(runtimeCodeFiles = listOf(split), runtimeCodeSha256 = listOf("c".repeat(64)))
+        val firstPatch = resolver.resolve(patched)
+        val cachedPatch = resolver.resolve(patched)
+        val nextPatch = resolver.resolve(patched.copy(runtimeCodeSha256 = listOf("d".repeat(64))))
+
+        assertFalse(firstPatch.cacheHit)
+        assertTrue(cachedPatch.cacheHit)
+        assertFalse(nextPatch.cacheHit)
+        assertEquals(listOf(listOf(base, split), listOf(split), listOf(split)), openedInputs)
+    }
+
+    @Test
     fun cachesAPlanByEveryBaseAndSplitContentHash() = withFiles { directory, base, split ->
         val cache = RuleResolutionCache(directory.resolve("cache").toFile())
         val fingerprint = RuleExecutionFingerprint.createReport(catalog().sha256, RuleExecutionFingerprint.loadManifest())

@@ -11,6 +11,7 @@ interface AppAdapter {
     fun prepareClassLoader(
         loader: ClassLoader,
         registrar: HookRegistrar,
+        onLaterReady: () -> Unit = {},
         onReady: (Context, ClassLoader) -> Unit,
     ) {
         error("${compatibilityPolicy.appId} does not provide a rule class-loader bridge")

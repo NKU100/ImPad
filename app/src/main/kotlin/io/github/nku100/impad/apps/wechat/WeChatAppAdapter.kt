@@ -21,12 +21,14 @@ class WeChatAppAdapter : AppAdapter {
     override fun prepareClassLoader(
         loader: ClassLoader,
         registrar: HookRegistrar,
+        onLaterReady: () -> Unit,
         onReady: (Context, ClassLoader) -> Unit,
     ) {
-        TinkerClassLoaderBridge(registrar).installWithContext(
+        TinkerClassLoaderBridge(registrar).installMonitoredWithContext(
             loader,
             WECHAT_TINKER_HOOK_ID,
-            onReady,
+            onReady = onReady,
+            onLaterReady = onLaterReady,
         )
     }
 

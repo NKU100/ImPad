@@ -7,6 +7,7 @@ import io.github.nku100.impad.compat.rules.RuleDefinition
 import io.github.nku100.impad.compat.rules.RuleRef
 import io.github.nku100.impad.compat.rules.RuleResolution
 import io.github.nku100.impad.compat.rules.VersionBinding
+import io.github.nku100.impad.rules.AnalysisIncompleteException
 import io.github.nku100.impad.rules.MethodQuery
 import io.github.nku100.impad.rules.RuleCatalog
 import io.github.nku100.impad.rules.RuleNumericLiteral
@@ -57,6 +58,26 @@ object WeChatTabletLoginRule : RuleQuery {
             ),
             candidateCounts = counts,
         )
+    }
+
+    internal fun forEachCompletePath(session: RuleSession, emit: (WeChatLoginPath) -> Unit) {
+        val tablets = session.findMethods(MethodQuery(requiredStrings = setOf(LENOVO_MODEL), staticOnly = true, returnType = "boolean"))
+        val logins = session.findMethods(MethodQuery(requiredStrings = setOf(LOGIN_TRACE_METHOD), staticOnly = true, returnType = "void"))
+        tablets.forEach { tablet ->
+            session.inContextOf(tablet).use { tabletView ->
+                if (isTabletDetector(tabletView, tablet)) tabletHelpers(tabletView, tablet).forEach { helper ->
+                    val forwards = WeChatLoginControlFlow.forwardsBooleanResult(tabletView.readInstructions(helper), tablet.invocationReference())
+                    if (forwards && session.resolvesInvocation(helper, tablet)) logins.forEach { login ->
+                        session.inContextOf(login).use { loginView ->
+                            if (isLoginEntry(login, helper) && session.resolvesInvocation(login, helper) &&
+                                WeChatLoginControlFlow.controlsVisibility(loginView.readInstructions(login), helper.invocationReference())) {
+                                emit(WeChatLoginPath(tablet, helper, login, "inline"))
+                            }
+                        }
+                    }
+                }
+            }
+        }
     }
 
     private fun isTabletDetector(session: RuleSession, method: RuleMethod): Boolean {
@@ -129,7 +150,9 @@ object WeChatTabletLoginRule : RuleQuery {
     ): Int? {
         val constants = initialConstants.toMutableMap()
         var index = startIndex
+        val visited = mutableSetOf<Int>()
         repeat(MAX_LOCAL_PATH_INSTRUCTIONS) {
+            if (!visited.add(index)) return null
             val instruction = instructions.getOrNull(index) ?: return null
             val register = instruction.registerA
             when (instruction.opcode) {
@@ -156,7 +179,7 @@ object WeChatTabletLoginRule : RuleQuery {
             }
             index++
         }
-        return null
+        throw AnalysisIncompleteException("WeChat Boolean return path exceeded $MAX_LOCAL_PATH_INSTRUCTIONS instructions")
     }
 
     private fun constantsBefore(instructions: List<RuleInstruction>, endIndex: Int): Map<Int, Int> {
@@ -243,12 +266,13 @@ object WeChatTabletLoginRule : RuleQuery {
     val catalog: RuleCatalog by lazy {
         RuleCatalog(
             appId = "wechat",
-            queries = listOf(this, WeChatTabletLoginRule002),
+            queries = listOf(this, WeChatTabletLoginRule002, WeChatTabletLoginRule003),
             bindings = listOf(
                 VersionBinding(ruleId = RULE_ID, min = 3040, max = 3040),
                 VersionBinding(ruleId = WeChatTabletLoginRule002.definition.ruleId, min = 3182, max = null),
             ),
-            strategyIds = setOf(STRATEGY_ID, WeChatTabletLoginRule002.definition.strategyId),
+            strategyIds = setOf(STRATEGY_ID, WeChatTabletLoginRule002.definition.strategyId,
+                WeChatTabletLoginRule003.definition.strategyId),
         )
     }
 

@@ -14,17 +14,19 @@ class QqHookInstaller {
         require(plan.targets.keys == setOf("device_type")) { "QQ rule plan had an unexpected target set" }
         val target = plan.targets.getValue("device_type")
         val deviceType = TargetMethodResolver.resolve(classLoader, target.descriptor, target.shape)
-        return listOf(prepareDeviceType(deviceType))
+        return listOf(prepareBound(deviceType))
     }
 
-    private fun prepareDeviceType(deviceType: Method): HookSpec {
-        require(Modifier.isStatic(deviceType.modifiers) && deviceType.returnType.isEnum &&
-            deviceType.parameterTypes.contentEquals(arrayOf(android.content.Context::class.java))) {
-            "QQ device type Getter must be static, accept Context, and return an enum"
+    companion object {
+        internal fun prepareBound(deviceType: Method): HookSpec {
+            require(Modifier.isStatic(deviceType.modifiers) && deviceType.returnType.isEnum &&
+                deviceType.parameterTypes.contentEquals(arrayOf(android.content.Context::class.java))) {
+                "QQ device type Getter must be static, accept Context, and return an enum"
+            }
+            val tablet = requireNotNull(deviceType.returnType.enumConstants?.singleOrNull {
+                (it as? Enum<*>)?.name == "TABLET"
+            }) { "QQ device enum must contain exactly one TABLET value" }
+            return HookSpec(deviceType, "impad_qq_device_type", HookCallback { tablet })
         }
-        val tablet = requireNotNull(deviceType.returnType.enumConstants?.singleOrNull {
-            (it as? Enum<*>)?.name == "TABLET"
-        }) { "QQ device enum must contain exactly one TABLET value" }
-        return HookSpec(deviceType, "impad_qq_device_type", HookCallback { tablet })
     }
 }

@@ -16,6 +16,18 @@ import kotlin.test.assertIs
 import kotlin.test.assertTrue
 
 class WeChatFutureRuleStrategyTest {
+    @Test
+    fun installsReloadedCacheRuleWithItsOwnStrategy() {
+        val registrar = RecordingRegistrar()
+        val result = WeChatAppAdapter().installPlan(
+            javaClass.classLoader!!,
+            futurePlan().copy(rule = RuleRef("wechat_tablet_login_003", "wechat_tablet_login_behavior_003")),
+            registrar, ModuleLog { _, _, _ -> },
+        ) { true }
+        assertIs<PlanInstallOutcome.Installed>(result)
+        assertEquals(2, registrar.attemptedIds.size)
+    }
+
     class RuleTargets {
         fun tablet(): Boolean = false
         fun login(): Unit = Unit
