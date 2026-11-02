@@ -21,4 +21,4 @@ Google SDK 的 Linux 原生构建工具通过主机 qemu-user 执行 x86_64 二�
 
 微信和企微要求模块关闭时没有平板入口，模块开启时进入稳定二维码页，并由当前应用进程的新鲜日志证明兼容与 Hook 安装。QQ 要求 Manifest 派生的两态 AppID、MSF socket 归属、完整 TCP 流和当前 owner 的兼容／Hook 日志，丢包、缺失归属或不完整数据均不能通过。全程不输入账号、扫码或提交真实登录。
 
-单候选标准报告为 `work/runtime-smoke/evidence/smoke-report.json`。应用目录保存 UI 树、截图和请求元数据；框架目录保存启动日志，`memory-samples.json` 记录采样峰值，`tooling/tooling-report.json` 保存中转验证。准备或运行失败保持待验证／拒绝状态，跳过 job 不算通过。历史 AVD 验证文档仅作参考，旧镜像、ramdisk 和启动脚本由 Git 历史保留。
+单候选标准报告为 `work/runtime-smoke/evidence/smoke-report.json`。应用目录保存 UI 树、截图、请求元数据及包含 TCP payload 的 QQ 原始 JSONL；原始网络证据分享或公开归档前需检查并脱敏。框架目录保存启动日志，`memory-samples.json` 记录采样峰值，`tooling/tooling-report.json` 保存中转验证。准备或运行失败保持待验证／拒绝状态，跳过 job 不算通过。历史 AVD 验证文档仅作参考，旧镜像、ramdisk 和启动脚本由 Git 历史保留。
