@@ -32,32 +32,28 @@ object WeComSemanticRules {
         override val id = "wecom_local_features"
 
         override fun recognize(context: RecognitionContext): RecognitionResult {
-            val plans = context.snapshot.metadata.loaders.flatMap { loader ->
-                context.session.inNamespace(loader.id).use { namespace ->
-                    val matches = WeComLocalRule.matchingMethods(namespace)
-                    val deviceTypes = matches.getValue("device_type")
-                    val applicationPads = matches.getValue("app_pad")
-                    val servicePads = matches.getValue("service_pad")
-                    buildList {
-                        deviceTypes.forEach { deviceType ->
-                            applicationPads.forEach { appPad ->
-                                servicePads.forEach { servicePad ->
-                                    add(context.plan(
-                                        "wecom_local_tablet_callbacks",
-                                        mapOf(
-                                            "device_type" to deviceType,
-                                            "app_pad" to appPad,
-                                            "service_pad" to servicePad,
-                                        ),
-                                        listOf(
-                                            "namespace=${loader.id}",
-                                            "device_type=${deviceType.descriptor}",
-                                            "app_pad=${appPad.descriptor}",
-                                            "service_pad=${servicePad.descriptor}",
-                                        ),
-                                    ))
-                                }
-                            }
+            val matches = WeComLocalRule.matchingMethods(context.session)
+            val deviceTypes = matches.getValue("device_type").filter(context::isVisibleFromReady)
+            val applicationPads = matches.getValue("app_pad").filter(context::isVisibleFromReady)
+            val servicePads = matches.getValue("service_pad").filter(context::isVisibleFromReady)
+            val plans = buildList {
+                deviceTypes.forEach { deviceType ->
+                    applicationPads.forEach { appPad ->
+                        servicePads.forEach { servicePad ->
+                            add(context.plan(
+                                "wecom_local_tablet_callbacks",
+                                mapOf(
+                                    "device_type" to deviceType,
+                                    "app_pad" to appPad,
+                                    "service_pad" to servicePad,
+                                ),
+                                listOf(
+                                    "namespace=${context.snapshot.metadata.readyLoaderId}",
+                                    "device_type=${deviceType.descriptor}",
+                                    "app_pad=${appPad.descriptor}",
+                                    "service_pad=${servicePad.descriptor}",
+                                ),
+                            ))
                         }
                     }
                 }

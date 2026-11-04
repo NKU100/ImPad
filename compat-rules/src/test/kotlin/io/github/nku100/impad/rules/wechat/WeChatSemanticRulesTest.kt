@@ -49,10 +49,35 @@ class WeChatSemanticRulesTest {
     }
 
     @Test
+    fun shadowedParentBudgetExhaustionDoesNotHideVisibleChildLoginPlan() {
+        val parent = WeChatForwardRuleDexFixture.apk(WeChatForwardRuleDexFixture.Options(returnPathPadding = 80))
+        val child = WeChatForwardRuleDexFixture.apk()
+        try {
+            withInputs(listOf(CodeLoaderInput("parent", null, CodeDelegation.PARENT_FIRST, listOf(parent)),
+                CodeLoaderInput("child", "parent", CodeDelegation.DELEGATE_LAST, listOf(child))), "child") { snapshot, session ->
+                assertIs<CompletePlanSelection.Selected>(run(snapshot, session))
+            }
+        } finally { parent.delete(); child.delete() }
+    }
+
+    @Test
     fun twoCompleteLoginRelationsConflict() = withAggregate(
         WeChatForwardRuleDexFixture.Options(loginOwners = listOf("Lfixture/FirstLogin;", "Lfixture/SecondLogin;")),
     ) { snapshot, session ->
         assertEquals(2, assertIs<CompletePlanSelection.Conflict>(run(snapshot, session)).plans.size)
+    }
+
+    @Test
+    fun completeParentAndChildDefinitionsSelectOnlyChildHooks() {
+        val parent = WeChatForwardRuleDexFixture.apk()
+        val child = WeChatForwardRuleDexFixture.apk()
+        try {
+            withInputs(listOf(CodeLoaderInput("parent", null, CodeDelegation.PARENT_FIRST, listOf(parent)),
+                CodeLoaderInput("child", "parent", CodeDelegation.DELEGATE_LAST, listOf(child))), "child") { snapshot, session ->
+                val selected = assertIs<CompletePlanSelection.Selected>(run(snapshot, session))
+                assertTrue(selected.match.plan.hooks.all { it.source.loaderId == "child" })
+            }
+        } finally { parent.delete(); child.delete() }
     }
 
     @Test

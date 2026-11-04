@@ -114,6 +114,14 @@ class RecognitionContext(val session: RuleSession, val snapshot: CapturedCodeSna
         return RecognizedPlan(CompletePlan(snapshotSha256, catalog.contractId, catalog.contractRevision, strategy.id, strategy.revision, hooks), evidence.toList())
     }
 
+    fun isVisibleFromReady(method: RuleMethod): Boolean {
+        val source = session.sourceOf(method)
+        val owner = snapshot.definitions.ownerOf(method.className, snapshot.metadata.readyLoaderId) ?: return false
+        val loader = snapshot.metadata.loaders.singleOrNull { it.id == source.loaderId } ?: return false
+        return owner.loaderId == source.loaderId && owner.dexIndex == source.dexIndex &&
+            loader.dexSha256.getOrNull(source.dexIndex)?.equals(source.dexSha256, ignoreCase = true) == true
+    }
+
     fun validate(plan: CompletePlan) {
         snapshot.ensureOpen()
         require(plan.snapshotSha256.equals(snapshotSha256, ignoreCase = true) && plan.contractId == catalog.contractId &&

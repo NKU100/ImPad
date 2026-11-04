@@ -78,11 +78,11 @@ class SemanticDeviceRulesTest {
     }
 
     @Test
-    fun qqMergesEvidenceWhenOneDefinitionIsVisibleInSeveralNamespaces() = withContext(
+    fun qqDelegateLastShadowingSelectsTheCompleteChildDefinition() = withContext(
         QqSemanticRules.catalog,
         listOf(
             "parent" to listOf("fixture.QqProbe", "fixture.DeviceType"),
-            "child" to listOf("fixture.ChildOnly"),
+            "child" to listOf("fixture.QqProbe", "fixture.DeviceType"),
         ),
         listOf(qqMethod()),
         mapOf("fixture.DeviceType" to listOf(tabletEnum())),
@@ -91,9 +91,22 @@ class SemanticDeviceRulesTest {
         val selected = assertIs<CompletePlanSelection.Selected>(CompletePlanSelector.select(
             mapOf("qq_cached_device_enum" to RecognitionResult.Plans(plans)),
         ))
-        assertEquals(setOf("parent", "child"), selected.match.evidenceByRecognizer.getValue("qq_cached_device_enum")
+        assertEquals(setOf("child"), selected.match.evidenceByRecognizer.getValue("qq_cached_device_enum")
             .filter { it.startsWith("namespace=") }.map { it.substringAfter("namespace=") }.toSet())
-        assertEquals("parent", selected.match.plan.hooks.single().source.loaderId)
+        assertEquals("child", selected.match.plan.hooks.single().source.loaderId)
+    }
+
+    @Test
+    fun qqParentFirstResolutionSelectsTheParentDefinition() = withContext(
+        QqSemanticRules.catalog,
+        listOf("parent" to listOf("fixture.QqProbe", "fixture.DeviceType"),
+            "child" to listOf("fixture.QqProbe", "fixture.DeviceType")),
+        listOf(qqMethod()), mapOf("fixture.DeviceType" to listOf(tabletEnum())),
+        childDelegation = CodeDelegation.PARENT_FIRST,
+    ) { context ->
+        val plans = assertIs<RecognitionResult.Plans>(qqResult(context)).plans
+        assertEquals(1, plans.size)
+        assertEquals("parent", plans.single().plan.hooks.single().source.loaderId)
     }
 
     @Test
@@ -117,16 +130,19 @@ class SemanticDeviceRulesTest {
     }
 
     @Test
-    fun wecomReturnsAllCompletePlansWhenOneFeatureHasMultipleDefinitions() = withContext(
+    fun wecomUsesOnlyTheReadyNamespaceForCandidateEnumeration() = withContext(
         WeComSemanticRules.catalog,
         listOf("root" to wecomClasses(), "child" to wecomClasses()),
-        listOf(localDeviceType(), localDeviceType("getDeviceTypeFromLocal2"), applicationPad(), servicePad()),
+        listOf(localDeviceType(), applicationPad(), servicePad()),
         emptyMap(),
     ) { context ->
         val plans = assertIs<RecognitionResult.Plans>(wecomResult(context)).plans
-        assertEquals(2, plans.size)
-        assertEquals(setOf("root", "child"), plans.map { it.plan.hooks.first().source.loaderId }.toSet())
-        assertIs<CompletePlanSelection.Conflict>(CompletePlanSelector.select(mapOf("wecom_local_features" to RecognitionResult.Plans(plans))))
+        assertEquals(1, plans.size)
+        assertEquals(
+            mapOf("device_type" to "child", "app_pad" to "child", "service_pad" to "child"),
+            plans.single().plan.hooks.associate { it.role to it.source.loaderId },
+        )
+        assertIs<CompletePlanSelection.Selected>(CompletePlanSelector.select(mapOf("wecom_local_features" to RecognitionResult.Plans(plans))))
     }
 
     @Test
@@ -147,9 +163,10 @@ class SemanticDeviceRulesTest {
         loaders: List<Pair<String, List<String>>>,
         methods: List<RuleMethod>,
         classes: Map<String, List<RuleClass>>,
+        childDelegation: CodeDelegation = CodeDelegation.DELEGATE_LAST,
         block: (RecognitionContext) -> Unit,
     ) = withCodeDirectory { root ->
-        withContextFromRoot(root, catalog, loaders, methods, classes, block)
+        withContextFromRoot(root, catalog, loaders, methods, classes, childDelegation, block)
     }
 
     private fun withContextResult(
@@ -172,11 +189,12 @@ class SemanticDeviceRulesTest {
         loaders: List<Pair<String, List<String>>>,
         methods: List<RuleMethod>,
         classes: Map<String, List<RuleClass>>,
+        childDelegation: CodeDelegation = CodeDelegation.DELEGATE_LAST,
         block: (RecognitionContext) -> Unit,
     ) {
         val inputs = loaders.mapIndexed { index, (id, names) ->
             CodeLoaderInput(id, loaders.getOrNull(index - 1)?.first,
-                if (id == "child") CodeDelegation.DELEGATE_LAST else CodeDelegation.PARENT_FIRST,
+                if (id == "child") childDelegation else CodeDelegation.PARENT_FIRST,
                 listOf(codeArchiveWithClasses(root, "$id.apk", listOf("classes.dex" to names))))
         }
         StartupCodeSnapshot().capture(loaders.last().first, inputs).use { snapshot ->

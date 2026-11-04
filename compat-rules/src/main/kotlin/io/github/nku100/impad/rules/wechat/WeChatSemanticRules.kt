@@ -29,15 +29,17 @@ object WeChatSemanticRules : SemanticRuleQuery {
     override fun recognize(context: RecognitionContext): RecognitionResult {
         val plans = mutableListOf<RecognizedPlan>()
         val emit: (WeChatLoginPath) -> Unit = { path ->
-            plans += context.plan(STRATEGY, mapOf("tablet" to path.wrapper, "login" to path.login), listOf(
-                "${path.variant}: ${path.decision.descriptor} -> ${path.wrapper.descriptor} -> ${path.login.descriptor}",
-            ))
+            if (context.isVisibleFromReady(path.login)) {
+                plans += context.plan(STRATEGY, mapOf("tablet" to path.wrapper, "login" to path.login), listOf(
+                    "${path.variant}: ${path.decision.descriptor} -> ${path.wrapper.descriptor} -> ${path.login.descriptor}",
+                ))
+            }
         }
         try {
             context.snapshot.metadata.resolutionOrder().forEach { namespace ->
                 context.session.inNamespace(namespace).use { session ->
-                    WeChatTabletLoginRule.forEachCompletePath(session, emit)
-                    WeChatTabletLoginRule002.forEachCompletePath(session, emit)
+                    WeChatTabletLoginRule.forEachCompletePath(session, context::isVisibleFromReady, emit)
+                    WeChatTabletLoginRule002.forEachCompletePath(session, context::isVisibleFromReady, emit)
                 }
             }
         } catch (incomplete: AnalysisIncompleteException) {

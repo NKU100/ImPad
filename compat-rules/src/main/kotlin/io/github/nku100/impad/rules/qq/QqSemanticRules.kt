@@ -28,17 +28,13 @@ object QqSemanticRules {
         override val id = "qq_cached_device_enum"
 
         override fun recognize(context: RecognitionContext): RecognitionResult {
-            val plans = context.snapshot.metadata.loaders.flatMap { loader ->
-                context.session.inNamespace(loader.id).use { namespace ->
-                    QqDeviceTypeRule.matchingMethods(namespace) { method ->
-                        namespace.inContextOf(method).use { origin -> origin.findClasses(method.returnType) }
-                    }.map { method ->
-                        context.plan("qq_tablet_enum", mapOf("device_type" to method), listOf(
-                            "namespace=${loader.id}",
-                            "device_type=${context.session.sourceOf(method).loaderId}:${method.descriptor}",
-                        ))
-                    }
-                }
+            val plans = QqDeviceTypeRule.matchingMethods(context.session) { method ->
+                context.session.inContextOf(method).use { origin -> origin.findClasses(method.returnType) }
+            }.filter(context::isVisibleFromReady).map { method ->
+                context.plan("qq_tablet_enum", mapOf("device_type" to method), listOf(
+                    "namespace=${context.snapshot.metadata.readyLoaderId}",
+                    "device_type=${context.session.sourceOf(method).loaderId}:${method.descriptor}",
+                ))
             }
             return if (plans.isEmpty()) RecognitionResult.NoMatch(listOf("No complete QQ tablet enum plan matched"))
             else RecognitionResult.Plans(plans)

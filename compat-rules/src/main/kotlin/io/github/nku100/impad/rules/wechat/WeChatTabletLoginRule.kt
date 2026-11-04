@@ -60,9 +60,15 @@ object WeChatTabletLoginRule : RuleQuery {
         )
     }
 
-    internal fun forEachCompletePath(session: RuleSession, emit: (WeChatLoginPath) -> Unit) {
-        val tablets = session.findMethods(MethodQuery(requiredStrings = setOf(LENOVO_MODEL), staticOnly = true, returnType = "boolean"))
+    internal fun forEachCompletePath(
+        session: RuleSession,
+        loginVisible: (RuleMethod) -> Boolean = { true },
+        emit: (WeChatLoginPath) -> Unit,
+    ) {
         val logins = session.findMethods(MethodQuery(requiredStrings = setOf(LOGIN_TRACE_METHOD), staticOnly = true, returnType = "void"))
+            .filter(loginVisible)
+        if (logins.isEmpty()) return
+        val tablets = session.findMethods(MethodQuery(requiredStrings = setOf(LENOVO_MODEL), staticOnly = true, returnType = "boolean"))
         tablets.forEach { tablet ->
             session.inContextOf(tablet).use { tabletView ->
                 if (isTabletDetector(tabletView, tablet)) tabletHelpers(tabletView, tablet).forEach { helper ->
