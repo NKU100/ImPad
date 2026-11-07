@@ -148,7 +148,8 @@ def probe(app, root, inputs, module_hash):
             if report['baseline']['tabletEntry']:
                 raise RuntimeError('Baseline already has a tablet entry')
         diagnostics = report['runtimeDiagnostics']
-        expected = 'INSTALLED_' + str(len(s.APP_POLICY.required_hook_ids))
+        expected_count = len(candidate['expectedPlan']['hooks']) if strict_gate else len(s.APP_POLICY.required_hook_ids)
+        expected = 'INSTALLED_' + str(expected_count)
         if diagnostics['compatibility'] != 'COMPATIBLE' or diagnostics['hookInstallation'] != expected:
             report['status'] = 'RUNTIME_REJECTED'
             raise RuntimeError('QR page lacks compatible app-process Hook evidence')
