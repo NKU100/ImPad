@@ -7,7 +7,7 @@ import kotlin.test.assertFailsWith
 class SemanticAppCatalogsTest {
     @Test
     fun eachAppUsesSharedCatalogAndVersionOnlyOrdersEveryRecognizer() {
-        val roles = mapOf("wechat" to setOf("tablet", "login"), "qq" to setOf("device_type"),
+        val roles = mapOf("wechat" to setOf("inner", "tablet", "login"), "qq" to setOf("device_type"),
             "wecom" to setOf("device_type", "app_pad", "service_pad"))
         roles.forEach { (app, required) ->
             val catalog = SemanticAppCatalogs.forApp(app)
