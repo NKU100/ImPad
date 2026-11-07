@@ -70,8 +70,8 @@ android {
         applicationId = "io.github.nku100.impad"
         minSdk = 28
         targetSdk = 37
-        versionCode = 6
-        versionName = "1.1.3-beta.1"
+        versionCode = 7
+        versionName = "1.1.3"
         ndk {
             abiFilters += "arm64-v8a"
         }
