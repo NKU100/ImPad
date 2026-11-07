@@ -23,3 +23,12 @@ The focused host lifecycle suite recorded 67 passing tests, and the earlier a1 l
 The cache does not guarantee atomicity against arbitrary concurrent writes, runtime code replacement, or injection, and it does not authenticate the origin of ART-resident methods. The complete original WeChat hot-update package replay and hot-update business acceptance remain unverified.
 
 Local artifact and evidence paths above refer to retained validation archives, which are not included in the source checkout. These observations describe the recorded build; the subsequent zlib dependency-lock update requires a new build and source-fingerprint check.
+
+
+## 微信内层 After 启动
+
+微信完整计划为 inner/tablet/login 三个业务角色，inner 配置含 Boolean cache 与原 monitor 的字段描述符，来源与内层方法同声明类／DEX。直接转发的旧版本没有共享 monitor 时，配置使用声明类描述符同步修正。该结构进入执行摘要与完整计划缓存，所有三个 Hook 由同一个 binder、策略与 AtomicHookBatch 管理。
+
+createInlineFence Before 只在 Tinker 实际 loader 已设置且 inline fence 尚未创建的状态下安装；完整签名是 Application/int/String/boolean/long/long/Intent → Handler。它是内部接口，升级时仍需验证顺序。原 onBaseContextAttached 保留后续代次监控。首次扫描或缓存失效同步识别，正常命中重新绑定、最终内容复核后启用；不主动写平板或宽度缓存，不修改机型，不禁用热更。
+
+内层原异常保持，After 修正不覆盖异常路径；原函数计算期间可能短暂写 false。unhook 只停止后续回调并解除注册，不撤销已产生的微信状态。代次变化退役旧批次并要求重启，不在同进程混装新旧计划。
