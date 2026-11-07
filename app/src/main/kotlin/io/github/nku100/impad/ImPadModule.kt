@@ -1,7 +1,6 @@
 package io.github.nku100.impad
 
 import android.content.pm.ApplicationInfo
-import android.os.Build
 import android.util.Log
 import io.github.libxposed.api.XposedModule
 import io.github.libxposed.api.XposedModuleInterface.ModuleLoadedParam
@@ -35,7 +34,6 @@ class ImPadModule : XposedModule() {
     }
 
     override fun onPackageLoaded(param: PackageLoadedParam) {
-        if (param.packageName == WECHAT_PACKAGE) applyWechatDeviceIdentity()
         super.onPackageLoaded(param)
         if (param.packageName in handledPackages) return
         val adapter = adapters.forPackage(param.packageName) ?: return
@@ -52,6 +50,11 @@ class ImPadModule : XposedModule() {
                 if (error == null) log(priority, message) else log(priority, LOG_TAG, message, error)
             }
             val key = CoordinatorKey(adapter.compatibilityPolicy.appId, checkNotNull(processName))
+            if (param.packageName == WECHAT_PACKAGE) {
+                io.github.nku100.impad.runtime.WeChatEarlyRuntime(registrar, checkNotNull(getModuleApplicationInfo()),
+                    checkNotNull(javaClass.classLoader), moduleLog).install(param.applicationInfo, param.defaultClassLoader)
+                return
+            }
             adapter.prepareClassLoader(
                 param.defaultClassLoader,
                 registrar,
@@ -76,24 +79,6 @@ class ImPadModule : XposedModule() {
             )
         } catch (error: Throwable) {
             logFailure("module initialization failed", error)
-        }
-    }
-
-    private fun applyWechatDeviceIdentity() {
-        try {
-            listOf(
-                "MODEL" to "Lenovo TB-9707F",
-                "BRAND" to "Lenovo",
-                "MANUFACTURER" to "LENOVO",
-            ).forEach { (name, value) ->
-                val field = Build::class.java.getDeclaredField(name)
-                field.isAccessible = true
-                field.set(null, value)
-                check(field.get(null) == value) { "android.os.Build.$name did not retain the configured value" }
-            }
-            log(Log.INFO, "WeChat process device identity applied")
-        } catch (error: Throwable) {
-            logFailure("WeChat process device identity unavailable", error)
         }
     }
 
