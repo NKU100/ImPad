@@ -46,6 +46,13 @@ class WeChatRawRuntimeReplayTest(unittest.TestCase):
         self.assertEqual('INSTALLED_2', self.smoke['runtimeDiagnostics']['hookInstallation'])
         self.assertEqual('READY', self.smoke['runtimeLifecycleEvidence']['tinkerEvidence']['status'])
 
+    def test_verifier_accepts_three_hooks_from_the_hashed_candidate_capture(self):
+        self._set_hook_count(3)
+        self.smoke = self._write_valid_capture()
+        files = runtime_task._validate_wechat_raw_evidence(self.smoke, self.root, self.candidate, self.module)
+        self.assertEqual(16, len(files))
+        self.assertEqual('INSTALLED_3', self.smoke['runtimeDiagnostics']['hookInstallation'])
+
     def test_summary_claim_cannot_replace_tablet_entry_in_captured_ui(self):
         self.smoke['baselineEvidence']['tabletEntry'] = True
         with self.assertRaises(ValueError):
@@ -95,7 +102,7 @@ class WeChatRawRuntimeReplayTest(unittest.TestCase):
                 self.assertNotEqual('RUNTIME_SMOKE_VERIFIED', report['status'])
                 self.assertIn('hookCount differs', report['reason'])
 
-    def _probe_capture(self, hook_count, observed_count=None):
+    def _set_hook_count(self, hook_count):
         if hook_count == 3 and len(self.candidate['expectedPlan']['hooks']) == 2:
             catalog = self.candidate['ruleCatalog']
             catalog['requiredRoles'].insert(0, 'inner')
@@ -115,6 +122,9 @@ class WeChatRawRuntimeReplayTest(unittest.TestCase):
                                              'monitorField': 'Lfixture/Entry;'})
             plan['hooks'].insert(0, inner_hook)
             self.candidate['expectedExecutionSha256'] = plan_execution_sha256(plan)
+
+    def _probe_capture(self, hook_count, observed_count=None):
+        self._set_hook_count(hook_count)
         self.smoke = self._write_valid_capture()
         if observed_count is not None:
             path = self.app_root / 'logcat.txt'
