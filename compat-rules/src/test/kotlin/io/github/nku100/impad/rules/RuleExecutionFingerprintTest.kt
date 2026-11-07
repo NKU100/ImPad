@@ -11,6 +11,22 @@ import kotlin.test.assertFailsWith
 
 class RuleExecutionFingerprintTest {
     @Test
+    fun earlyEntryAndCacheCorrectionSourcesParticipateInExecutionIdentity() {
+        val manifest = RuleExecutionFingerprint.loadManifest()
+        val required = listOf("ImPadModule.kt", "WeChatEarlyRuntime.kt", "WeChatEarlyClassLoaderBridge.kt", "WeChatInnerAfter.kt")
+        for (name in required) {
+            val source = manifest.moduleSources.single { it.path.endsWith("/$name") }
+            assertTrue(manifest.resolverSources.any { it.path == source.path })
+            val modified = manifest.moduleSources.map { if (it.path == source.path) it.copy(sha256 = "a".repeat(64)) else it }
+            val document = modified.sortedBy { it.path }.joinToString("") { "${it.path}\n${it.sha256}\n" }
+            val hash = MessageDigest.getInstance("SHA-256").digest(document.toByteArray()).joinToString("") { "%02x".format(it) }
+            val changed = manifest.copy(moduleSources = modified, sourceTreeSha256 = hash)
+            assertNotEquals(RuleExecutionFingerprint.createReport("b".repeat(64), manifest).cacheIdentitySha256,
+                RuleExecutionFingerprint.createReport("b".repeat(64), changed).cacheIdentitySha256)
+        }
+    }
+
+    @Test
     fun changingQuerySourceChangesImplementationIdentityWithoutChangingCatalogDeclaration() {
         val catalogSha = RuleCatalog.forApp("qq").sha256
         val original = fingerprint(catalogSha, ruleSourceSha = "a".repeat(64))
