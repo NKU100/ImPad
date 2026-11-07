@@ -3,6 +3,7 @@ package io.github.nku100.impad.rules.wechat
 import io.github.nku100.impad.compat.rules.HookPhase
 import io.github.nku100.impad.compat.rules.RecognitionResult
 import io.github.nku100.impad.compat.rules.RecognizedPlan
+import io.github.nku100.impad.compat.rules.MethodShape
 import io.github.nku100.impad.rules.AnalysisIncompleteException
 import io.github.nku100.impad.rules.HookRoleContract
 import io.github.nku100.impad.rules.MethodQuery
@@ -17,7 +18,7 @@ import io.github.nku100.impad.rules.SemanticRuleQuery
 object WeChatSemanticRules : SemanticRuleQuery {
     override val id = "wechat_tablet_login_structures"
 
-    val catalog: SemanticRuleCatalog by lazy {
+    val legacyCatalog: SemanticRuleCatalog by lazy {
         SemanticRuleCatalog("wechat", "wechat_tablet_login", 1, setOf("tablet", "login"), listOf(this), listOf(
             RuleStrategyContract(STRATEGY, 1, listOf(
                 HookRoleContract("tablet", HookPhase.AFTER, mapOf("policy" to "outside_chat_true")),
@@ -25,15 +26,29 @@ object WeChatSemanticRules : SemanticRuleQuery {
             )),
         ))
     }
+    val catalog: SemanticRuleCatalog by lazy {
+        SemanticRuleCatalog("wechat", "wechat_tablet_login", 2, setOf("inner", "tablet", "login"), listOf(this), listOf(
+            RuleStrategyContract(STRATEGY, 2, listOf(
+                HookRoleContract("inner", HookPhase.AFTER, mapOf("policy" to "cache_true_after")),
+            ) + legacyCatalog.strategies.single().roles),
+        ))
+    }
 
     override fun recognize(context: RecognitionContext): RecognitionResult {
         val plans = mutableListOf<RecognizedPlan>()
-        val emit: (WeChatLoginPath) -> Unit = { path ->
-            if (context.isVisibleFromReady(path.login)) {
-                plans += context.plan(STRATEGY, mapOf("tablet" to path.wrapper, "login" to path.login), listOf(
-                    "${path.variant}: ${path.decision.descriptor} -> ${path.wrapper.descriptor} -> ${path.login.descriptor}",
-                ))
+        val emit: (WeChatLoginPath) -> Unit = emit@ { path ->
+            if (!context.isVisibleFromReady(path.login)) return@emit
+            if (context.catalog.contractRevision == 1) {
+                plans += context.plan(STRATEGY, mapOf("tablet" to path.wrapper, "login" to path.login), listOf(path.variant))
+                return@emit
             }
+            val cache = WeChatTabletCacheField.resolve(context.session, path.decision) ?: return@emit
+            val monitor = context.session.inContextOf(path.wrapper).use { view ->
+                WeChatTabletMonitor.extract(path.decision.descriptor, view.readInstructions(path.wrapper))
+            } ?: return@emit
+            plans += context.plan(STRATEGY, mapOf("inner" to path.decision, "tablet" to path.wrapper, "login" to path.login),
+                listOf("${path.variant}: ${path.decision.descriptor} -> ${path.wrapper.descriptor} -> ${path.login.descriptor}"),
+                mapOf("inner" to mapOf("policy" to "cache_true_after", "cacheField" to cache.descriptor, "monitorField" to monitor)))
         }
         try {
             context.snapshot.metadata.resolutionOrder().forEach { namespace ->

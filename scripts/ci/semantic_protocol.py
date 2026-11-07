@@ -246,6 +246,26 @@ def plan_execution_sha256(plan):
     return hashlib.sha256(_plan_bytes(plan)).hexdigest()
 
 
+def _hook_configuration_matches(hook, role):
+    if role['role'] != 'inner':
+        return hook['configuration'] == role['configuration']
+    config = hook['configuration']
+    if role['configuration'] != {'policy': 'cache_true_after'} or set(config) != {'policy', 'cacheField', 'monitorField'} or config['policy'] != 'cache_true_after':
+        return False
+    owner = hook['descriptor'].split('->')[0]
+    for key, suffix in [('cacheField', ':Ljava/lang/Boolean;'), ('monitorField', ':Ljava/lang/Object;')]:
+        value = config[key]
+        if key == 'monitorField' and value == owner:
+            continue
+        if not isinstance(value, str) or not value.startswith(owner + '->') or not value.endswith(suffix):
+            return False
+        name = value[len(owner) + 2:-len(suffix)]
+        if not name or any(c in ';:()/.[]' or c.isspace() for c in name):
+            return False
+    shape = hook['shape']
+    return shape['isStatic'] and shape['returnType'] == 'boolean' and len(shape['parameters']) == 1
+
+
 def validate_complete_plan(plan, catalog, snapshot):
     data = _plan_bytes(plan)
     validate_catalog(catalog)
@@ -258,7 +278,7 @@ def validate_complete_plan(plan, catalog, snapshot):
         raise ValueError('Complete plan strategy or ordered roles differ')
     loaders = {row['id']: row for row in snapshot['loaders']}
     for hook, role in zip(plan['hooks'], strategy['roles']):
-        if hook['phase'] != role['phase'] or hook['configuration'] != role['configuration']:
+        if hook['phase'] != role['phase'] or not _hook_configuration_matches(hook, role):
             raise ValueError('Complete plan callback behavior differs')
         source = hook['source']
         hashes = loaders.get(source['loaderId'], {}).get('dexSha256', [])

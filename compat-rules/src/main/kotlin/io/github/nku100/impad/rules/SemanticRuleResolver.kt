@@ -103,13 +103,13 @@ class RecognitionContext(val session: RuleSession, val snapshot: CapturedCodeSna
         }
     }
 
-    fun plan(strategyId: String, targets: Map<String, RuleMethod>, evidence: List<String>): RecognizedPlan {
+    fun plan(strategyId: String, targets: Map<String, RuleMethod>, evidence: List<String>, configurations: Map<String, Map<String, String>> = emptyMap()): RecognizedPlan {
         require(targets.keys == catalog.requiredRoles) { "A complete plan must contain all required roles" }
         val strategy = catalog.strategy(strategyId)
         val hooks = strategy.roles.map { role ->
             val method = targets.getValue(role.role)
             PlanHook(role.role, method.descriptor, MethodShape(method.parameterTypes, method.returnType, method.isStatic),
-                session.sourceOf(method), role.phase, role.configuration)
+                session.sourceOf(method), role.phase, configurations[role.role] ?: role.configuration)
         }
         return RecognizedPlan(CompletePlan(snapshotSha256, catalog.contractId, catalog.contractRevision, strategy.id, strategy.revision, hooks), evidence.toList())
     }
@@ -129,7 +129,7 @@ class RecognitionContext(val session: RuleSession, val snapshot: CapturedCodeSna
         val strategy = catalog.strategy(plan.strategyId)
         require(plan.strategyRevision == strategy.revision && plan.hooks.map { it.role } == strategy.roles.map { it.role }) { "Plan strategy or ordered roles differ" }
         plan.hooks.zip(strategy.roles).forEach { (hook, expected) ->
-            require(hook.phase == expected.phase && hook.configuration == expected.configuration) { "Plan changed the callback phase or configuration" }
+            io.github.nku100.impad.rules.wechat.validateHookConfiguration(hook, expected)
             val classDescriptor = hook.descriptor.substringBefore("->")
             require(classDescriptor.startsWith('L') && classDescriptor.endsWith(';')) { "Invalid hook declaring class" }
             val className = classDescriptor.removePrefix("L").removeSuffix(";").replace('/', '.')
@@ -145,6 +145,27 @@ class RecognitionContext(val session: RuleSession, val snapshot: CapturedCodeSna
                     source.dexSha256.equals(hook.source.dexSha256, ignoreCase = true)) { "Hook source differs from the effective snapshot" }
             }
         }
+        if (plan.hooks.any { it.role == "inner" }) {
+            val inner = plan.hooks.single { it.role == "inner" }
+            val wrapper = plan.hooks.single { it.role == "tablet" }
+            session.inNamespace(inner.source.loaderId).use { view ->
+                val owner = inner.descriptor.substringBefore("->").removePrefix("L").removeSuffix(";").replace('/', '.')
+                val decision = view.findMethods(MethodQuery(declaredClass = owner)).single { it.descriptor == inner.descriptor }
+                val field = requireNotNull(io.github.nku100.impad.rules.wechat.WeChatTabletCacheField.resolve(view, decision))
+                require(field.descriptor == inner.configuration.getValue("cacheField"))
+                val wrapped = view.findMethods(MethodQuery(declaredClass = owner)).single { it.descriptor == wrapper.descriptor }
+                val monitor = io.github.nku100.impad.rules.wechat.WeChatTabletMonitor.extract(inner.descriptor, view.readInstructions(wrapped))
+                require(monitor == inner.configuration.getValue("monitorField"))
+                if (monitor != inner.descriptor.substringBefore("->")) {
+                    val declared = view.findClasses(owner).single { it.className == owner }.fields.single {
+                        it.name == monitor!!.substringAfter("->").substringBefore(':')
+                    }
+                    require(declared.className == owner && declared.typeName == "java.lang.Object" && java.lang.reflect.Modifier.isStatic(declared.accessFlags))
+                }
+                require(view.sourceOf(wrapped) == wrapper.source && view.sourceOf(decision) == inner.source)
+            }
+        }
+
     }
 }
 

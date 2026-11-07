@@ -126,7 +126,8 @@ class RuntimeTaskTest(unittest.TestCase):
         from scripts.ci.runtime_task import _semantic_stage_context
         from scripts.ci.semantic_migration import load_migration_bundle
         from scripts.ci.semantic_regression_baseline import load_semantic_regression_baseline
-        from scripts.test_semantic_migration import SemanticMigrationTest, ROOT
+        from scripts.test_semantic_migration import ROOT
+        from scripts.testdata.inner_after_reports import CurrentReportFixture as SemanticMigrationTest
         from scripts.test_semantic_regression_baseline import SemanticRegressionBaselineTest
         baseline_fixture = SemanticRegressionBaselineTest('runTest')
         baseline_fixture.setUp()

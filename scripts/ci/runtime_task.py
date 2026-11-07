@@ -476,7 +476,7 @@ def _validate_wechat_raw_evidence(smoke, evidence_root, candidate, module):
             or smoke.get('runtimeLifecycleEvidence') != lifecycle):
         raise ValueError('WeChat hook, Tinker or native summary differs from captured runtime logs')
     if (diagnostics['compatibility'] != 'COMPATIBLE' or diagnostics['hookInstallation'] != 'INSTALLED_2'
-            or lifecycle['hookCount'] != len(policy.required_hook_ids)
+            or lifecycle['hookCount'] != len(candidate['expectedPlan']['hooks'])
             or lifecycle['tinkerEvidence']['status'] != 'READY'
             or lifecycle['nativeEvidence']['status'] != 'LOADED'):
         raise ValueError('WeChat raw runtime lifecycle evidence does not satisfy the required hook gate')

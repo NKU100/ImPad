@@ -6,7 +6,8 @@ from pathlib import Path
 
 from scripts.ci.semantic_migration import load_migration_bundle
 from scripts.ci.semantic_validation import validate_semantic_stage_models
-from scripts.test_semantic_migration import ROOT, SemanticMigrationTest as _SemanticMigrationTest
+from scripts.test_semantic_migration import ROOT
+from scripts.testdata.inner_after_reports import CurrentReportFixture as _SemanticMigrationTest
 
 
 class SemanticValidationTest(unittest.TestCase):
@@ -38,8 +39,8 @@ class SemanticValidationTest(unittest.TestCase):
                      'ruleCatalog': copy.deepcopy(report['ruleCatalog']),
                      'snapshot': copy.deepcopy(report['snapshot']),
                      'apkFiles': [{'sha256': row['sha256']} for row in report['inputHashes']],
-                     'expectedPlan': profile['expectedPlan'],
-                     'expectedExecutionSha256': profile['expectedExecutionSha256'],
+                     'expectedPlan': report['selection']['plan'],
+                     'expectedExecutionSha256': report['selection']['executionSha256'],
                      'recognition': recognition, 'recognitionSha256': recognition_sha,
                      'staticReport': 'static/report.json', 'staticReportSha256': 'a' * 64}
         execution = report['executionIdentity']

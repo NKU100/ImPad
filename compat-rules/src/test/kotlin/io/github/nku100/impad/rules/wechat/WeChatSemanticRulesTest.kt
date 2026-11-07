@@ -20,6 +20,31 @@ import kotlin.test.assertTrue
 
 class WeChatSemanticRulesTest {
     @Test
+    fun directWrapperRetainsBaseCompatibilityWithClassSynchronization() = withAggregate(
+        WeChatForwardRuleDexFixture.Options(reloadCachedResult = true, cachedWrapper = false),
+    ) { snapshot, session ->
+        val catalog = WeChatSemanticRules.catalog
+        val identity = BuildIdentity("com.tencent.mm", "test", 3200, "arm64-v8a", "a".repeat(64), catalog.policy.signerSha256)
+        val plan = assertIs<CompletePlanSelection.Selected>(SemanticRuleResolver.resolveDetailed(identity,catalog,
+            RecognitionContext(session,snapshot,catalog)).outcome).match.plan
+        assertEquals("Lfixture/TabletDecision;", plan.hooks.first().configuration["monitorField"])
+    }
+    @Test
+    fun innerAfterPlanContainsDecisionAndBothFieldBindings() = withAggregate(
+        WeChatForwardRuleDexFixture.Options(reloadCachedResult = true, cachedWrapper = true),
+    ) { snapshot, session ->
+        val catalog = WeChatSemanticRules.catalog
+        val identity = BuildIdentity("com.tencent.mm", "test", 3200, "arm64-v8a", "a".repeat(64), catalog.policy.signerSha256)
+        val selected = assertIs<CompletePlanSelection.Selected>(SemanticRuleResolver.resolveDetailed(identity, catalog,
+            RecognitionContext(session, snapshot, catalog)).outcome)
+        val plan = selected.match.plan
+        assertEquals(listOf("inner", "tablet", "login"), plan.hooks.map { it.role })
+        assertEquals("Lfixture/TabletDecision;->cached:Ljava/lang/Boolean;", plan.hooks.first().configuration["cacheField"])
+        assertEquals("Lfixture/TabletDecision;->lock:Ljava/lang/Object;", plan.hooks.first().configuration["monitorField"])
+        RecognitionContext(session, snapshot, catalog).validate(plan)
+    }
+
+    @Test
     fun directAndCachedVariantsUseSameContractAndHookTheWrapper() {
         for (options in listOf(
             WeChatForwardRuleDexFixture.Options(),
@@ -142,7 +167,7 @@ class WeChatSemanticRulesTest {
     }
 
     private fun run(snapshot: CapturedCodeSnapshot, session: RuleSession): CompletePlanSelection {
-        val catalog = WeChatSemanticRules.catalog
+        val catalog = WeChatSemanticRules.legacyCatalog
         val identity = BuildIdentity("com.tencent.mm", "test", 3200, "arm64-v8a", "a".repeat(64),
             "0fe4ff85c215918396dadc7cd8ce6963339af33d37751a56e54c7206b63a3c7c")
         return SemanticRuleResolver.resolveDetailed(identity, catalog, RecognitionContext(session, snapshot, catalog)).outcome

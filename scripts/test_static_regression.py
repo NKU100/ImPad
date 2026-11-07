@@ -6,7 +6,8 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-from scripts.test_semantic_migration import SemanticMigrationTest, ROOT
+from scripts.test_semantic_migration import ROOT
+from scripts.testdata.inner_after_reports import CurrentReportFixture as SemanticMigrationTest
 from scripts.ci.static_regression import check_apk, ensure_apk, main, run_regression
 
 

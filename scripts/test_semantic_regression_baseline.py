@@ -27,6 +27,10 @@ class SemanticRegressionBaselineTest(unittest.TestCase):
         return importlib.import_module('scripts.ci.semantic_regression_baseline')
 
     def static_report(self, profile, apk_hashes=None):
+        if profile['appId'] == 'wechat':
+            from scripts.ci.wechat_inner_expectations import project_wechat_profiles
+            _, projected = project_wechat_profiles(self.root, self.bundle)
+            profile = projected.get(profile['historicalRecordId'], profile)
         from scripts.ci.semantic_protocol import execution_identity_sha256, plan_execution_sha256, snapshot_sha256
         value = check_report()
         identity = copy.deepcopy(profile['identity'])
@@ -82,6 +86,7 @@ class SemanticRegressionBaselineTest(unittest.TestCase):
         record['module']['recognition'] = copy.deepcopy(record['recognition'])
         record['module']['recognitionSha256'] = record['recognitionSha256']
         record['module']['dexkit'] = copy.deepcopy(static['executionIdentity'])
+        record['module']['ruleCatalogSha256'] = static['ruleCatalog']['ruleCatalogSha256']
         for key in ('sourceTreeSha256', 'dependencyLockSha256',
                     'routeConfigurationSha256', 'fingerprintFileSha256'):
             record['module'][key] = static['executionIdentity'][key]
@@ -113,6 +118,7 @@ class SemanticRegressionBaselineTest(unittest.TestCase):
         record['module']['recognition'] = copy.deepcopy(record['recognition'])
         record['module']['recognitionSha256'] = record['recognitionSha256']
         record['module']['dexkit'] = copy.deepcopy(static['executionIdentity'])
+        record['module']['ruleCatalogSha256'] = static['ruleCatalog']['ruleCatalogSha256']
         for key in ('sourceTreeSha256', 'dependencyLockSha256',
                     'routeConfigurationSha256', 'fingerprintFileSha256'):
             record['module'][key] = static['executionIdentity'][key]

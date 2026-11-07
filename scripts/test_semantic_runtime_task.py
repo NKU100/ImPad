@@ -11,7 +11,8 @@ from scripts.ci.semantic_migration import load_migration_bundle
 from scripts.ci.semantic_protocol import validate_check_report
 from scripts.ci.semantic_regression_baseline import load_semantic_regression_baseline
 from scripts.test_semantic_migration import ROOT
-from scripts import test_semantic_migration
+from scripts.testdata import inner_after_reports
+from scripts.testdata.inner_after_reports import CurrentReportFixture
 
 
 class SemanticRuntimeTaskTest(unittest.TestCase):
@@ -24,9 +25,9 @@ class SemanticRuntimeTaskTest(unittest.TestCase):
         self.candidate, self.module, self.static, self.regression, self.smoke = self.models()
 
     def models(self):
-        profiles = [row for row in self.bundle.profiles if row['appId'] == 'wechat']
+        profiles = [row for row in inner_after_reports.current_profiles(self.bundle,self.root) if row['appId'] == 'wechat']
         profile = profiles[0]
-        report = test_semantic_migration.SemanticMigrationTest('runTest').report(profile)
+        report = CurrentReportFixture('runTest').report(profile)
         validate_check_report(report)
         recognition = {'appId': report['appId'],
                        'evaluatedRecognizerIds': report['evaluatedRecognizerIds'],
@@ -64,7 +65,7 @@ class SemanticRuntimeTaskTest(unittest.TestCase):
             if case['kind'] == 'MIGRATION':
                 fixed_profile = next(row for row in profiles
                                      if row['historicalRecordId'] == case['recordId'])
-                fixed_report = test_semantic_migration.SemanticMigrationTest('runTest').report(fixed_profile)
+                fixed_report = CurrentReportFixture('runTest').report(fixed_profile)
             else:
                 fixed_report = copy.deepcopy(case['savedStaticReport'])
             report_path = reports_dir / f'{case["recordId"]}.json'

@@ -81,7 +81,7 @@ internal class FixtureDexSession(apk: File) : RuleSession {
     }
 
     override fun findClasses(typeName: String): List<RuleClass> = dex.classes.filter { type(it.type) == typeName }.map {
-        RuleClass(type(it.type), it.superclass?.let(::type), it.fields.map { field -> RuleClassField(field.name, field.accessFlags) })
+        RuleClass(type(it.type), it.superclass?.let(::type), it.fields.map { field -> RuleClassField(field.name, field.accessFlags, type(field.type), type(field.definingClass)) })
     }
 
     override fun readInstructions(method: RuleMethod): List<RuleInstruction> {

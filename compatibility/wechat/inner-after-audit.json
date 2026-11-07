@@ -1,0 +1,57 @@
+{
+  "schemaVersion": 1,
+  "scope": "STATIC_DEX_RELATIONSHIP_ONLY",
+  "migrationExpectationsSha256": "19e5b477f985c3711ef011582a057c0909ac7791e1811932531dd395918b828f",
+  "profiles": [
+    {
+      "profileId": "wechat-3040",
+      "apkInputSha256": [
+        "e4da5809f2b3305e375db38897a4082085adc6b51182fa807813c4dda1c3a948"
+      ],
+      "cacheField": "Lcom/tencent/mm/ui/qj;->f:Ljava/lang/Boolean;",
+      "monitorField": "Lcom/tencent/mm/ui/qj;",
+      "decisionDescriptor": "Lcom/tencent/mm/ui/qj;->B(Lfd5/n0;)Z",
+      "decisionShape": {
+        "parameters": [
+          "fd5.n0"
+        ],
+        "returnType": "boolean",
+        "isStatic": true
+      },
+      "source": {
+        "loaderId": "loader-0",
+        "dexIndex": 11,
+        "dexSha256": "16ce802986eb58c08c6e7965e56ce222602f15dc951327740625c9e7ad58914a"
+      },
+      "readCount": 1,
+      "writeCount": 10,
+      "cacheAccessFlags": 9,
+      "expectedExecutionSha256": "7beef0f647d5f0d41b9ae114adda2004977721737f90d0ac9ebd5361b3be96d3"
+    },
+    {
+      "profileId": "wechat-3200-fixed",
+      "apkInputSha256": [
+        "f2a725bc04302ad218a563533ae79356e66b64aa711b275bc919a8d432f7e15d"
+      ],
+      "cacheField": "Lcom/tencent/mm/ui/ok;->f:Ljava/lang/Boolean;",
+      "monitorField": "Lcom/tencent/mm/ui/ok;",
+      "decisionDescriptor": "Lcom/tencent/mm/ui/ok;->C(Lpv5/w0;)Z",
+      "decisionShape": {
+        "parameters": [
+          "pv5.w0"
+        ],
+        "returnType": "boolean",
+        "isStatic": true
+      },
+      "source": {
+        "loaderId": "loader-0",
+        "dexIndex": 12,
+        "dexSha256": "2fe74115b9f8910b598bb5b38785ca43a66397e2c2e9f941a8a209bc3b5d4d78"
+      },
+      "readCount": 1,
+      "writeCount": 11,
+      "cacheAccessFlags": 9,
+      "expectedExecutionSha256": "0ae1c6f8bf5fa33cc641ae27b3766b26d196a67535ba417d042d3a67e402c09d"
+    }
+  ]
+}

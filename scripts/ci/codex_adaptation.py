@@ -210,6 +210,9 @@ def _validate_frozen_oracle_tree(repository, base, proposed_tree, app_id,
         expectations['analysisEvidence']['path'],
         *(row['catalog']['path'] for table in history['tables'] for row in table['records']),
     }
+    inner_audit = 'compatibility/wechat/inner-after-audit.json'
+    if app_id == 'wechat' and (Path(repository) / inner_audit).is_file():
+        paths.add(inner_audit)
     for revision in (base, proposed_tree):
         for path in paths:
             subprocess.run(['git', 'cat-file', '-e', f'{revision}:{path}'], cwd=repository,

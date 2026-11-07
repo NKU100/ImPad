@@ -36,6 +36,7 @@ def _baseline_sha256(bundle, app_id, v2_sha256, cases):
         'migrationExpectationsSha256': bundle.expectations_sha256,
         'v2Source': v2_source,
         'caseIds': _case_ids(cases),
+        **({'innerAfterAuditSha256': next(case['innerAfterAuditSha256'] for case in cases if 'innerAfterAuditSha256' in case)} if any('innerAfterAuditSha256' in case for case in cases) else {}),
     })
 
 
@@ -73,6 +74,8 @@ def _input_identity(case):
 def _case_snapshot(case, bundle):
     if case['kind'] == 'ACCEPTED_V2':
         return case['savedStaticReport']['snapshot']
+    if 'expectedSnapshot' in case:
+        return case['expectedSnapshot']
     profile = next((row for row in bundle.profiles
                     if row['historicalRecordId'] == case['recordId']), None)
     if profile is None:
@@ -122,7 +125,9 @@ def load_semantic_regression_baseline(repository, app_id, migration_bundle=None)
             raise ValueError('Semantic v2 acceptance table is unreadable') from error
         v2_records = validate_semantic_acceptance_table(table, app_id, repository)
 
-    profiles = [profile for profile in bundle.profiles if profile['appId'] == app_id]
+    from scripts.ci.wechat_inner_expectations import project_wechat_profiles
+    projection_sha, projected = project_wechat_profiles(repository, bundle) if app_id == 'wechat' else (None, {})
+    profiles = [projected.get(profile['historicalRecordId'], profile) for profile in bundle.profiles if profile['appId'] == app_id]
     historical = {record['recordId']: record for record in bundle.historical_records
                   if record.get('appId') == app_id}
     cases = []
@@ -147,6 +152,7 @@ def load_semantic_regression_baseline(repository, app_id, migration_bundle=None)
             'expectedPlan': copy.deepcopy(profile['expectedPlan']),
             'expectedExecutionSha256': profile['expectedExecutionSha256'],
             'acceptanceSnapshotSha256': profile['historicalAcceptanceSha256'],
+            **({'innerAfterAuditSha256': projection_sha, 'trustedCatalog': copy.deepcopy(profile['ruleCatalog']), 'expectedSnapshot': copy.deepcopy(profile['snapshot'])} if profile['historicalRecordId'] in projected else {}),
         })
 
     for record in v2_records:
@@ -202,6 +208,14 @@ def compare_baseline_report(baseline, record_id, report):
     if len(matches) != 1:
         raise ValueError('No unique case in semantic regression baseline')
     case = matches[0]
+    if case['kind'] == 'MIGRATION' and 'innerAfterAuditSha256' in case:
+        validate_check_report(report, expected_app_id=case['appId'], expected_identity=case['identity'], trusted_catalog=case['trustedCatalog'])
+        if (report['selection']['status'] != 'SELECTED' or report['selection']['plan'] != case['expectedPlan']
+                or report['selection']['executionSha256'] != case['expectedExecutionSha256']
+                or report['snapshot'] != case['expectedSnapshot']
+                or [r['sha256'].lower() for r in report['inputHashes']] != [r['sha256'].lower() for r in case['apkFiles']]):
+            raise ValueError('Inner-after fixed regression differs from audited expectations')
+        return True
     if case['kind'] == 'MIGRATION':
         return compare_fixed_report(baseline.migration_bundle, record_id, report)
     if case['kind'] != 'ACCEPTED_V2':

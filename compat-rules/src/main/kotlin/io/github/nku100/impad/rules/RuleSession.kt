@@ -86,7 +86,7 @@ data class RuleMethod(
     internal val sourceIdentity: Any? = null,
 )
 
-data class RuleClassField(val name: String, val accessFlags: Int)
+data class RuleClassField(val name: String, val accessFlags: Int, val typeName: String? = null, val className: String? = null)
 
 data class RuleClass(
     val className: String,
@@ -271,7 +271,7 @@ internal class DexKitSessionBackend private constructor(
         RuleClass(
             className = type.name,
             superClassName = type.superClass?.name,
-            fields = type.fields.map { field -> RuleClassField(field.name, field.accessFlags) },
+            fields = type.fields.map { field -> RuleClassField(field.name, field.accessFlags, field.typeName, field.className) },
         )
     }
 
