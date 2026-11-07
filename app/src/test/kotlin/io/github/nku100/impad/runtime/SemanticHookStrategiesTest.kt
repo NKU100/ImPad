@@ -19,6 +19,9 @@ class SemanticHookStrategiesTest {
 
     class Fixture {
         companion object {
+            @JvmField var cache: Boolean? = null
+            @JvmField val monitor: Any = Any()
+            @JvmStatic fun inner(value: String): Boolean { cache=false;return false }
             @JvmStatic fun qqDevice(@Suppress("UNUSED_PARAMETER") context: Context): Device = Device.PHONE
         }
         fun wechatTablet(): Boolean = false
@@ -44,13 +47,13 @@ class SemanticHookStrategiesTest {
         assertEquals(listOf("impad_qq_device_type"), qq.map { it.id })
         assertEquals(Device.TABLET, qq.single().callback.intercept(HookCall(null, emptyArray()) { error("QQ original must not run") }))
 
-        val wechat = strategies.prepare(plan("wechat", listOf("tablet", "login")), mapOf(
-            "tablet" to methods.getValue("tablet"), "login" to methods.getValue("login"),
+        val wechat = strategies.prepare(plan("wechat", listOf("inner", "tablet", "login")), mapOf(
+            "inner" to Fixture::class.java.getDeclaredMethod("inner",String::class.java), "tablet" to methods.getValue("tablet"), "login" to methods.getValue("login"),
         ))
-        assertEquals(listOf("wechatpad_tablet", "wechatpad_login"), wechat.map { it.id })
+        assertEquals(listOf("wechat_inner_after", "wechatpad_tablet", "wechatpad_login"), wechat.map { it.id })
         var originalCalls = 0
-        assertEquals(true, wechat[0].callback.intercept(HookCall(null, emptyArray()) { originalCalls++; false }))
-        assertEquals("original", wechat[1].callback.intercept(HookCall(null, arrayOf(Any())) { originalCalls++; "original" }))
+        assertEquals(true, wechat[1].callback.intercept(HookCall(null, emptyArray()) { originalCalls++; false }))
+        assertEquals("original", wechat[2].callback.intercept(HookCall(null, arrayOf(Any())) { originalCalls++; "original" }))
         assertEquals(2, originalCalls)
 
         val wecom = strategies.prepare(plan("wecom", listOf("device_type", "app_pad", "service_pad")), mapOf(
@@ -89,8 +92,8 @@ class SemanticHookStrategiesTest {
     @Test
     fun `rejects reversed WeChat and WeCom plan roles`() {
         val strategies = SemanticHookStrategies()
-        val wechat = plan("wechat", listOf("tablet", "login"))
-        val wechatMethods = mapOf("tablet" to methods.getValue("tablet"), "login" to methods.getValue("login"))
+        val wechat = plan("wechat", listOf("inner", "tablet", "login"))
+        val wechatMethods = mapOf("inner" to Fixture::class.java.getDeclaredMethod("inner",String::class.java), "tablet" to methods.getValue("tablet"), "login" to methods.getValue("login"))
         assertFailsWith<IllegalArgumentException> {
             strategies.prepare(rebuild(wechat, hooks = wechat.hooks.reversed()), wechatMethods)
         }
@@ -108,7 +111,7 @@ class SemanticHookStrategiesTest {
         val source = TargetCodeSource("loader", 0, "a".repeat(64))
         val hooks = strategy.roles.map { role ->
             val method = methodFor(appId, role.role)
-            PlanHook(role.role, method.descriptor(), method.shape(), source, role.phase, role.configuration)
+            PlanHook(role.role, method.descriptor(), method.shape(), source, role.phase, if(role.role=="inner") role.configuration + mapOf("cacheField" to "L${Fixture::class.java.name.replace('.','/')};->cache:Ljava/lang/Boolean;", "monitorField" to "L${Fixture::class.java.name.replace('.','/')};->monitor:Ljava/lang/Object;") else role.configuration)
         }
         require(hooks.map { it.role } == roles)
         return CompletePlan("b".repeat(64), catalog.contractId, catalog.contractRevision,
@@ -117,6 +120,7 @@ class SemanticHookStrategiesTest {
 
     private fun methodFor(appId: String, role: String): Method = when (appId to role) {
         "qq" to "device_type" -> methods.getValue("device_type")
+        "wechat" to "inner" -> Fixture::class.java.getDeclaredMethod("inner",String::class.java)
         "wechat" to "tablet" -> methods.getValue("tablet")
         "wechat" to "login" -> methods.getValue("login")
         "wecom" to "device_type" -> Fixture::class.java.getDeclaredMethod("wecomDevice")

@@ -30,7 +30,8 @@ class SemanticHookStrategies(
         val expectedRoles = strategy.roles.map { it.role }
         require(plan.hooks.map { it.role } == expectedRoles) { "Semantic plan roles are incomplete or out of order" }
         plan.hooks.zip(strategy.roles).forEach { (hook, role) ->
-            require(hook.phase == role.phase && hook.configuration == role.configuration) {
+            io.github.nku100.impad.rules.wechat.validateHookConfiguration(hook, role)
+            require(hook.phase == role.phase && (role.role == "inner" || hook.configuration == role.configuration)) {
                 "Semantic plan callback phase or configuration changed"
             }
         }
@@ -38,7 +39,17 @@ class SemanticHookStrategies(
 
         return when (appId) {
             "qq" -> listOf(QqHookInstaller.prepareBound(methods.getValue("device_type")))
-            "wechat" -> WeChatHookInstaller.prepareBound(methods, weChatCallbacks)
+            "wechat" -> {
+                val inner = plan.hooks.single { it.role == "inner" }
+                val method = methods.getValue("inner")
+                val owner = method.declaringClass
+                val cache = owner.getDeclaredField(inner.configuration.getValue("cacheField").substringAfter("->").substringBefore(':'))
+                val monitorDescriptor = inner.configuration.getValue("monitorField")
+                val monitor = if (monitorDescriptor == inner.descriptor.substringBefore("->")) null else
+                    owner.getDeclaredField(monitorDescriptor.substringAfter("->").substringBefore(':'))
+                listOf(HookSpec(method, "wechat_inner_after", WeChatInnerAfter.bind(method, cache, monitor))) +
+                    WeChatHookInstaller.prepareBound(methods.filterKeys { it != "inner" }, weChatCallbacks)
+            }
             "wecom" -> WeComHookInstaller.prepareBound(methods, weComCallbacks)
             else -> error("Catalog selection is exhaustive")
         }

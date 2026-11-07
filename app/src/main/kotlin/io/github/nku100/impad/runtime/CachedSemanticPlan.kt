@@ -56,7 +56,8 @@ class CachedSemanticPlan private constructor(
             require(plan.strategyRevision == strategy.revision && plan.hooks.map { it.role } == strategy.roles.map { it.role })
             val loaders = snapshot.loaders.associateBy { it.id }
             plan.hooks.zip(strategy.roles).forEach { (hook, role) ->
-                require(hook.phase == role.phase && hook.configuration == role.configuration)
+                io.github.nku100.impad.rules.wechat.validateHookConfiguration(hook, role)
+                require(hook.phase == role.phase && (role.role == "inner" || hook.configuration == role.configuration))
                 val hash = loaders[hook.source.loaderId]?.dexSha256?.getOrNull(hook.source.dexIndex)
                 require(hash != null && hash.equals(hook.source.dexSha256, ignoreCase = true)) { "Hook source is outside the cached snapshot" }
             }
