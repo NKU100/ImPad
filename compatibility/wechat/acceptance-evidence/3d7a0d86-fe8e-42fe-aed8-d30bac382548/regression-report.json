@@ -1,0 +1,62 @@
+[
+  {
+    "appId": "wechat",
+    "recordId": "f81be9fa-e117-4f6c-8e9b-21fc5da8b026",
+    "identity": {
+      "packageName": "com.tencent.mm",
+      "versionName": "8.0.69",
+      "versionCode": 3040,
+      "abi": "arm64-v8a",
+      "apkSha256": "e4da5809f2b3305e375db38897a4082085adc6b51182fa807813c4dda1c3a948",
+      "signerSha256": "0fe4ff85c215918396dadc7cd8ce6963339af33d37751a56e54c7206b63a3c7c"
+    },
+    "acceptanceSnapshotSha256": "dbd541c7b18cfddcf119bb274761d9bf3d6c017d3b6e44f666cf686222ce9cbc",
+    "migrationHistorySha256": "abb60b738afb73ba75cda027f8943ccf1d0045bc72f7d14470cfc4e2a82307d7",
+    "migrationExpectationsSha256": "19e5b477f985c3711ef011582a057c0909ac7791e1811932531dd395918b828f",
+    "profileId": "wechat-3040",
+    "initialMigration": false,
+    "baselineSha256": "804e93d3caf42e0c2c813e65b9828ee1da0280b204a2833275fa4dd77c0e27ce",
+    "v2SnapshotSha256": null,
+    "baselineSourceCase": {
+      "kind": "MIGRATION",
+      "recordId": "f81be9fa-e117-4f6c-8e9b-21fc5da8b026",
+      "profileId": "wechat-3040",
+      "sourceSha256": "dbd541c7b18cfddcf119bb274761d9bf3d6c017d3b6e44f666cf686222ce9cbc"
+    },
+    "staticEvidence": {
+      "path": "wechat-com.tencent.mm-arm64-v8a-3040-e4da5809f2b3305e375db38897a4082085adc6b51182fa807813c4dda1c3a948.json",
+      "sha256": "ea95d5bd0d7eea99bc0dc5ec453753cef9ec7097ecb091b53201183648d791e8"
+    },
+    "status": "PASSED"
+  },
+  {
+    "appId": "wechat",
+    "recordId": "7912a05e-c827-4d50-bbe4-56ce075fffe5",
+    "identity": {
+      "packageName": "com.tencent.mm",
+      "versionName": "8.0.79",
+      "versionCode": 3200,
+      "abi": "arm64-v8a",
+      "apkSha256": "f2a725bc04302ad218a563533ae79356e66b64aa711b275bc919a8d432f7e15d",
+      "signerSha256": "0fe4ff85c215918396dadc7cd8ce6963339af33d37751a56e54c7206b63a3c7c"
+    },
+    "acceptanceSnapshotSha256": "dbd541c7b18cfddcf119bb274761d9bf3d6c017d3b6e44f666cf686222ce9cbc",
+    "migrationHistorySha256": "abb60b738afb73ba75cda027f8943ccf1d0045bc72f7d14470cfc4e2a82307d7",
+    "migrationExpectationsSha256": "19e5b477f985c3711ef011582a057c0909ac7791e1811932531dd395918b828f",
+    "profileId": "wechat-3200-fixed",
+    "initialMigration": false,
+    "baselineSha256": "804e93d3caf42e0c2c813e65b9828ee1da0280b204a2833275fa4dd77c0e27ce",
+    "v2SnapshotSha256": null,
+    "baselineSourceCase": {
+      "kind": "MIGRATION",
+      "recordId": "7912a05e-c827-4d50-bbe4-56ce075fffe5",
+      "profileId": "wechat-3200-fixed",
+      "sourceSha256": "dbd541c7b18cfddcf119bb274761d9bf3d6c017d3b6e44f666cf686222ce9cbc"
+    },
+    "staticEvidence": {
+      "path": "wechat-com.tencent.mm-arm64-v8a-3200-f2a725bc04302ad218a563533ae79356e66b64aa711b275bc919a8d432f7e15d.json",
+      "sha256": "ae62bd6f465a6cc823df66bed1c3ec76350b6bb936508df5136b289bcb9b8f20"
+    },
+    "status": "PASSED"
+  }
+]

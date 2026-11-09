@@ -1,0 +1,317 @@
+{
+  "schemaVersion": 2,
+  "analysisScope": "APK_FILE_SNAPSHOT",
+  "appId": "wechat",
+  "identity": {
+    "packageName": "com.tencent.mm",
+    "versionName": "8.0.80",
+    "versionCode": 3220,
+    "abi": "arm64-v8a",
+    "apkSha256": "9d9b6c516e8e07e437c81485fde21fe13ce4f61b37d19e793fff40c71be39c0e",
+    "signerSha256": "0fe4ff85c215918396dadc7cd8ce6963339af33d37751a56e54c7206b63a3c7c"
+  },
+  "inputHashes": [
+    {
+      "path": "apk-inputs/0-9d9b6c516e8e07e437c81485fde21fe13ce4f61b37d19e793fff40c71be39c0e.apk",
+      "sha256": "9d9b6c516e8e07e437c81485fde21fe13ce4f61b37d19e793fff40c71be39c0e"
+    }
+  ],
+  "ruleCatalog": {
+    "schemaVersion": 2,
+    "appId": "wechat",
+    "ruleCatalogSha256": "e41598eae9b8c685bbfc371cac3d9da233882ddcfbd257eac3c5f74f00a7a622",
+    "contractId": "wechat_tablet_login",
+    "contractRevision": 2,
+    "requiredRoles": [
+      "inner",
+      "login",
+      "tablet"
+    ],
+    "recognizerIds": [
+      "wechat_tablet_login_structures"
+    ],
+    "strategies": [
+      {
+        "id": "wechat_tablet_login_callbacks",
+        "revision": 2,
+        "roles": [
+          {
+            "role": "inner",
+            "phase": "AFTER",
+            "configuration": {
+              "policy": "cache_true_after"
+            }
+          },
+          {
+            "role": "tablet",
+            "phase": "AFTER",
+            "configuration": {
+              "policy": "outside_chat_true"
+            }
+          },
+          {
+            "role": "login",
+            "phase": "AFTER",
+            "configuration": {
+              "policy": "show_hidden_login_view"
+            }
+          }
+        ]
+      }
+    ],
+    "versionHints": []
+  },
+  "executionIdentity": {
+    "ruleCatalogSha256": "e41598eae9b8c685bbfc371cac3d9da233882ddcfbd257eac3c5f74f00a7a622",
+    "ruleImplementationSha256": "fef796bdcda8a12e2a987aa1d3596d2614db307a05d46b48658f56cbaec7a080",
+    "sharedResolverImplementationSha256": "38bf10f406463b8e46d075e27e0ff46bfd9c2c0ce7f03c9c11874dabf6d92e39",
+    "dexkitLockSha256": "cfba4a87279cae54eb7663e3dfacf8d5ac175f8e73c095de9574a7359b2c43c4",
+    "dexkitSourceCommit": "c9cd12a14b75409bebd2f73e4dfc5ff575df3eb8",
+    "dexkitApiSha256": "34a8c16d548aa7d8562128f4d2293cec4e0f9896bb1f46224dcd532e878900f5",
+    "dexkitNativeSha256": "9c085b60c6aed18fa65026837f024167b21bfd5b60439c3e6ba4db98901c2ed1",
+    "dexkitPlatform": "linux-x86_64",
+    "dexkitAndroidApiSha256": "8df532c4126b58490667f71127dc57aef62ccf3578d1d17330f2a1cb8836218e",
+    "dexkitLinuxAarch64NativeSha256": "f23e51a19c10dcf1c395f6bef168af72aab3c9e06edae9446ad8368eb7f5495f",
+    "dexkitLinuxX8664NativeSha256": "9c085b60c6aed18fa65026837f024167b21bfd5b60439c3e6ba4db98901c2ed1",
+    "dexkitAndroidArm64NativeSha256": "0444cf15146c256e8bbd2154ae8b120130dab47e9226c7e853a7d653737a95cd",
+    "strategyImplementationSha256": "b1babe44b395ca5d25a93da5c69b543cee43cfba420909962a99f3a9384b3183",
+    "cacheIdentitySha256": "1b3c2f1a942b43f8ccda82e7ea353fcb419347def2ad327666f6406c8a78fdb1",
+    "sourceTreeSha256": "fa77da535d8f702ae54ee1a303d975c7828fa0027f24de2fe5187a24c583ec41",
+    "routeConfigurationSha256": "5714468e9c41bf5501ce7b45667153b1d0ca06dcf3ea9c9600cea3ffc743430c",
+    "dependencyLockSha256": "aca6875d66e53b71bba739630aa95aacbf32f857b838a5f7133d05b2fa14103a",
+    "fingerprintFileSha256": "3c253272b05c531eef05d2f516d300d2862e6d1cca4e49ccead62d577b2fee70"
+  },
+  "snapshot": {
+    "protocolVersion": 1,
+    "readyLoaderId": "loader-0",
+    "loaders": [
+      {
+        "id": "loader-0",
+        "parentId": null,
+        "delegation": "PARENT_FIRST",
+        "dexSha256": [
+          "6fa45f4d4ae9bde8c4057276461c97e6a69e76c1fdfceffc3e9fc87cadc786ef",
+          "d55f4374cf51f2cee7f1822ad3c167121ca0321061df5279e9f64e33d719825a",
+          "bd47fd5edadee7943e8061da6abc7782fca615de9387e515b3af571cb0df7f25",
+          "502408fbea8b50b833070dafbf04185aefa970fb6cebfd764da686e08997c898",
+          "49d01760f6dacd613be6b2897f5a11105012a71d621250774cf46b70b4e61c51",
+          "d710b8033ccf83fffc7dc9a2e04f8f05ca597e171f9abbb29bb8592a90b7f91c",
+          "63a7d32ee6be11c861dc71465c1e7f314aed7c6a81002070a3ff01eee5176476",
+          "ef7daab1d0298d57e7a143b88c239797b19d9a5a41b4c36d3201f1fb6eb2e250",
+          "aaed6757fdcd05fa795c6b897891bc4934d42c8a930b54342131d2b44fd4dbed",
+          "db838be3243ff483953da52d733d2a96d82d24a207c029754b837a76380e2faf",
+          "b7432239898586e12e7ba3681a5c4992ee2c2ef0049bc15869c6246c7168a037",
+          "e1250b37806b052400fabf4d71445e40a67546f144100d4d9d5bf1471e903884",
+          "65dad8c9c8afb81a47d8d811ca6bf28b4095ecda21cc3acef171c1a9959cd901",
+          "91b2ccf7fffa10fbdccc6f61be0be08bc5be76bcbf7e4c0f2999fe316fe45a45",
+          "463845c7ec4b921fc83a9af80a62caa055466ad8d34419b4a07f6769785878cc",
+          "dcac820fbe0e0c1e0148a2cb8250d48f406d445a4528ec7d067fd8ada8f0cd03",
+          "ac85b4e7d3287167297968cec4d58efd8b58b934a169224aacd2b01fa3272ffc",
+          "856f0adc558c7f5ff89f8322f196dde9d9403cd2760d52338a5eb6ab134fe273"
+        ]
+      }
+    ],
+    "archives": [
+      {
+        "loaderId": "loader-0",
+        "containerIndex": 0,
+        "kind": "ZIP",
+        "containerSha256": "9d9b6c516e8e07e437c81485fde21fe13ce4f61b37d19e793fff40c71be39c0e",
+        "dexSha256": [
+          "6fa45f4d4ae9bde8c4057276461c97e6a69e76c1fdfceffc3e9fc87cadc786ef",
+          "d55f4374cf51f2cee7f1822ad3c167121ca0321061df5279e9f64e33d719825a",
+          "bd47fd5edadee7943e8061da6abc7782fca615de9387e515b3af571cb0df7f25",
+          "502408fbea8b50b833070dafbf04185aefa970fb6cebfd764da686e08997c898",
+          "49d01760f6dacd613be6b2897f5a11105012a71d621250774cf46b70b4e61c51",
+          "d710b8033ccf83fffc7dc9a2e04f8f05ca597e171f9abbb29bb8592a90b7f91c",
+          "63a7d32ee6be11c861dc71465c1e7f314aed7c6a81002070a3ff01eee5176476",
+          "ef7daab1d0298d57e7a143b88c239797b19d9a5a41b4c36d3201f1fb6eb2e250",
+          "aaed6757fdcd05fa795c6b897891bc4934d42c8a930b54342131d2b44fd4dbed",
+          "db838be3243ff483953da52d733d2a96d82d24a207c029754b837a76380e2faf",
+          "b7432239898586e12e7ba3681a5c4992ee2c2ef0049bc15869c6246c7168a037",
+          "e1250b37806b052400fabf4d71445e40a67546f144100d4d9d5bf1471e903884",
+          "65dad8c9c8afb81a47d8d811ca6bf28b4095ecda21cc3acef171c1a9959cd901",
+          "91b2ccf7fffa10fbdccc6f61be0be08bc5be76bcbf7e4c0f2999fe316fe45a45",
+          "463845c7ec4b921fc83a9af80a62caa055466ad8d34419b4a07f6769785878cc",
+          "dcac820fbe0e0c1e0148a2cb8250d48f406d445a4528ec7d067fd8ada8f0cd03",
+          "ac85b4e7d3287167297968cec4d58efd8b58b934a169224aacd2b01fa3272ffc",
+          "856f0adc558c7f5ff89f8322f196dde9d9403cd2760d52338a5eb6ab134fe273"
+        ]
+      }
+    ],
+    "contentSha256": "2eeaa072caa537c5168ba5b4cb1742c172fd032a00f9fd90d744ffc7a331da30"
+  },
+  "evaluatedRecognizerIds": [
+    "wechat_tablet_login_structures"
+  ],
+  "recognizers": [
+    {
+      "recognizerId": "wechat_tablet_login_structures",
+      "status": "PLANS",
+      "plans": [
+        {
+          "plan": {
+            "snapshotSha256": "2eeaa072caa537c5168ba5b4cb1742c172fd032a00f9fd90d744ffc7a331da30",
+            "contractId": "wechat_tablet_login",
+            "contractRevision": 2,
+            "strategyId": "wechat_tablet_login_callbacks",
+            "strategyRevision": 2,
+            "hooks": [
+              {
+                "role": "inner",
+                "descriptor": "Lcom/tencent/mm/ui/ok;->b(Ljv5/w0;)Z",
+                "shape": {
+                  "parameters": [
+                    "jv5.w0"
+                  ],
+                  "returnType": "boolean",
+                  "isStatic": true
+                },
+                "source": {
+                  "loaderId": "loader-0",
+                  "dexIndex": 14,
+                  "dexSha256": "463845c7ec4b921fc83a9af80a62caa055466ad8d34419b4a07f6769785878cc"
+                },
+                "phase": "AFTER",
+                "configuration": {
+                  "policy": "cache_true_after",
+                  "cacheField": "Lcom/tencent/mm/ui/ok;->g:Ljava/lang/Boolean;",
+                  "monitorField": "Lcom/tencent/mm/ui/ok;->f:Ljava/lang/Object;"
+                }
+              },
+              {
+                "role": "tablet",
+                "descriptor": "Lcom/tencent/mm/ui/ok;->C()Z",
+                "shape": {
+                  "parameters": [],
+                  "returnType": "boolean",
+                  "isStatic": true
+                },
+                "source": {
+                  "loaderId": "loader-0",
+                  "dexIndex": 14,
+                  "dexSha256": "463845c7ec4b921fc83a9af80a62caa055466ad8d34419b4a07f6769785878cc"
+                },
+                "phase": "AFTER",
+                "configuration": {
+                  "policy": "outside_chat_true"
+                }
+              },
+              {
+                "role": "login",
+                "descriptor": "Lqb1/h0;->a(Landroid/view/View;Landroidx/lifecycle/y;)V",
+                "shape": {
+                  "parameters": [
+                    "android.view.View",
+                    "androidx.lifecycle.y"
+                  ],
+                  "returnType": "void",
+                  "isStatic": true
+                },
+                "source": {
+                  "loaderId": "loader-0",
+                  "dexIndex": 0,
+                  "dexSha256": "6fa45f4d4ae9bde8c4057276461c97e6a69e76c1fdfceffc3e9fc87cadc786ef"
+                },
+                "phase": "AFTER",
+                "configuration": {
+                  "policy": "show_hidden_login_view"
+                }
+              }
+            ],
+            "schemaVersion": 1
+          },
+          "executionSha256": "754d371fb0ddbc9e821204e6c31dcaa94cf50caab187165884de8ace1e07c566",
+          "evidence": [
+            "aggregate: Lcom/tencent/mm/ui/ok;->b(Ljv5/w0;)Z -> Lcom/tencent/mm/ui/ok;->C()Z -> Lqb1/h0;->a(Landroid/view/View;Landroidx/lifecycle/y;)V"
+          ]
+        }
+      ],
+      "diagnostics": [],
+      "reason": null
+    }
+  ],
+  "selection": {
+    "status": "SELECTED",
+    "plan": {
+      "snapshotSha256": "2eeaa072caa537c5168ba5b4cb1742c172fd032a00f9fd90d744ffc7a331da30",
+      "contractId": "wechat_tablet_login",
+      "contractRevision": 2,
+      "strategyId": "wechat_tablet_login_callbacks",
+      "strategyRevision": 2,
+      "hooks": [
+        {
+          "role": "inner",
+          "descriptor": "Lcom/tencent/mm/ui/ok;->b(Ljv5/w0;)Z",
+          "shape": {
+            "parameters": [
+              "jv5.w0"
+            ],
+            "returnType": "boolean",
+            "isStatic": true
+          },
+          "source": {
+            "loaderId": "loader-0",
+            "dexIndex": 14,
+            "dexSha256": "463845c7ec4b921fc83a9af80a62caa055466ad8d34419b4a07f6769785878cc"
+          },
+          "phase": "AFTER",
+          "configuration": {
+            "policy": "cache_true_after",
+            "cacheField": "Lcom/tencent/mm/ui/ok;->g:Ljava/lang/Boolean;",
+            "monitorField": "Lcom/tencent/mm/ui/ok;->f:Ljava/lang/Object;"
+          }
+        },
+        {
+          "role": "tablet",
+          "descriptor": "Lcom/tencent/mm/ui/ok;->C()Z",
+          "shape": {
+            "parameters": [],
+            "returnType": "boolean",
+            "isStatic": true
+          },
+          "source": {
+            "loaderId": "loader-0",
+            "dexIndex": 14,
+            "dexSha256": "463845c7ec4b921fc83a9af80a62caa055466ad8d34419b4a07f6769785878cc"
+          },
+          "phase": "AFTER",
+          "configuration": {
+            "policy": "outside_chat_true"
+          }
+        },
+        {
+          "role": "login",
+          "descriptor": "Lqb1/h0;->a(Landroid/view/View;Landroidx/lifecycle/y;)V",
+          "shape": {
+            "parameters": [
+              "android.view.View",
+              "androidx.lifecycle.y"
+            ],
+            "returnType": "void",
+            "isStatic": true
+          },
+          "source": {
+            "loaderId": "loader-0",
+            "dexIndex": 0,
+            "dexSha256": "6fa45f4d4ae9bde8c4057276461c97e6a69e76c1fdfceffc3e9fc87cadc786ef"
+          },
+          "phase": "AFTER",
+          "configuration": {
+            "policy": "show_hidden_login_view"
+          }
+        }
+      ],
+      "schemaVersion": 1
+    },
+    "executionSha256": "754d371fb0ddbc9e821204e6c31dcaa94cf50caab187165884de8ace1e07c566",
+    "evidenceByRecognizer": {
+      "wechat_tablet_login_structures": [
+        "aggregate: Lcom/tencent/mm/ui/ok;->b(Ljv5/w0;)Z -> Lcom/tencent/mm/ui/ok;->C()Z -> Lqb1/h0;->a(Landroid/view/View;Landroidx/lifecycle/y;)V"
+      ]
+    },
+    "alternatives": [],
+    "diagnostics": {},
+    "incompleteReasons": {}
+  }
+}
