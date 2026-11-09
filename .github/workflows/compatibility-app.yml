@@ -96,7 +96,9 @@ jobs:
             --output work/build-badge/compatibility-tests.json \
             --tests "$discovery_test" scripts.test_candidate_selection scripts.test_app_policy \
             scripts.test_codex_adaptation scripts.test_adaptation_checkpoint scripts.test_codex_task \
-            scripts.test_runtime_adaptation scripts.test_runtime_task scripts.test_static_regression
+            scripts.test_runtime_adaptation scripts.test_runtime_task scripts.test_static_regression \
+            scripts.test_acceptance_reuse scripts.test_acceptance_reuse_workflow \
+            scripts.test_official_acceptance_registration scripts.test_official_acceptance_publication
       - name: Export compatibility test outcome
         id: badge-check
         if: always()
@@ -128,6 +130,56 @@ jobs:
       operation: adapt
       apk_url: ${{ inputs.apk_url || '' }}
       candidate_mode: latest
+      allow_acceptance_reuse: ${{ needs.prepare.outputs.pending_adaptation != 'true' }}
+
+  register-official-acceptance:
+    name: Record verified official candidate acceptance
+    needs: [prepare, rules-analysis]
+    if: >-
+      always() && !cancelled() && github.ref == 'refs/heads/main' &&
+      (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch') &&
+      github.actor == github.repository_owner && inputs.operation == 'adapt' &&
+      inputs.apk_url == '' && inputs.module_run_id == '' && inputs.module_artifact == '' &&
+      needs.prepare.result == 'success' && needs.prepare.outputs.pending_adaptation != 'true' &&
+      needs.rules-analysis.result == 'success' &&
+      needs.rules-analysis.outputs.validation_outcome == 'VERIFIED' &&
+      needs.rules-analysis.outputs.acceptance_reused != 'true'
+    runs-on: ubuntu-latest
+    concurrency:
+      group: impad-official-acceptance-main
+      cancel-in-progress: false
+      queue: max
+    permissions:
+      contents: write
+      actions: read
+    env:
+      OPERATION: ${{ inputs.operation }}
+      APK_URL: ${{ inputs.apk_url }}
+      MODULE_RUN_ID: ${{ inputs.module_run_id }}
+      MODULE_ARTIFACT: ${{ inputs.module_artifact }}
+      VALIDATION_OUTCOME: ${{ needs.rules-analysis.outputs.validation_outcome }}
+      ACCEPTANCE_REUSED: ${{ needs.rules-analysis.outputs.acceptance_reused }}
+      PENDING_ADAPTATION: ${{ needs.prepare.outputs.pending_adaptation }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ github.sha }}
+      - uses: actions/download-artifact@v8
+        with:
+          name: runtime-candidate-report-input-${{ needs.prepare.outputs.app_id }}
+          path: runtime-result/inputs
+      - uses: actions/download-artifact@v8
+        with:
+          name: ${{ needs.prepare.outputs.artifact_prefix }}-${{ needs.prepare.outputs.app_id }}-runtime-smoke
+          path: runtime-result/evidence
+      - name: Register verified official acceptance on unchanged main
+        env:
+          APP_ID: ${{ needs.prepare.outputs.app_id }}
+          TESTED_HEAD: ${{ github.sha }}
+        run: |
+          python3 -m scripts.ci.register_official_acceptance \
+            --app-id "$APP_ID" --directory runtime-result --expected-head "$TESTED_HEAD" \
+            --github-output "$GITHUB_OUTPUT" --report "$GITHUB_STEP_SUMMARY"
 
   adapt:
     name: Adapt unknown build with Codex

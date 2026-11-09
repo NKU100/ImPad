@@ -544,15 +544,18 @@ def validate_semantic_acceptance_table(table: dict, app_id: str,
             or table['schemaVersion'] != SEMANTIC_SCHEMA_VERSION
             or table.get('appId') != app_id or not isinstance(table.get('records'), list)):
         raise ValueError('Semantic acceptance table schema or appId is invalid')
-    seen_ids, seen_inputs = set(), set()
+    seen_ids, seen_validations = set(), set()
     for record in table['records']:
         input_hashes, record_id = _validate_semantic_record(record, app_id, repository)
         if record_id in seen_ids:
             raise ValueError('Semantic acceptance table contains duplicate recordId values')
-        if input_hashes in seen_inputs:
-            raise ValueError('Semantic acceptance table contains duplicate APK input')
+        execution_identity = json.dumps(
+            record['staticReport']['executionIdentity'], sort_keys=True, separators=(',', ':'))
+        validation_key = (input_hashes, execution_identity)
+        if validation_key in seen_validations:
+            raise ValueError('Semantic acceptance table contains duplicate APK input and execution identity')
         seen_ids.add(record_id)
-        seen_inputs.add(input_hashes)
+        seen_validations.add(validation_key)
     return table['records']
 
 

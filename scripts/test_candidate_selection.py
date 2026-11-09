@@ -59,6 +59,26 @@ class CandidateSelectionTest(unittest.TestCase):
                 incompleteReasons={query['recognizerId']: 'bounded diagnostic'} if status == 'INCOMPLETE' else {})
         return report
 
+    def test_registered_mode_rechecks_latest_acceptance_once_per_exact_apk_inputs(self):
+        import copy
+        from scripts.test_semantic_acceptance import SemanticAcceptanceTest
+        from scripts.ci.candidate_selection import _registered_expectations
+        from scripts.ci.semantic_protocol import execution_identity_sha256
+        fixture = SemanticAcceptanceTest('runTest')
+        fixture.setUp()
+        self.addCleanup(fixture.doCleanups)
+        second = copy.deepcopy(fixture.record)
+        fixture._change_record_id(second, 'semantic-record-latest')
+        execution = second['staticReport']['executionIdentity']
+        execution['sourceTreeSha256'] = '9' * 64
+        execution['cacheIdentitySha256'] = execution_identity_sha256(execution)
+        second['module']['sourceTreeSha256'] = execution['sourceTreeSha256']
+        second['module']['dexkit'] = copy.deepcopy(execution)
+        (fixture.root / 'compatibility/wechat/acceptance-v2.json').write_text(json.dumps(
+            {'schemaVersion': 2, 'appId': 'wechat', 'records': [fixture.record, second]}))
+        expectations = _registered_expectations('wechat', fixture.root)
+        self.assertEqual(['semantic-record-latest'], [row['recordId'] for row in expectations])
+
     def test_registered_mode_prefers_v2_and_rechecks_saved_identity_plan_and_inputs(self):
         from scripts.test_semantic_acceptance import SemanticAcceptanceTest
         fixture = SemanticAcceptanceTest()

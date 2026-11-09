@@ -70,7 +70,7 @@ class AdaptationCheckpointTest(unittest.TestCase):
         self.assertEqual('impad-codex-managed-auth', shared['jobs']['adapt']['concurrency']['group'])
         self.assertEqual('max', shared['jobs']['adapt']['concurrency']['queue'])
         for job_name, job in shared['jobs'].items():
-            if job_name != 'adapt':
+            if job_name not in {'adapt', 'register-official-acceptance'}:
                 self.assertNotIn('concurrency', job)
         self.assertNotIn('concurrency', workflows['runtime-validation.yml'])
         for app in ('wechat', 'wecom', 'qq'):

@@ -143,6 +143,10 @@ class RuntimeValidationWorkflowTest(unittest.TestCase):
         for job_name, job in shared['jobs'].items():
             if job_name == 'adapt':
                 self.assertEqual(adapt_lock, job['concurrency'])
+            elif job_name == 'register-official-acceptance':
+                self.assertEqual('impad-official-acceptance-main', job['concurrency']['group'])
+                self.assertFalse(job['concurrency']['cancel-in-progress'])
+                self.assertEqual('max', job['concurrency']['queue'])
             else:
                 self.assertNotIn('concurrency', job)
         self.assertNotIn('concurrency', workflows['runtime-validation.yml'])
@@ -1020,7 +1024,7 @@ class RuntimeValidationWorkflowTest(unittest.TestCase):
         self.assertFalse(_workflow_if(conversion['if'], dispatch_context))
 
         result = runtime['jobs']['result']
-        self.assertTrue(_workflow_if(result['if'], caller_context | {'needs.prepare.result': 'success'}))
+        self.assertTrue(_workflow_if(result['if'], caller_context | {'needs.prepare.result': 'success', 'needs.prepare.outputs.acceptance_reused': 'false'}))
         self.assertIn('scripts.ci.runtime_task', next(
             step['run'] for step in result['steps']
             if step.get('name') == 'Validate pipeline acceptance without publishing support'))

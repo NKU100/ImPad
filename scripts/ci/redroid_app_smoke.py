@@ -217,6 +217,8 @@ def pipeline_report(report, candidate, module_identity=None, evidence_root=None)
     from scripts.ci.app_policy import policy_for_report
     policy = policy_for_report(candidate, candidate['appId'])
     result = dict(report)
+    from scripts.ci.acceptance_reuse import runtime_validation_sha256
+    result['runtimeValidationSha256'] = runtime_validation_sha256(Path(__file__).resolve().parents[2])
     if isinstance(result.get('baseline'), dict):
         result['baselineEvidence'] = result.pop('baseline')
     result.update(appId=policy.app_id, packageName=policy.package_name,

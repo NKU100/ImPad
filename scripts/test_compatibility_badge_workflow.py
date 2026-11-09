@@ -300,7 +300,7 @@ class CompatibilityBadgeWorkflowTest(unittest.TestCase):
             'badge_check_outcome', 'badge_build_outcome', 'badge_runtime_environment',
         }
         self.assertEqual(expected, set(outputs) - {'candidate_status', 'candidate_artifact',
-                                                   'validation_outcome'})
+                                                   'validation_outcome', 'acceptance_reused'})
         result = workflow['jobs']['result']
         self.assertEqual(expected, set(result['outputs']) - {'validation_outcome',
                                                              'adaptation_artifact'})

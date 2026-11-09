@@ -20,6 +20,12 @@
 
 [独立验收 run 39969057551](https://github.com/NKU100/ImPad/actions/runs/39969057551) 验证的模块源码提交为 `8383e1251ca84436d1c3043c0561f3fb2f09341c`，模块 APK SHA-256 为 `f0899067dde74bb5d02c629f34c9fbfda6583e92c54efd70cda84f20fcd07c6b`。共享检查唯一选中 `wechat_tablet_login_002 / wechat_tablet_login_behavior_002`；模块关闭时平板入口隐藏，开启后入口出现、两个 Hook 已安装，`LoginAsExDeviceUI` 页面保持稳定，production verifier 为 `VERIFIED`。
 
+## 定时检查与验收复用
+
+定时检查官网当前版本时，即使现有规则直接支持该 APK，也会在完整运行验收通过后，将语义验收记录和原始证据写入 `compatibility/<app>/acceptance-v2.json` 及对应的 `acceptance-evidence/` 目录。定时检查或手动选择 `adapt` 检查官网版本时，无需适配的记录提交到 `main`；需要修改规则的记录仍随适配 PR 提交。
+
+后续定时检查会重新校验下载的 APK、静态规则和固定回归。当 APK 输入、完整执行方案、模块源码、规则、依赖及运行验证流程均与已有验收记录一致，且归档证据完整时，复用该记录并跳过模块构建和 ReDroid。运行摘要会列出复用的记录 ID。旧记录缺少运行验证指纹、证据不完整或输入发生变化时，执行完整验证。有未完成适配任务时不复用，手动验证也始终执行完整流程。
+
 ## 适用范围与限制
 
 验收未使用真实账号、未扫描二维码、未提交登录。结果不证明真实账号登录、服务器接受或双设备会话共存，也不覆盖所有设备、Android 版本或所有热补丁行为。Tinker readiness 和 native 加载只证明上述精确构建在被测流程中的观测结果，不等于对后续任意热补丁变更的兼容保证。

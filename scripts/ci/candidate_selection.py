@@ -413,6 +413,10 @@ def _registered_expectations(app_id, repository):
     raw = read_semantic_acceptance_table(table_path, app_id, repository)
     if raw is not None:
         table = json.loads(raw.decode('utf-8'))
+        latest_by_inputs = {}
+        for record in table['records']:
+            key = tuple((row['role'], row['sha256']) for row in record['apkFiles'])
+            latest_by_inputs[key] = record
         return [{
             'recordId': record['recordId'],
             'identity': record['identity'],
@@ -420,7 +424,7 @@ def _registered_expectations(app_id, repository):
             'completePlan': record['completePlan'],
             'executionSha256': record['executionSha256'],
             'source': record['source'],
-        } for record in table['records']]
+        } for record in latest_by_inputs.values()]
 
     from scripts.ci.semantic_migration import load_migration_bundle
 

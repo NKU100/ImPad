@@ -28,11 +28,18 @@ on:
         description: Exact producer artifact containing candidate-report.json and the APK whose SHA-256 it names.
         type: string
         default: ''
+      allow_acceptance_reuse:
+        description: Reuse an unchanged verified official candidate when no adaptation is pending
+        type: boolean
+        default: false
       source_head:
         description: Exact source commit used to build the module artifact
         type: string
         default: ''
     outputs:
+      acceptance_reused:
+        description: Existing immutable acceptance was reused after current static regression
+        value: ${{ jobs.prepare.outputs.acceptance_reused }}
       candidate_status:
         description: Status of the exact candidate selected or received by this validation run
         value: ${{ jobs.prepare.outputs.candidate_status }}
@@ -41,7 +48,7 @@ on:
         value: ${{ jobs.result.outputs.adaptation_artifact || format('runtime-candidate-report-input-{0}', inputs.app_id) }}
       validation_outcome:
         description: File-verified outcome including confirmed runtime incompatibility
-        value: ${{ jobs.result.outputs.validation_outcome }}
+        value: ${{ jobs.result.outputs.validation_outcome || jobs.prepare.outputs.reuse_outcome }}
       badge_outcome:
         value: ${{ jobs.result.outputs.badge_outcome || jobs.prepare.outputs.badge_outcome }}
       badge_candidate_status:
@@ -72,6 +79,8 @@ jobs:
       app_id: ${{ steps.policy.outputs.app_id }}
       artifact_prefix: ${{ steps.policy.outputs.artifact_prefix }}
       candidate_status: ${{ steps.candidate-state.outputs.status }}
+      acceptance_reused: ${{ steps.acceptance-reuse.outputs.acceptance_reused || 'false' }}
+      reuse_outcome: ${{ steps.acceptance-reuse.outputs.outcome }}
       badge_outcome: ${{ steps.badge-evidence.outputs.badge_outcome }}
       badge_candidate_status: ${{ steps.badge-evidence.outputs.badge_candidate_status }}
       badge_version_name: ${{ steps.badge-evidence.outputs.badge_version_name }}
@@ -222,6 +231,18 @@ jobs:
           python3 -m scripts.ci.static_regression \
             --app-id "$APP_ID" \
             --reports work/runtime-smoke/regression
+      - name: Reuse unchanged verified acceptance
+        id: acceptance-reuse
+        if: >-
+          inputs.allow_acceptance_reuse &&
+          github.event_name == 'schedule' && github.ref == 'refs/heads/main' &&
+          github.actor == github.repository_owner &&
+          inputs.apk_url == '' && inputs.module_run_id == '' &&
+          inputs.candidate_artifact == '' && inputs.candidate_mode == 'latest'
+        run: |
+          python3 -m scripts.ci.acceptance_reuse \
+            --directory work/runtime-smoke \
+            --github-output "$GITHUB_OUTPUT" --report "$GITHUB_STEP_SUMMARY"
       - name: Reuse exact module build
         if: inputs.module_run_id != ''
         uses: actions/download-artifact@v8
@@ -256,7 +277,7 @@ jobs:
           echo "status=$status" >> "$GITHUB_OUTPUT"
       - name: Build module for the exact checked candidate
         id: module-build
-        if: inputs.module_run_id == '' && steps.candidate-state.outputs.status == 'PREPARED'
+        if: inputs.module_run_id == '' && steps.candidate-state.outputs.status == 'PREPARED' && steps.acceptance-reuse.outputs.acceptance_reused != 'true'
         run: |
           test -f work/runtime-smoke/regression/results.json
           mkdir -p work/build-badge
@@ -269,9 +290,10 @@ jobs:
         if: inputs.module_run_id != '' && steps.candidate-state.outputs.status == 'PREPARED'
         run: python3 -m scripts.ci.stage_runtime_module --directory work/runtime-smoke/module
       - name: Verify signer and static rules and compile native collector
-        if: steps.candidate-state.outputs.status == 'PREPARED'
+        if: steps.candidate-state.outputs.status == 'PREPARED' && steps.acceptance-reuse.outputs.acceptance_reused != 'true'
         run: python3 -m scripts.ci.redroid_prepare_apps --root work/runtime-smoke --candidate work/runtime-smoke/candidate-report.json
       - uses: actions/upload-artifact@v7
+        if: steps.acceptance-reuse.outputs.acceptance_reused != 'true'
         with:
           name: runtime-redroid-inputs-${{ steps.policy.outputs.app_id }}
           path: |
@@ -287,6 +309,7 @@ jobs:
             work/runtime-smoke/ui-hierarchy.jar
           retention-days: 7
       - name: Upload candidate report for result validation
+        if: steps.acceptance-reuse.outputs.acceptance_reused != 'true'
         uses: actions/upload-artifact@v7
         with:
           name: runtime-candidate-report-input-${{ steps.policy.outputs.app_id }}
@@ -302,6 +325,7 @@ jobs:
         if: always()
         env:
           MODULE_BUILD_OUTCOME: ${{ steps.module-build.outcome }}
+          ACCEPTANCE_REUSED: ${{ steps.acceptance-reuse.outputs.acceptance_reused }}
         run: |
           python3 - <<'PY'
           import json
@@ -346,6 +370,9 @@ jobs:
           digest = identity.get('apkSha256', '')
           if not isinstance(digest, str) or not re.fullmatch(r'[0-9a-f]{64}', digest):
               digest = ''
+          if os.environ.get('ACCEPTANCE_REUSED') == 'true':
+              outcome = 'VERIFIED'
+              build_outcome = 'PASSED'
           outputs = {
               'badge_outcome': outcome,
               'badge_candidate_status': candidate_status if candidate_status in {'PREPARED', 'INCOMPATIBLE'} else 'UNAVAILABLE',
@@ -361,7 +388,7 @@ jobs:
 
   smoke:
     needs: prepare
-    if: needs.prepare.outputs.candidate_status == 'PREPARED'
+    if: needs.prepare.outputs.candidate_status == 'PREPARED' && needs.prepare.outputs.acceptance_reused != 'true'
     runs-on: ubuntu-24.04-arm
     timeout-minutes: 25
     outputs:
@@ -414,7 +441,7 @@ jobs:
 
   result:
     needs: [prepare, smoke]
-    if: always() && needs.prepare.result == 'success'
+    if: always() && needs.prepare.result == 'success' && needs.prepare.outputs.acceptance_reused != 'true'
     runs-on: ubuntu-latest
     outputs:
       validation_outcome: ${{ steps.verdict.outputs.outcome }}

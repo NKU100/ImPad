@@ -146,6 +146,34 @@ class SemanticAcceptanceTest(unittest.TestCase):
         records = validate_semantic_acceptance_table(table, 'wechat', repository=self.root)
         self.assertEqual(self.record, records[0])
 
+    def test_schema2_table_allows_same_apk_under_distinct_execution_identity(self):
+        from scripts.ci.acceptance import validate_semantic_acceptance_table
+
+        second = copy.deepcopy(self.record)
+        self._change_record_id(second, 'semantic-record-2')
+        second['staticReport']['executionIdentity']['sourceTreeSha256'] = '9' * 64
+        from scripts.ci.semantic_protocol import execution_identity_sha256
+        second['staticReport']['executionIdentity']['cacheIdentitySha256'] = execution_identity_sha256(
+            second['staticReport']['executionIdentity'])
+        second['module']['sourceTreeSha256'] = '9' * 64
+        second['module']['dexkit'] = copy.deepcopy(second['staticReport']['executionIdentity'])
+
+        records = validate_semantic_acceptance_table(
+            {'schemaVersion': 2, 'appId': 'wechat', 'records': [self.record, second]},
+            'wechat', repository=self.root)
+
+        self.assertEqual(['semantic-record-1', 'semantic-record-2'],
+                         [record['recordId'] for record in records])
+
+    def test_schema2_table_rejects_same_apk_and_execution_identity_twice(self):
+        duplicate = copy.deepcopy(self.record)
+        self._change_record_id(duplicate, 'semantic-record-duplicate')
+
+        with self.assertRaisesRegex(ValueError, 'duplicate APK input and execution identity'):
+            validate_semantic_acceptance_table(
+                {'schemaVersion': 2, 'appId': 'wechat', 'records': [self.record, duplicate]},
+                'wechat', repository=self.root)
+
     def test_draft_carries_full_plan_recognition_apk_module_raw_evidence_and_bundle(self):
         candidate = {'appId': 'wechat', 'identity': self.record['identity'],
                      'apkFiles': self.record['apkFiles'], 'expectedPlan': self.record['completePlan'],
