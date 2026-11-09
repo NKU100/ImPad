@@ -5,6 +5,7 @@ import os
 import re
 import sys
 import tempfile
+import time
 from pathlib import Path
 
 from scripts.ci.app_policy import get_policy
@@ -20,6 +21,52 @@ from scripts.ci.download_url import SafeRedirectHandler, validate_download_targe
 
 MAX_APK_BYTES = 1_500_000_000
 CHUNK_SIZE = 1024 * 1024
+PROGRESS_INTERVAL_SECONDS = 10
+PROGRESS_BAR_WIDTH = 30
+MIB = 1024 * 1024
+
+
+class DownloadProgress:
+    """Print timestamp-friendly progress lines so stalled downloads are visible in CI logs."""
+
+    def __init__(self, name, total, stream=None, clock=time.monotonic, interval=PROGRESS_INTERVAL_SECONDS):
+        self.name = name
+        self.total = total if isinstance(total, int) and total > 0 else None
+        self.stream = stream
+        self.clock = clock
+        self.interval = interval
+        self.started = clock()
+        self.last_report = self.started
+
+    def update(self, received):
+        now = self.clock()
+        if now - self.last_report >= self.interval:
+            self.report(received, now)
+
+    def finish(self, received, status="done"):
+        self.report(received, self.clock(), status)
+
+    def report(self, received, now, status=""):
+        elapsed = max(now - self.started, 0.0)
+        speed = received / elapsed if elapsed > 0 else 0.0
+        parts = [f"Downloading {self.name}:"]
+        if self.total is not None:
+            fraction = min(received / self.total, 1.0)
+            filled = int(PROGRESS_BAR_WIDTH * fraction)
+            parts += [
+                "[" + "#" * filled + "-" * (PROGRESS_BAR_WIDTH - filled) + "]",
+                f"{fraction * 100:5.1f}%",
+                f"{received / MIB:.1f}/{self.total / MIB:.1f} MiB",
+            ]
+        else:
+            parts.append(f"{received / MIB:.1f} MiB")
+        parts += [f"{speed / MIB:.1f} MiB/s", f"elapsed {elapsed:.0f}s"]
+        if self.total is not None and speed > 0 and received < self.total and not status:
+            parts.append(f"ETA {(self.total - received) / speed:.0f}s")
+        if status:
+            parts.append(status)
+        print(" ".join(parts), file=self.stream or sys.stderr, flush=True)
+        self.last_report = now
 
 
 def final_url_is_official(url: str, policy, source_url=None) -> bool:
@@ -201,12 +248,24 @@ def download_candidate(
                     downloaded_value = downloaded_headers.get(header)
                     if remote_value and downloaded_value and remote_value != downloaded_value:
                         raise ValueError(f"APK {header.replace('_', '-')} changed between HEAD and download")
-                for block in iter(lambda: response.read(CHUNK_SIZE), b""):
-                    byte_count += len(block)
-                    if byte_count > MAX_APK_BYTES:
-                        raise ValueError("Official WeChat APK exceeded the 1.5 GB safety limit")
-                    digest.update(block)
-                    temporary.write(block)
+                progress = DownloadProgress(
+                    urlsplit(url).path.rsplit("/", 1)[-1],
+                    remote_length if remote_length is not None else downloaded_length,
+                )
+                progress.report(0, progress.started)
+                try:
+                    # read1 returns whatever has arrived, so a slow transfer still reports progress.
+                    for block in iter(lambda: response.read1(CHUNK_SIZE), b""):
+                        byte_count += len(block)
+                        if byte_count > MAX_APK_BYTES:
+                            raise ValueError("Official WeChat APK exceeded the 1.5 GB safety limit")
+                        digest.update(block)
+                        temporary.write(block)
+                        progress.update(byte_count)
+                except BaseException as error:
+                    progress.finish(byte_count, f"stopped: {type(error).__name__}")
+                    raise
+                progress.finish(byte_count)
 
         advertised_length = remote.get("content_length")
         if advertised_length is None:

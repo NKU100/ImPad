@@ -57,6 +57,7 @@ def _fixture_python_command(directory, apk_bytes):
                     block = payload[self.offset:end]
                     self.offset = end
                     return block
+                read1 = read
                 def __enter__(self): return self
                 def __exit__(self, *_args): return False
             fetcher.urlopen = lambda _request, timeout=30: Response()

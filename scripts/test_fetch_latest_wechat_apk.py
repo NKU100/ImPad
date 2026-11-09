@@ -6,17 +6,20 @@ from pathlib import Path
 from unittest.mock import patch
 
 from scripts.ci.app_policy import get_policy
-from scripts.ci.fetch_latest_wechat_apk import download_candidate, remote_metadata, request_urlopen
+from scripts.ci.fetch_latest_wechat_apk import (
+    MIB, DownloadProgress, download_candidate, remote_metadata, request_urlopen,
+)
 from urllib.request import Request
 
 
 class Response:
     status = 200
 
-    def __init__(self, url, body=b'candidate-apk'):
+    def __init__(self, url, body=b'candidate-apk', failure=None):
         self.url = url
         self.headers = {'Content-Length': str(len(body)), 'ETag': 'test-etag'}
         self.body = io.BytesIO(body)
+        self.failure = failure
 
     def __enter__(self):
         return self
@@ -29,6 +32,43 @@ class Response:
 
     def read(self, size=-1):
         return self.body.read(size)
+
+    def read1(self, size=-1):
+        block = self.body.read(size)
+        if not block and self.failure is not None:
+            raise self.failure
+        return block
+
+
+class Clock:
+    def __init__(self, *readings):
+        self.readings = list(readings)
+
+    def __call__(self):
+        return self.readings.pop(0)
+
+
+class DownloadProgressTest(unittest.TestCase):
+    def test_reports_bar_speed_and_eta_only_after_each_interval(self):
+        stream = io.StringIO()
+        progress = DownloadProgress('qq.apk', 100 * MIB, stream=stream, clock=Clock(0, 5, 10, 15, 20, 25), interval=10)
+        progress.report(0, progress.started)
+        for received in (10, 25, 40, 50):
+            progress.update(received * MIB)
+        progress.finish(100 * MIB)
+        lines = stream.getvalue().splitlines()
+        self.assertEqual(len(lines), 4)
+        self.assertTrue(lines[0].startswith('Downloading qq.apk: [------------------------------]   0.0%'))
+        self.assertIn('[#######-----------------------]  25.0% 25.0/100.0 MiB 2.5 MiB/s elapsed 10s ETA 30s', lines[1])
+        self.assertIn('[###############---------------]  50.0% 50.0/100.0 MiB 2.5 MiB/s elapsed 20s ETA 20s', lines[2])
+        self.assertIn('[##############################] 100.0% 100.0/100.0 MiB 4.0 MiB/s elapsed 25s done', lines[3])
+
+    def test_unknown_length_reports_transferred_bytes_without_bar(self):
+        stream = io.StringIO()
+        progress = DownloadProgress('mirror.xapk', None, stream=stream, clock=Clock(0, 4))
+        progress.finish(8 * MIB, 'stopped: TimeoutError')
+        self.assertEqual(stream.getvalue().strip(),
+                         'Downloading mirror.xapk: 8.0 MiB 2.0 MiB/s elapsed 4s stopped: TimeoutError')
 
 
 class AppScopedDownloadTest(unittest.TestCase):
@@ -49,6 +89,33 @@ class AppScopedDownloadTest(unittest.TestCase):
             self.assertEqual(b'candidate-apk', apk.read_bytes())
             self.assertFalse(reused)
             self.assertEqual(64, len(digest))
+
+    def test_download_reports_start_and_completion_without_query_string(self):
+        url = 'https://mirror.synthetic.invalid/candidate.apk?token=secret'
+        with tempfile.TemporaryDirectory() as temporary, patch(
+            'scripts.ci.fetch_latest_wechat_apk.request_urlopen', return_value=Response(url)
+        ), patch('scripts.ci.download_url.socket.getaddrinfo',
+                 return_value=[(None, None, None, None, ('93.184.216.34', 443))]), \
+                patch('sys.stderr', io.StringIO()) as log:
+            download_candidate(url, Path(temporary), '', {}, policy=self.policy, allow_external=True)
+        lines = log.getvalue().splitlines()
+        self.assertTrue(lines[0].startswith('Downloading candidate.apk: [-'))
+        self.assertIn('100.0%', lines[-1])
+        self.assertTrue(lines[-1].endswith(' done'))
+        self.assertNotIn('secret', log.getvalue())
+
+    def test_interrupted_download_reports_received_bytes_and_error(self):
+        response = Response(self.url, body=b'partial', failure=TimeoutError('The read operation timed out'))
+        response.headers['Content-Length'] = '14'
+        with tempfile.TemporaryDirectory() as temporary, patch(
+            'scripts.ci.fetch_latest_wechat_apk.urlopen', return_value=response
+        ), patch('sys.stderr', io.StringIO()) as log:
+            with self.assertRaises(TimeoutError):
+                download_candidate(self.url, Path(temporary), '', {}, policy=self.policy)
+            self.assertEqual([], [path.name for path in Path(temporary).iterdir()])
+        last = log.getvalue().splitlines()[-1]
+        self.assertIn(' 50.0% 0.0/0.0 MiB', last)
+        self.assertTrue(last.endswith('stopped: TimeoutError'))
 
     def test_policy_official_prefix_rejects_external_redirect(self):
         response = Response('https://outside.invalid/candidate.apk')
