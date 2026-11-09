@@ -1,3 +1,4 @@
+from scripts.testdata.acceptance_baseline import copy_migration_baseline
 import copy
 import json
 import shutil
@@ -13,7 +14,7 @@ class InnerAfterExpectationsTest(unittest.TestCase):
     def setUp(self):
         self.tmp=tempfile.TemporaryDirectory();self.addCleanup(self.tmp.cleanup)
         self.root=Path(self.tmp.name)
-        shutil.copytree(ROOT/'compatibility',self.root/'compatibility')
+        copy_migration_baseline(ROOT/'compatibility', self.root/'compatibility')
         self.bundle=load_migration_bundle(self.root)
     def test_projects_all_frozen_wechat_profiles_without_mutating_history(self):
         before={str(p.relative_to(self.root)):p.read_bytes() for p in (self.root/'compatibility/semantic-migration').rglob('*') if p.is_file()}

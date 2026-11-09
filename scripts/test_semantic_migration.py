@@ -1,3 +1,4 @@
+from scripts.testdata.acceptance_baseline import copy_migration_baseline
 import copy
 import json
 import shutil
@@ -17,7 +18,7 @@ class SemanticMigrationTest(unittest.TestCase):
         self.temporary = tempfile.TemporaryDirectory()
         self.addCleanup(self.temporary.cleanup)
         self.root = Path(self.temporary.name)
-        shutil.copytree(ROOT / 'compatibility', self.root / 'compatibility')
+        copy_migration_baseline(ROOT / 'compatibility', self.root / 'compatibility')
 
     def report(self, profile):
         value = check_report()

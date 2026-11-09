@@ -1,3 +1,4 @@
+from scripts.testdata.acceptance_baseline import copy_migration_baseline
 import copy
 import hashlib
 import json
@@ -98,7 +99,7 @@ class CodexAdaptationTest(unittest.TestCase):
                 worktree.mkdir()
                 subprocess.run(['git', 'init', '-q', str(worktree)], check=True)
                 (worktree / '.gitignore').write_text('work/\n.cache/\n')
-                shutil.copytree(ROOT / 'compatibility', worktree / 'compatibility')
+                copy_migration_baseline(ROOT / 'compatibility', worktree / 'compatibility')
                 subprocess.run(['git', 'add', '.gitignore', 'compatibility'], cwd=worktree, check=True)
                 subprocess.run(['git', '-c', 'user.name=Test', '-c', 'user.email=test@example.invalid',
                                 'commit', '-qm', 'ignore generated inputs'], cwd=worktree, check=True)
@@ -221,7 +222,7 @@ class CodexAdaptationTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temporary:
             repository = Path(temporary).resolve()
             subprocess.run(['git', 'init', '-q', str(repository)], check=True)
-            shutil.copytree(ROOT / 'compatibility', repository / 'compatibility')
+            copy_migration_baseline(ROOT / 'compatibility', repository / 'compatibility')
             subprocess.run(['git', 'add', 'compatibility'], cwd=repository, check=True)
             subprocess.run(['git', '-c', 'user.name=Test', '-c', 'user.email=test@example.invalid',
                             'commit', '-qm', 'base without v2'], cwd=repository, check=True)

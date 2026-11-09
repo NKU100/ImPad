@@ -1,3 +1,4 @@
+from scripts.testdata.acceptance_baseline import copy_migration_baseline
 import os
 import json
 import ast
@@ -464,7 +465,7 @@ class RuntimeValidationWorkflowTest(unittest.TestCase):
 
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
-            shutil.copytree(Path.cwd() / 'compatibility', root / 'compatibility')
+            copy_migration_baseline(Path.cwd() / 'compatibility', root / 'compatibility')
             from scripts.ci.semantic_migration import load_migration_bundle
             bundle = load_migration_bundle(root)
             self.assertEqual(4, len(bundle.profiles))
@@ -482,7 +483,7 @@ class RuntimeValidationWorkflowTest(unittest.TestCase):
             workspace = Path(temporary)
             tested = workspace / 'tested'
             tested.mkdir()
-            shutil.copytree(Path.cwd() / 'compatibility', tested / 'compatibility')
+            copy_migration_baseline(Path.cwd() / 'compatibility', tested / 'compatibility')
             init = subprocess.run(['/usr/bin/git', 'init', '-b', 'main', str(tested)],
                                   capture_output=True, text=True)
             self.assertEqual(0, init.returncode, init.stderr)

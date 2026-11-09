@@ -1,3 +1,4 @@
+from scripts.testdata.acceptance_baseline import copy_migration_baseline
 import hashlib
 import json
 import os
@@ -60,7 +61,7 @@ class StaticRegressionTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary).resolve()
             repository = root / 'candidate-checkout'
-            shutil.copytree(ROOT / 'compatibility', repository / 'compatibility')
+            copy_migration_baseline(ROOT / 'compatibility', repository / 'compatibility')
             bundle = load_migration_bundle(repository)
             profile = next(row for row in bundle.profiles if row['appId'] == 'qq')
             apk = root / 'fixed.apk'; apk.write_bytes(b'fixture')
@@ -123,7 +124,7 @@ class StaticRegressionTest(unittest.TestCase):
 
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
-            shutil.copytree(ROOT / 'compatibility', root / 'compatibility')
+            copy_migration_baseline(ROOT / 'compatibility', root / 'compatibility')
             bundle = load_migration_bundle(root)
             baseline = load_semantic_regression_baseline(root, 'qq', bundle)
             self.assertTrue(baseline.cases)
@@ -146,7 +147,7 @@ class StaticRegressionTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
             import shutil
-            shutil.copytree(ROOT / 'compatibility', root / 'compatibility')
+            copy_migration_baseline(ROOT / 'compatibility', root / 'compatibility')
             migration = SemanticMigrationTest()
             from scripts.ci.semantic_migration import load_migration_bundle
             loaded = load_migration_bundle(root)
@@ -186,7 +187,7 @@ class StaticRegressionTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
             import shutil
-            shutil.copytree(ROOT / 'compatibility', root / 'compatibility')
+            copy_migration_baseline(ROOT / 'compatibility', root / 'compatibility')
             from scripts.ci.semantic_migration import load_migration_bundle, compare_fixed_report
             bundle = load_migration_bundle(root)
             profile = next(row for row in bundle.profiles if row['appId'] == 'qq')

@@ -1,3 +1,4 @@
+from scripts.testdata.acceptance_baseline import copy_migration_baseline
 import copy
 import hashlib
 import json
@@ -134,7 +135,7 @@ class RuntimeTaskTest(unittest.TestCase):
         self.addCleanup(baseline_fixture.doCleanups)
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary).resolve()
-            shutil.copytree(ROOT / 'compatibility', root / 'compatibility')
+            copy_migration_baseline(ROOT / 'compatibility', root / 'compatibility')
             bundle = load_migration_bundle(root)
             profile = next(row for row in bundle.profiles if row['appId'] == 'wechat')
             record = baseline_fixture.matching_migration_record(profile, 'same-apk-v2-record')

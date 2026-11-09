@@ -1,3 +1,4 @@
+from scripts.testdata.acceptance_baseline import copy_migration_baseline
 import copy
 import hashlib
 import json
@@ -20,7 +21,7 @@ class SemanticRuntimeTaskTest(unittest.TestCase):
         self.temporary = tempfile.TemporaryDirectory()
         self.addCleanup(self.temporary.cleanup)
         self.root = Path(self.temporary.name).resolve()
-        shutil.copytree(ROOT / 'compatibility', self.root / 'compatibility')
+        copy_migration_baseline(ROOT / 'compatibility', self.root / 'compatibility')
         self.bundle = load_migration_bundle(self.root)
         self.candidate, self.module, self.static, self.regression, self.smoke = self.models()
 
