@@ -1,0 +1,231 @@
+{
+  "schemaVersion": 1,
+  "recordId": "90386bff-5c4f-402a-91f7-a375a64b2927",
+  "files": [
+    {
+      "sourcePath": "/home/runner/work/ImPad/ImPad/runtime-result/inputs/static-check.json",
+      "path": "compatibility/wecom/acceptance-evidence/90386bff-5c4f-402a-91f7-a375a64b2927/static-report.json",
+      "sha256": "fc2acb9c759cf85ddf2aa4becbdb893da03f04e195e8905b301d1c31418498c4"
+    },
+    {
+      "sourcePath": "/home/runner/work/ImPad/ImPad/runtime-result/inputs/regression/results.json",
+      "path": "compatibility/wecom/acceptance-evidence/90386bff-5c4f-402a-91f7-a375a64b2927/regression-report.json",
+      "sha256": "45544c0b1ec225e74b68569fe0b6165b8d6b993489e378c247eb88c5fb4eed6f"
+    },
+    {
+      "sourcePath": "/home/runner/work/ImPad/ImPad/runtime-result/evidence/runtime-smoke/evidence/smoke-report.json",
+      "path": "compatibility/wecom/acceptance-evidence/90386bff-5c4f-402a-91f7-a375a64b2927/runtime-report.json",
+      "sha256": "de19e8d6edb5ee155affcedcc5d58c0012eebd442b7f1cb4cebcdf8007a8f1ec"
+    },
+    {
+      "sourcePath": "/home/runner/work/ImPad/ImPad/runtime-result/evidence/runtime-smoke/apps/wecom/app-hook-logs.txt",
+      "path": "compatibility/wecom/acceptance-evidence/90386bff-5c4f-402a-91f7-a375a64b2927/raw/raw-0000-app-hook-logs.txt",
+      "sha256": "6cd8a84ae588d2598b4f550de6622013bb736b92ddabf4c20a3d2de5c308a9c1"
+    },
+    {
+      "sourcePath": "/home/runner/work/ImPad/ImPad/runtime-result/evidence/runtime-smoke/apps/wecom/installed-identities.json",
+      "path": "compatibility/wecom/acceptance-evidence/90386bff-5c4f-402a-91f7-a375a64b2927/raw/raw-0001-installed-identities.json",
+      "sha256": "46ce7b971c72a37f05ac05eda533349fde6bc6dc85ee8e8fb2db770b33a4ab38"
+    },
+    {
+      "sourcePath": "/home/runner/work/ImPad/ImPad/runtime-result/evidence/runtime-smoke/apps/wecom/logcat.txt",
+      "path": "compatibility/wecom/acceptance-evidence/90386bff-5c4f-402a-91f7-a375a64b2927/raw/raw-0002-logcat.txt",
+      "sha256": "a2d0685c3c0e80bd9ac78f9b2a8585e15e393a3d865cb26c50a3ffa9598d14b3"
+    },
+    {
+      "sourcePath": "/home/runner/work/ImPad/ImPad/runtime-result/evidence/runtime-smoke/apps/wecom/manager-current-activity.txt",
+      "path": "compatibility/wecom/acceptance-evidence/90386bff-5c4f-402a-91f7-a375a64b2927/raw/raw-0003-manager-current-activity.txt",
+      "sha256": "57674cf3c31475ddd6ca6cff839af1e0f4db5c0564860f0d953300cb373a8303"
+    },
+    {
+      "sourcePath": "/home/runner/work/ImPad/ImPad/runtime-result/evidence/runtime-smoke/apps/wecom/manager-current-dump.txt",
+      "path": "compatibility/wecom/acceptance-evidence/90386bff-5c4f-402a-91f7-a375a64b2927/raw/raw-0004-manager-current-dump.txt",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "sourcePath": "/home/runner/work/ImPad/ImPad/runtime-result/evidence/runtime-smoke/apps/wecom/manager-current-ocr.tsv",
+      "path": "compatibility/wecom/acceptance-evidence/90386bff-5c4f-402a-91f7-a375a64b2927/raw/raw-0005-manager-current-ocr.tsv",
+      "sha256": "758bf3b90b5535f727aa5c3a31b224e1cf413acfc1f6b81676824bb03be5574c"
+    },
+    {
+      "sourcePath": "/home/runner/work/ImPad/ImPad/runtime-result/evidence/runtime-smoke/apps/wecom/manager-current.png",
+      "path": "compatibility/wecom/acceptance-evidence/90386bff-5c4f-402a-91f7-a375a64b2927/raw/raw-0006-manager-current.png",
+      "sha256": "86a2e2988cf86e550cfc3e2f04d81d03cb37151ec93406b1718cd2e7f7a8b37a"
+    },
+    {
+      "sourcePath": "/home/runner/work/ImPad/ImPad/runtime-result/evidence/runtime-smoke/apps/wecom/manager-current.xml",
+      "path": "compatibility/wecom/acceptance-evidence/90386bff-5c4f-402a-91f7-a375a64b2927/raw/raw-0007-manager-current.xml",
+      "sha256": "4c557e09d44242e6adf37cbd553eb65af809bbc6e1931108bb497474694ac2b3"
+    },
+    {
+      "sourcePath": "/home/runner/work/ImPad/ImPad/runtime-result/evidence/runtime-smoke/apps/wecom/manager-enable-requested-activity.txt",
+      "path": "compatibility/wecom/acceptance-evidence/90386bff-5c4f-402a-91f7-a375a64b2927/raw/raw-0008-manager-enable-requested-activity.txt",
+      "sha256": "aba1f481716443fbbbc42f9808fb76ef1a3a65b534be9ca7d571bf655e5bffdc"
+    },
+    {
+      "sourcePath": "/home/runner/work/ImPad/ImPad/runtime-result/evidence/runtime-smoke/apps/wecom/manager-enable-requested-dump.txt",
+      "path": "compatibility/wecom/acceptance-evidence/90386bff-5c4f-402a-91f7-a375a64b2927/raw/raw-0009-manager-enable-requested-dump.txt",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "sourcePath": "/home/runner/work/ImPad/ImPad/runtime-result/evidence/runtime-smoke/apps/wecom/manager-enable-requested.png",
+      "path": "compatibility/wecom/acceptance-evidence/90386bff-5c4f-402a-91f7-a375a64b2927/raw/raw-0010-manager-enable-requested.png",
+      "sha256": "318f9a48b5553ba8619cbde4c40d7bfb332448684194cf37182f7b683e4617c9"
+    },
+    {
+      "sourcePath": "/home/runner/work/ImPad/ImPad/runtime-result/evidence/runtime-smoke/apps/wecom/manager-enable-requested.xml",
+      "path": "compatibility/wecom/acceptance-evidence/90386bff-5c4f-402a-91f7-a375a64b2927/raw/raw-0011-manager-enable-requested.xml",
+      "sha256": "4c557e09d44242e6adf37cbd553eb65af809bbc6e1931108bb497474694ac2b3"
+    },
+    {
+      "sourcePath": "/home/runner/work/ImPad/ImPad/runtime-result/evidence/runtime-smoke/apps/wecom/manager-module-state.json",
+      "path": "compatibility/wecom/acceptance-evidence/90386bff-5c4f-402a-91f7-a375a64b2927/raw/raw-0012-manager-module-state.json",
+      "sha256": "501a11c33ad8759cbd2d539b4078deee8e930fff335dec7af5cd14066acf72a5"
+    },
+    {
+      "sourcePath": "/home/runner/work/ImPad/ImPad/runtime-result/evidence/runtime-smoke/apps/wecom/manager-state-disabled.json",
+      "path": "compatibility/wecom/acceptance-evidence/90386bff-5c4f-402a-91f7-a375a64b2927/raw/raw-0013-manager-state-disabled.json",
+      "sha256": "71a4f40c15a450c84c24bf0133ea184e142367122e4501927303c01e666aee49"
+    },
+    {
+      "sourcePath": "/home/runner/work/ImPad/ImPad/runtime-result/evidence/runtime-smoke/apps/wecom/manager-state-enabled.json",
+      "path": "compatibility/wecom/acceptance-evidence/90386bff-5c4f-402a-91f7-a375a64b2927/raw/raw-0014-manager-state-enabled.json",
+      "sha256": "82773df5e358052edaa201ce2e3e3b35e30c7580fbd412b6cbf6c5d5e3756534"
+    },
+    {
+      "sourcePath": "/home/runner/work/ImPad/ImPad/runtime-result/evidence/runtime-smoke/apps/wecom/manager-state-final.json",
+      "path": "compatibility/wecom/acceptance-evidence/90386bff-5c4f-402a-91f7-a375a64b2927/raw/raw-0015-manager-state-final.json",
+      "sha256": "82773df5e358052edaa201ce2e3e3b35e30c7580fbd412b6cbf6c5d5e3756534"
+    },
+    {
+      "sourcePath": "/home/runner/work/ImPad/ImPad/runtime-result/evidence/runtime-smoke/apps/wecom/manager-state-initial.json",
+      "path": "compatibility/wecom/acceptance-evidence/90386bff-5c4f-402a-91f7-a375a64b2927/raw/raw-0016-manager-state-initial.json",
+      "sha256": "82773df5e358052edaa201ce2e3e3b35e30c7580fbd412b6cbf6c5d5e3756534"
+    },
+    {
+      "sourcePath": "/home/runner/work/ImPad/ImPad/runtime-result/evidence/runtime-smoke/apps/wecom/module-off-login-activity.txt",
+      "path": "compatibility/wecom/acceptance-evidence/90386bff-5c4f-402a-91f7-a375a64b2927/raw/raw-0017-module-off-login-activity.txt",
+      "sha256": "c5f91ae3720bf7c4c17b9720316ce859b513519e60f4712a7c641d216afdff0e"
+    },
+    {
+      "sourcePath": "/home/runner/work/ImPad/ImPad/runtime-result/evidence/runtime-smoke/apps/wecom/module-off-login-current-activity.txt",
+      "path": "compatibility/wecom/acceptance-evidence/90386bff-5c4f-402a-91f7-a375a64b2927/raw/raw-0018-module-off-login-current-activity.txt",
+      "sha256": "9bcdc9556458b5533e5f79da6974794304d19921728c2016fa589d02b35ffc6c"
+    },
+    {
+      "sourcePath": "/home/runner/work/ImPad/ImPad/runtime-result/evidence/runtime-smoke/apps/wecom/module-off-login-current-dump.txt",
+      "path": "compatibility/wecom/acceptance-evidence/90386bff-5c4f-402a-91f7-a375a64b2927/raw/raw-0019-module-off-login-current-dump.txt",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "sourcePath": "/home/runner/work/ImPad/ImPad/runtime-result/evidence/runtime-smoke/apps/wecom/module-off-login-current.png",
+      "path": "compatibility/wecom/acceptance-evidence/90386bff-5c4f-402a-91f7-a375a64b2927/raw/raw-0020-module-off-login-current.png",
+      "sha256": "da0b1858503310a1c6e9adfc0a6f346598c0892b48a309acaacd85518d18e3b7"
+    },
+    {
+      "sourcePath": "/home/runner/work/ImPad/ImPad/runtime-result/evidence/runtime-smoke/apps/wecom/module-off-login-current.xml",
+      "path": "compatibility/wecom/acceptance-evidence/90386bff-5c4f-402a-91f7-a375a64b2927/raw/raw-0021-module-off-login-current.xml",
+      "sha256": "71399fd5a1f9b2aeb477250a840b6a3ab694b0f09d6d8d0c82782c2239b7a184"
+    },
+    {
+      "sourcePath": "/home/runner/work/ImPad/ImPad/runtime-result/evidence/runtime-smoke/apps/wecom/module-off-login-dump.txt",
+      "path": "compatibility/wecom/acceptance-evidence/90386bff-5c4f-402a-91f7-a375a64b2927/raw/raw-0022-module-off-login-dump.txt",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "sourcePath": "/home/runner/work/ImPad/ImPad/runtime-result/evidence/runtime-smoke/apps/wecom/module-off-login.png",
+      "path": "compatibility/wecom/acceptance-evidence/90386bff-5c4f-402a-91f7-a375a64b2927/raw/raw-0023-module-off-login.png",
+      "sha256": "da0b1858503310a1c6e9adfc0a6f346598c0892b48a309acaacd85518d18e3b7"
+    },
+    {
+      "sourcePath": "/home/runner/work/ImPad/ImPad/runtime-result/evidence/runtime-smoke/apps/wecom/module-off-login.xml",
+      "path": "compatibility/wecom/acceptance-evidence/90386bff-5c4f-402a-91f7-a375a64b2927/raw/raw-0024-module-off-login.xml",
+      "sha256": "71399fd5a1f9b2aeb477250a840b6a3ab694b0f09d6d8d0c82782c2239b7a184"
+    },
+    {
+      "sourcePath": "/home/runner/work/ImPad/ImPad/runtime-result/evidence/runtime-smoke/apps/wecom/module-on-login-activity.txt",
+      "path": "compatibility/wecom/acceptance-evidence/90386bff-5c4f-402a-91f7-a375a64b2927/raw/raw-0025-module-on-login-activity.txt",
+      "sha256": "0b59992e2257f5adac95c8f67a64c82e4c17d2a8a6ca938e187820666a97c09a"
+    },
+    {
+      "sourcePath": "/home/runner/work/ImPad/ImPad/runtime-result/evidence/runtime-smoke/apps/wecom/module-on-login-current-activity.txt",
+      "path": "compatibility/wecom/acceptance-evidence/90386bff-5c4f-402a-91f7-a375a64b2927/raw/raw-0026-module-on-login-current-activity.txt",
+      "sha256": "39a4ba824c28559747d5ac7453c1f0a605594744493a22bbb7cda7bd81f25042"
+    },
+    {
+      "sourcePath": "/home/runner/work/ImPad/ImPad/runtime-result/evidence/runtime-smoke/apps/wecom/module-on-login-current-dump.txt",
+      "path": "compatibility/wecom/acceptance-evidence/90386bff-5c4f-402a-91f7-a375a64b2927/raw/raw-0027-module-on-login-current-dump.txt",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "sourcePath": "/home/runner/work/ImPad/ImPad/runtime-result/evidence/runtime-smoke/apps/wecom/module-on-login-current.png",
+      "path": "compatibility/wecom/acceptance-evidence/90386bff-5c4f-402a-91f7-a375a64b2927/raw/raw-0028-module-on-login-current.png",
+      "sha256": "bae044521105335c0e28e09e553c7cc6e68c93f2dafe1ae86c05d0ced831e7f3"
+    },
+    {
+      "sourcePath": "/home/runner/work/ImPad/ImPad/runtime-result/evidence/runtime-smoke/apps/wecom/module-on-login-current.xml",
+      "path": "compatibility/wecom/acceptance-evidence/90386bff-5c4f-402a-91f7-a375a64b2927/raw/raw-0029-module-on-login-current.xml",
+      "sha256": "82f55cd735a22e66bb50c6b512b37f0ffd6686957e055ae31d655617c1238689"
+    },
+    {
+      "sourcePath": "/home/runner/work/ImPad/ImPad/runtime-result/evidence/runtime-smoke/apps/wecom/module-on-login-dump.txt",
+      "path": "compatibility/wecom/acceptance-evidence/90386bff-5c4f-402a-91f7-a375a64b2927/raw/raw-0030-module-on-login-dump.txt",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "sourcePath": "/home/runner/work/ImPad/ImPad/runtime-result/evidence/runtime-smoke/apps/wecom/module-on-login.png",
+      "path": "compatibility/wecom/acceptance-evidence/90386bff-5c4f-402a-91f7-a375a64b2927/raw/raw-0031-module-on-login.png",
+      "sha256": "bae044521105335c0e28e09e553c7cc6e68c93f2dafe1ae86c05d0ced831e7f3"
+    },
+    {
+      "sourcePath": "/home/runner/work/ImPad/ImPad/runtime-result/evidence/runtime-smoke/apps/wecom/module-on-login.xml",
+      "path": "compatibility/wecom/acceptance-evidence/90386bff-5c4f-402a-91f7-a375a64b2927/raw/raw-0032-module-on-login.xml",
+      "sha256": "82f55cd735a22e66bb50c6b512b37f0ffd6686957e055ae31d655617c1238689"
+    },
+    {
+      "sourcePath": "/home/runner/work/ImPad/ImPad/runtime-result/evidence/runtime-smoke/apps/wecom/processes.txt",
+      "path": "compatibility/wecom/acceptance-evidence/90386bff-5c4f-402a-91f7-a375a64b2927/raw/raw-0033-processes.txt",
+      "sha256": "a1d2db2620768d09d801f1be055ff89347db8f9f3c79c24f62031cf348dc635f"
+    },
+    {
+      "sourcePath": "/home/runner/work/ImPad/ImPad/runtime-result/evidence/runtime-smoke/apps/wecom/tablet-qr-confirmed-activity.txt",
+      "path": "compatibility/wecom/acceptance-evidence/90386bff-5c4f-402a-91f7-a375a64b2927/raw/raw-0034-tablet-qr-confirmed-activity.txt",
+      "sha256": "f8424e32dbe6d6f7e50e68aa552fc08fa0dfc43ed85ffc99c85e4ebe10669b88"
+    },
+    {
+      "sourcePath": "/home/runner/work/ImPad/ImPad/runtime-result/evidence/runtime-smoke/apps/wecom/tablet-qr-confirmed-dump.txt",
+      "path": "compatibility/wecom/acceptance-evidence/90386bff-5c4f-402a-91f7-a375a64b2927/raw/raw-0035-tablet-qr-confirmed-dump.txt",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "sourcePath": "/home/runner/work/ImPad/ImPad/runtime-result/evidence/runtime-smoke/apps/wecom/tablet-qr-confirmed.png",
+      "path": "compatibility/wecom/acceptance-evidence/90386bff-5c4f-402a-91f7-a375a64b2927/raw/raw-0036-tablet-qr-confirmed.png",
+      "sha256": "26e4a97d81d0656b5ed26bee9d1b0bbf4166a36379033a41c12413c9fb097adb"
+    },
+    {
+      "sourcePath": "/home/runner/work/ImPad/ImPad/runtime-result/evidence/runtime-smoke/apps/wecom/tablet-qr-confirmed.xml",
+      "path": "compatibility/wecom/acceptance-evidence/90386bff-5c4f-402a-91f7-a375a64b2927/raw/raw-0037-tablet-qr-confirmed.xml",
+      "sha256": "9f72611e00b4656beaf937e247c5aa9da028054cdc08124d1bbfe267e8278b8e"
+    },
+    {
+      "sourcePath": "/home/runner/work/ImPad/ImPad/runtime-result/evidence/runtime-smoke/apps/wecom/tablet-qr-current-activity.txt",
+      "path": "compatibility/wecom/acceptance-evidence/90386bff-5c4f-402a-91f7-a375a64b2927/raw/raw-0038-tablet-qr-current-activity.txt",
+      "sha256": "15cb8bd572696620c422e854d09886969a38ba473ced6ee6f593047558601334"
+    },
+    {
+      "sourcePath": "/home/runner/work/ImPad/ImPad/runtime-result/evidence/runtime-smoke/apps/wecom/tablet-qr-current-dump.txt",
+      "path": "compatibility/wecom/acceptance-evidence/90386bff-5c4f-402a-91f7-a375a64b2927/raw/raw-0039-tablet-qr-current-dump.txt",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "sourcePath": "/home/runner/work/ImPad/ImPad/runtime-result/evidence/runtime-smoke/apps/wecom/tablet-qr-current.png",
+      "path": "compatibility/wecom/acceptance-evidence/90386bff-5c4f-402a-91f7-a375a64b2927/raw/raw-0040-tablet-qr-current.png",
+      "sha256": "26e4a97d81d0656b5ed26bee9d1b0bbf4166a36379033a41c12413c9fb097adb"
+    },
+    {
+      "sourcePath": "/home/runner/work/ImPad/ImPad/runtime-result/evidence/runtime-smoke/apps/wecom/tablet-qr-current.xml",
+      "path": "compatibility/wecom/acceptance-evidence/90386bff-5c4f-402a-91f7-a375a64b2927/raw/raw-0041-tablet-qr-current.xml",
+      "sha256": "9f72611e00b4656beaf937e247c5aa9da028054cdc08124d1bbfe267e8278b8e"
+    }
+  ]
+}

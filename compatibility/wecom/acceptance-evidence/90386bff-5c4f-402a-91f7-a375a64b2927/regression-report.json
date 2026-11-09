@@ -1,0 +1,32 @@
+[
+  {
+    "appId": "wecom",
+    "recordId": "07d11380-be09-44fc-b266-d08cba0f0597",
+    "identity": {
+      "packageName": "com.tencent.wework",
+      "versionName": "5.0.8",
+      "versionCode": 70675,
+      "abi": "arm64-v8a",
+      "apkSha256": "59b3e620a3cf1d1f8740ea320e05fd821bb811040b36f69aa307e7fc8a2ca26d",
+      "signerSha256": "66896ae0aae48b9e963a3e034fa2ca813ca2f661f53619a92263a8a5c2e3f388"
+    },
+    "acceptanceSnapshotSha256": "759cc4a75730a325574df25af21558eb73fcbf832bcc3ef76fa433158f0f7081",
+    "migrationHistorySha256": "abb60b738afb73ba75cda027f8943ccf1d0045bc72f7d14470cfc4e2a82307d7",
+    "migrationExpectationsSha256": "19e5b477f985c3711ef011582a057c0909ac7791e1811932531dd395918b828f",
+    "profileId": "wecom-70675",
+    "initialMigration": false,
+    "baselineSha256": "4403563218375aaee62366f6c11079a5ed231911454654b74a3386d08dd910d4",
+    "v2SnapshotSha256": null,
+    "baselineSourceCase": {
+      "kind": "MIGRATION",
+      "recordId": "07d11380-be09-44fc-b266-d08cba0f0597",
+      "profileId": "wecom-70675",
+      "sourceSha256": "759cc4a75730a325574df25af21558eb73fcbf832bcc3ef76fa433158f0f7081"
+    },
+    "staticEvidence": {
+      "path": "wecom-com.tencent.wework-arm64-v8a-70675-59b3e620a3cf1d1f8740ea320e05fd821bb811040b36f69aa307e7fc8a2ca26d.json",
+      "sha256": "270291980b13e54b55e9d2a099306fc535f3aa3fe37f4a92ea4a06f3aee0151c"
+    },
+    "status": "PASSED"
+  }
+]
