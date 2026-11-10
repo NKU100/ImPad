@@ -148,6 +148,22 @@ def header_metadata(headers) -> dict[str, object]:
 
 
 def request_urlopen(request, timeout, allow_external):
+    if os.environ.get('APK_DOWNLOAD_DIAGNOSTICS'):
+        from scripts.ci.download_diagnostics import (
+            DownloadTrace, TracedHTTPHandler, TracedHTTPSHandler, TracedResponse, error_fields,
+        )
+        trace = DownloadTrace(request)
+        try:
+            if allow_external:
+                validate_download_target(request.full_url, resolver=trace.resolve)
+            handlers = [TracedHTTPHandler(trace), TracedHTTPSHandler(trace)]
+            if allow_external:
+                handlers.append(SafeRedirectHandler(diagnostics=trace))
+            response = build_opener(*handlers).open(request, timeout=timeout)
+            return TracedResponse(response, trace)
+        except Exception as error:
+            trace.emit('request_error', **error_fields(error))
+            raise
     if allow_external:
         validate_download_target(request.full_url)
         return build_opener(SafeRedirectHandler).open(request, timeout=timeout)

@@ -32,7 +32,7 @@ def validate_download_url(url: str) -> None:
             raise ValueError('Download host must be a public address')
 
 
-def validate_download_target(url: str) -> None:
+def validate_download_target(url: str, *, resolver=None) -> None:
     validate_download_url(url)
     parsed = urlsplit(url)
     host = parsed.hostname
@@ -42,7 +42,7 @@ def validate_download_target(url: str) -> None:
     except ValueError:
         pass
     try:
-        addresses = {item[4][0].split('%', 1)[0] for item in socket.getaddrinfo(
+        addresses = {item[4][0].split('%', 1)[0] for item in (resolver or socket.getaddrinfo)(
             host, parsed.port or 443, type=socket.SOCK_STREAM
         )}
     except OSError as error:
@@ -52,6 +52,15 @@ def validate_download_target(url: str) -> None:
 
 
 class SafeRedirectHandler(HTTPRedirectHandler):
+    def __init__(self, diagnostics=None):
+        super().__init__()
+        self.diagnostics = diagnostics
+
     def redirect_request(self, req, fp, code, msg, headers, newurl):
-        validate_download_target(newurl)
+        if self.diagnostics is None:
+            validate_download_target(newurl)
+        else:
+            from scripts.ci.download_diagnostics import public_url
+            self.diagnostics.emit('redirect', status=code, url=public_url(newurl))
+            validate_download_target(newurl, resolver=self.diagnostics.resolve)
         return super().redirect_request(req, fp, code, msg, headers, newurl)

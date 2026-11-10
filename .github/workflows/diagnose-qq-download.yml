@@ -33,6 +33,7 @@ jobs:
       - name: Diagnose original request and individual addresses
         env:
           APK_URL: ${{ inputs.apk_url }}
+          APK_DOWNLOAD_DIAGNOSTICS: ${{ github.workspace }}/work/qq-download-diagnostic/network
         run: python3 -u -m scripts.ci.diagnose_qq_download --url "$APK_URL"
       - name: Publish diagnosis summary
         if: always()
