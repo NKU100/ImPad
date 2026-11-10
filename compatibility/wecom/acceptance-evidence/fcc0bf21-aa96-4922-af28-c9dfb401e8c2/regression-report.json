@@ -1,0 +1,62 @@
+[
+  {
+    "appId": "wecom",
+    "recordId": "07d11380-be09-44fc-b266-d08cba0f0597",
+    "identity": {
+      "packageName": "com.tencent.wework",
+      "versionName": "5.0.8",
+      "versionCode": 70675,
+      "abi": "arm64-v8a",
+      "apkSha256": "59b3e620a3cf1d1f8740ea320e05fd821bb811040b36f69aa307e7fc8a2ca26d",
+      "signerSha256": "66896ae0aae48b9e963a3e034fa2ca813ca2f661f53619a92263a8a5c2e3f388"
+    },
+    "acceptanceSnapshotSha256": "759cc4a75730a325574df25af21558eb73fcbf832bcc3ef76fa433158f0f7081",
+    "migrationHistorySha256": "abb60b738afb73ba75cda027f8943ccf1d0045bc72f7d14470cfc4e2a82307d7",
+    "migrationExpectationsSha256": "19e5b477f985c3711ef011582a057c0909ac7791e1811932531dd395918b828f",
+    "profileId": "wecom-70675",
+    "initialMigration": false,
+    "baselineSha256": "53f2059e462d8f9f4ecfad09c9bb8e80a252cb24a35a33e44797e93eeef1126b",
+    "v2SnapshotSha256": "058443567f3a0982f32f950224a11d317a82c91bc315607c6aae57733f887cf5",
+    "baselineSourceCase": {
+      "kind": "MIGRATION",
+      "recordId": "07d11380-be09-44fc-b266-d08cba0f0597",
+      "profileId": "wecom-70675",
+      "sourceSha256": "759cc4a75730a325574df25af21558eb73fcbf832bcc3ef76fa433158f0f7081"
+    },
+    "staticEvidence": {
+      "path": "wecom-com.tencent.wework-arm64-v8a-70675-59b3e620a3cf1d1f8740ea320e05fd821bb811040b36f69aa307e7fc8a2ca26d.json",
+      "sha256": "984eaf9339d9eee568e9e83559c58f14de54ebd38e6919c56fd4afcd13f92c6a"
+    },
+    "status": "PASSED"
+  },
+  {
+    "appId": "wecom",
+    "recordId": "90386bff-5c4f-402a-91f7-a375a64b2927",
+    "identity": {
+      "packageName": "com.tencent.wework",
+      "versionName": "5.0.13",
+      "versionCode": 84802,
+      "abi": "arm64-v8a",
+      "apkSha256": "a3206dea1ccd30eac58cc6e36f6987741b71dc8ee685f1815cd06edbec37d8be",
+      "signerSha256": "66896ae0aae48b9e963a3e034fa2ca813ca2f661f53619a92263a8a5c2e3f388"
+    },
+    "acceptanceSnapshotSha256": "058443567f3a0982f32f950224a11d317a82c91bc315607c6aae57733f887cf5",
+    "migrationHistorySha256": "abb60b738afb73ba75cda027f8943ccf1d0045bc72f7d14470cfc4e2a82307d7",
+    "migrationExpectationsSha256": "19e5b477f985c3711ef011582a057c0909ac7791e1811932531dd395918b828f",
+    "profileId": null,
+    "initialMigration": false,
+    "baselineSha256": "53f2059e462d8f9f4ecfad09c9bb8e80a252cb24a35a33e44797e93eeef1126b",
+    "v2SnapshotSha256": "058443567f3a0982f32f950224a11d317a82c91bc315607c6aae57733f887cf5",
+    "baselineSourceCase": {
+      "kind": "ACCEPTED_V2",
+      "recordId": "90386bff-5c4f-402a-91f7-a375a64b2927",
+      "profileId": null,
+      "sourceSha256": "058443567f3a0982f32f950224a11d317a82c91bc315607c6aae57733f887cf5"
+    },
+    "staticEvidence": {
+      "path": "wecom-com.tencent.wework-arm64-v8a-84802-a3206dea1ccd30eac58cc6e36f6987741b71dc8ee685f1815cd06edbec37d8be.json",
+      "sha256": "8ebafd67ba71ad10b2ec63f012d4e24c64066fc0fab2d879d20616817f289b61"
+    },
+    "status": "PASSED"
+  }
+]

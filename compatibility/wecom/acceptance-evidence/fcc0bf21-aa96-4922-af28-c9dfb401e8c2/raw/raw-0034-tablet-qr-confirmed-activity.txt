@@ -1,0 +1,500 @@
+ACTIVITY MANAGER ACTIVITIES (dumpsys activity activities)
+Display #0 (activities from top to bottom):
+  * Task{6a0b605 #9 type=standard A=10089:com.tencent.wework U=0 visible=true visibleRequested=true mode=fullscreen translucent=false sz=2}
+    mLastPausedActivity: ActivityRecord{691c09 u0 com.tencent.wework/.login.controller.LoginWxAuthActivity t9}
+    mLastNonFullscreenBounds=Rect(132, 256 - 588, 976)
+    isSleeping=false
+    topResumedActivity=ActivityRecord{27b110f u0 com.tencent.wework/.login.controller.LoginQrCodeForAndroidPad t9}
+    * Hist  #1: ActivityRecord{27b110f u0 com.tencent.wework/.login.controller.LoginQrCodeForAndroidPad t9}
+      packageName=com.tencent.wework processName=com.tencent.wework
+      launchedFromUid=10089 launchedFromPackage=com.tencent.wework launchedFromFeature=null userId=0
+      app=ProcessRecord{26fc08b 2929:com.tencent.wework/u0a89}
+      Intent { cmp=com.tencent.wework/.login.controller.LoginQrCodeForAndroidPad (has extras) }
+      rootOfTask=false task=Task{6a0b605 #9 type=standard A=10089:com.tencent.wework}
+      taskAffinity=10089:com.tencent.wework
+      mActivityComponent=com.tencent.wework/.login.controller.LoginQrCodeForAndroidPad
+      baseDir=/data/app/~~mhxI4Ay2aiKsg6VyzmJOQw==/com.tencent.wework-fbFKp5sCorESksaKttuvLw==/base.apk
+      dataDir=/data/user/0/com.tencent.wework
+      stateNotNeeded=false componentSpecified=false mActivityType=standard
+      compat={320dpi} labelRes=0x7f1381a1 icon=0x7f08418e theme=0x7f14004a
+      mLastReportedConfigurations:
+        mGlobalConfig={1.0 ?mcc0mnc [en_US] ldltr sw360dp w360dp h568dp 320dpi nrml port -touch -keyb/v/h -nav/h winConfig={ mBounds=Rect(0, 0 - 720, 1280) mAppBounds=Rect(0, 0 - 720, 1184) mMaxBounds=Rect(0, 0 - 720, 1280) mDisplayRotation=ROTATION_0 mWindowingMode=fullscreen mDisplayWindowingMode=fullscreen mActivityType=undefined mAlwaysOnTop=undefined mRotation=ROTATION_0} s.18 fontWeightAdjustment=0}
+        mOverrideConfig={1.0 ?mcc0mnc [en_US] ldltr sw360dp w360dp h568dp 320dpi nrml port -touch -keyb/v/h -nav/h winConfig={ mBounds=Rect(0, 0 - 720, 1280) mAppBounds=Rect(0, 0 - 720, 1184) mMaxBounds=Rect(0, 0 - 720, 1280) mDisplayRotation=ROTATION_0 mWindowingMode=fullscreen mDisplayWindowingMode=fullscreen mActivityType=standard mAlwaysOnTop=undefined mRotation=ROTATION_0} s.1 fontWeightAdjustment=0}
+      CurrentConfiguration={1.0 ?mcc0mnc [en_US] ldltr sw360dp w360dp h568dp 320dpi nrml port -touch -keyb/v/h -nav/h winConfig={ mBounds=Rect(0, 0 - 720, 1280) mAppBounds=Rect(0, 0 - 720, 1184) mMaxBounds=Rect(0, 0 - 720, 1280) mDisplayRotation=ROTATION_0 mWindowingMode=fullscreen mDisplayWindowingMode=fullscreen mActivityType=standard mAlwaysOnTop=undefined mRotation=ROTATION_0} s.1 fontWeightAdjustment=0}
+      taskDescription: label="null" icon=null iconResource=/0 iconFilename=null primaryColor=fff5f5f5
+        backgroundColor=fffafafa statusBarColor=0 navigationBarColor=fffafbfc
+       backgroundColorFloating=ffffffff
+      launchFailed=false launchCount=1 lastLaunchTime=-9s189ms
+      mHaveState=false mIcicle=null
+      state=RESUMED delayedResume=false finishing=false
+      keysPaused=false inHistory=true idle=true
+      occludesParent=true noDisplay=false immersive=false launchMode=1
+      frozenBeforeDestroy=false forceNewConfig=false
+      mActivityType=standard
+      mImeInsetsFrozenUntilStartInput=false
+      windows=[Window{ce13b7a u0 com.tencent.wework/com.tencent.wework.login.controller.LoginQrCodeForAndroidPad}]
+      windowType=2 waitingToShow=true
+      mOccludesParent=true
+      overrideOrientation=SCREEN_ORIENTATION_PORTRAIT
+      requestedOrientation=SCREEN_ORIENTATION_PORTRAIT
+      mVisibleRequested=true mVisible=true mClientVisible=true reportedDrawn=true reportedVisible=true
+      mNumInterestingWindows=1 mNumDrawnWindows=1 allDrawn=true lastAllDrawn=true)
+      startingData=null firstWindowDrawn=true mIsExiting=false
+      nowVisible=true lastVisibleTime=-8s951ms
+      resizeMode=RESIZE_MODE_RESIZEABLE
+      mLastReportedMultiWindowMode=false mLastReportedPictureInPictureMode=false
+      supportsSizeChanges=SIZE_CHANGES_UNSUPPORTED_METADATA
+      configChanges=0xd83
+      neverSandboxDisplayApis=false
+      alwaysSandboxDisplayApis=false
+      areBoundsLetterboxed=false
+      mCameraCompatControlState=hidden
+      mCameraCompatControlEnabled=false
+    * Hist  #0: ActivityRecord{691c09 u0 com.tencent.wework/.login.controller.LoginWxAuthActivity t9}
+      packageName=com.tencent.wework processName=com.tencent.wework
+      launchedFromUid=10089 launchedFromPackage=com.tencent.wework launchedFromFeature=null userId=0
+      app=ProcessRecord{26fc08b 2929:com.tencent.wework/u0a89}
+      Intent { flg=0x4000000 cmp=com.tencent.wework/.login.controller.LoginWxAuthActivity (has extras) }
+      rootOfTask=true task=Task{6a0b605 #9 type=standard A=10089:com.tencent.wework}
+      taskAffinity=10089:com.tencent.wework
+      mActivityComponent=com.tencent.wework/.login.controller.LoginWxAuthActivity
+      baseDir=/data/app/~~mhxI4Ay2aiKsg6VyzmJOQw==/com.tencent.wework-fbFKp5sCorESksaKttuvLw==/base.apk
+      dataDir=/data/user/0/com.tencent.wework
+      stateNotNeeded=false componentSpecified=false mActivityType=standard
+      compat={320dpi} labelRes=0x7f1381a1 icon=0x7f08418e theme=0x7f14004a
+      mLastReportedConfigurations:
+        mGlobalConfig={1.0 ?mcc0mnc [en_US] ldltr sw360dp w360dp h568dp 320dpi nrml port -touch -keyb/v/h -nav/h winConfig={ mBounds=Rect(0, 0 - 720, 1280) mAppBounds=Rect(0, 0 - 720, 1184) mMaxBounds=Rect(0, 0 - 720, 1280) mDisplayRotation=ROTATION_0 mWindowingMode=fullscreen mDisplayWindowingMode=fullscreen mActivityType=undefined mAlwaysOnTop=undefined mRotation=ROTATION_0} s.18 fontWeightAdjustment=0}
+        mOverrideConfig={1.0 ?mcc0mnc [en_US] ldltr sw360dp w360dp h568dp 320dpi nrml port -touch -keyb/v/h -nav/h winConfig={ mBounds=Rect(0, 0 - 720, 1280) mAppBounds=Rect(0, 0 - 720, 1184) mMaxBounds=Rect(0, 0 - 720, 1280) mDisplayRotation=ROTATION_0 mWindowingMode=fullscreen mDisplayWindowingMode=fullscreen mActivityType=standard mAlwaysOnTop=undefined mRotation=ROTATION_0} s.1 fontWeightAdjustment=0}
+      CurrentConfiguration={1.0 ?mcc0mnc [en_US] ldltr sw360dp w360dp h568dp 320dpi nrml port -touch -keyb/v/h -nav/h winConfig={ mBounds=Rect(0, 0 - 720, 1280) mAppBounds=Rect(0, 0 - 720, 1184) mMaxBounds=Rect(0, 0 - 720, 1280) mDisplayRotation=ROTATION_0 mWindowingMode=fullscreen mDisplayWindowingMode=fullscreen mActivityType=standard mAlwaysOnTop=undefined mRotation=ROTATION_0} s.1 fontWeightAdjustment=0}
+      taskDescription: label="null" icon=null iconResource=/0 iconFilename=null primaryColor=fff5f5f5
+        backgroundColor=fffafafa statusBarColor=0 navigationBarColor=fffafbfc
+       backgroundColorFloating=ffffffff
+      launchFailed=false launchCount=0 lastLaunchTime=-24s590ms
+      mHaveState=true mIcicle=Bundle[mParcelledData.dataSize=4228]
+      state=STOPPED delayedResume=false finishing=false
+      keysPaused=false inHistory=true idle=true
+      occludesParent=true noDisplay=false immersive=false launchMode=1
+      frozenBeforeDestroy=false forceNewConfig=false
+      mActivityType=standard
+      mImeInsetsFrozenUntilStartInput=true
+      windows=[Window{475cdcd u0 com.tencent.wework/com.tencent.wework.login.controller.LoginWxAuthActivity}]
+      windowType=2
+      mOccludesParent=true
+      overrideOrientation=SCREEN_ORIENTATION_PORTRAIT
+      requestedOrientation=SCREEN_ORIENTATION_PORTRAIT
+      mVisibleRequested=false mVisible=false mClientVisible=false reportedDrawn=false reportedVisible=false
+      mAppStopped=true
+      mNumInterestingWindows=2 mNumDrawnWindows=2 allDrawn=true lastAllDrawn=true)
+      nowVisible=false lastVisibleTime=-23s408ms
+      resizeMode=RESIZE_MODE_RESIZEABLE
+      mLastReportedMultiWindowMode=false mLastReportedPictureInPictureMode=false
+      supportsSizeChanges=SIZE_CHANGES_UNSUPPORTED_METADATA
+      configChanges=0xd83
+      neverSandboxDisplayApis=false
+      alwaysSandboxDisplayApis=false
+      areBoundsLetterboxed=false
+      mCameraCompatControlState=hidden
+      mCameraCompatControlEnabled=false
+
+  * Task{7c7022d #7 type=standard A=10087:org.lsposed.manager U=0 visible=false visibleRequested=false mode=fullscreen translucent=true sz=1}
+    mLastPausedActivity: ActivityRecord{57fd144 u0 org.lsposed.manager/.ui.activity.MainActivity t7}
+    mLastNonFullscreenBounds=Rect(132, 256 - 588, 976)
+    isSleeping=false
+    * Hist  #0: ActivityRecord{57fd144 u0 org.lsposed.manager/.ui.activity.MainActivity t7}
+      packageName=org.lsposed.manager processName=org.lsposed.manager
+      launchedFromUid=0 launchedFromPackage=com.android.shell launchedFromFeature=null userId=0
+      app=ProcessRecord{adfe25d 1811:org.lsposed.manager/u0a87}
+      Intent { flg=0x10000000 cmp=org.lsposed.manager/.ui.activity.MainActivity }
+      rootOfTask=true task=Task{7c7022d #7 type=standard A=10087:org.lsposed.manager}
+      taskAffinity=10087:org.lsposed.manager
+      mActivityComponent=org.lsposed.manager/.ui.activity.MainActivity
+      baseDir=/data/app/~~BVLpADcmk1SzxnEChh_7xw==/org.lsposed.manager-HoYiAqQ2lpebgOTM2iteTw==/base.apk
+      dataDir=/data/user/0/org.lsposed.manager
+      stateNotNeeded=false componentSpecified=false mActivityType=standard
+      compat={320dpi} labelRes=0x7f0a000e icon=0x7f05000d theme=0x0
+      mLastReportedConfigurations:
+        mGlobalConfig={1.0 ?mcc0mnc [en_US] ldltr sw360dp w360dp h568dp 320dpi nrml port -touch -keyb/v/h -nav/h winConfig={ mBounds=Rect(0, 0 - 720, 1280) mAppBounds=Rect(0, 0 - 720, 1184) mMaxBounds=Rect(0, 0 - 720, 1280) mDisplayRotation=ROTATION_0 mWindowingMode=fullscreen mDisplayWindowingMode=fullscreen mActivityType=undefined mAlwaysOnTop=undefined mRotation=ROTATION_0} s.18 fontWeightAdjustment=0}
+        mOverrideConfig={1.0 ?mcc0mnc [en_US] ldltr sw360dp w360dp h568dp 320dpi nrml port -touch -keyb/v/h -nav/h winConfig={ mBounds=Rect(0, 0 - 720, 1280) mAppBounds=Rect(0, 0 - 720, 1184) mMaxBounds=Rect(0, 0 - 720, 1280) mDisplayRotation=ROTATION_0 mWindowingMode=fullscreen mDisplayWindowingMode=fullscreen mActivityType=standard mAlwaysOnTop=undefined mRotation=ROTATION_0} s.1 fontWeightAdjustment=0}
+      CurrentConfiguration={1.0 ?mcc0mnc [en_US] ldltr sw360dp w360dp h568dp 320dpi nrml port -touch -keyb/v/h -nav/h winConfig={ mBounds=Rect(0, 0 - 720, 1280) mAppBounds=Rect(0, 0 - 720, 1184) mMaxBounds=Rect(0, 0 - 720, 1280) mDisplayRotation=ROTATION_0 mWindowingMode=fullscreen mDisplayWindowingMode=fullscreen mActivityType=standard mAlwaysOnTop=undefined mRotation=ROTATION_0} s.1 fontWeightAdjustment=0}
+      RequestedOverrideConfiguration={0.0 ?mcc0mnc ?localeList ?layoutDir ?swdp ?wdp ?hdp ?density ?lsize ?long ?ldr ?wideColorGamut ?orien ?uimode ?night ?touch ?keyb/?/? ?nav/? winConfig={ mBounds=Rect(0, 0 - 0, 0) mAppBounds=null mMaxBounds=Rect(0, 0 - 0, 0) mDisplayRotation=undefined mWindowingMode=undefined mDisplayWindowingMode=undefined mActivityType=standard mAlwaysOnTop=undefined mRotation=undefined} ?fontWeightAdjustment}
+      ResolvedOverrideConfiguration={0.0 ?mcc0mnc ?localeList ?layoutDir ?swdp ?wdp ?hdp ?density ?lsize ?long ?ldr ?wideColorGamut ?orien ?uimode ?night ?touch ?keyb/?/? ?nav/? winConfig={ mBounds=Rect(0, 0 - 0, 0) mAppBounds=null mMaxBounds=Rect(0, 0 - 0, 0) mDisplayRotation=undefined mWindowingMode=undefined mDisplayWindowingMode=undefined mActivityType=undefined mAlwaysOnTop=undefined mRotation=undefined} s.1 ?fontWeightAdjustment}
+      taskDescription: label="null" icon=null iconResource=/0 iconFilename=null primaryColor=ff1a1b21
+        backgroundColor=fff1f0f7 statusBarColor=0 navigationBarColor=0
+       backgroundColorFloating=fff1f0f7
+      launchFailed=false launchCount=0 lastLaunchTime=-1m23s572ms
+      mHaveState=true mIcicle=Bundle[mParcelledData.dataSize=6148]
+      state=STOPPED delayedResume=false finishing=false
+      keysPaused=false inHistory=true idle=true
+      occludesParent=true noDisplay=false immersive=false launchMode=1
+      frozenBeforeDestroy=false forceNewConfig=false
+      mActivityType=standard
+      mImeInsetsFrozenUntilStartInput=true
+      windows=[Window{204145a u0 org.lsposed.manager/org.lsposed.manager.ui.activity.MainActivity}]
+      windowType=2
+      mOccludesParent=true
+      overrideOrientation=SCREEN_ORIENTATION_UNSPECIFIED
+      requestedOrientation=SCREEN_ORIENTATION_UNSPECIFIED
+      mVisibleRequested=false mVisible=false mClientVisible=false reportedDrawn=false reportedVisible=false
+      mAppStopped=true
+      mNumInterestingWindows=1 mNumDrawnWindows=1 allDrawn=true lastAllDrawn=true)
+      nowVisible=false lastVisibleTime=-40s154ms
+      resizeMode=RESIZE_MODE_RESIZEABLE_VIA_SDK_VERSION
+      mLastReportedMultiWindowMode=false mLastReportedPictureInPictureMode=false
+      supportsSizeChanges=SIZE_CHANGES_UNSUPPORTED_METADATA
+      configChanges=0x3
+      neverSandboxDisplayApis=false
+      alwaysSandboxDisplayApis=false
+      areBoundsLetterboxed=false
+      mCameraCompatControlState=hidden
+      mCameraCompatControlEnabled=false
+
+  * Task{63595cc #1 type=home U=0 visible=false visibleRequested=false mode=fullscreen translucent=true sz=1}
+    * Task{8c44c1b #6 type=home I=com.android.launcher3/.uioverrides.QuickstepLauncher U=0 rootTaskId=1 visible=false visibleRequested=false mode=fullscreen translucent=true sz=1}
+      mLastPausedActivity: ActivityRecord{d49762a u0 com.android.launcher3/.uioverrides.QuickstepLauncher t6}
+      mLastNonFullscreenBounds=Rect(132, 256 - 588, 976)
+      isSleeping=false
+      * Hist  #0: ActivityRecord{d49762a u0 com.android.launcher3/.uioverrides.QuickstepLauncher t6}
+        packageName=com.android.launcher3 processName=com.android.launcher3
+        launchedFromUid=0 launchedFromPackage=null launchedFromFeature=null userId=0
+        app=ProcessRecord{c2fb5c3 932:com.android.launcher3/u0a64}
+        Intent { act=android.intent.action.MAIN cat=[android.intent.category.HOME] flg=0x10000100 cmp=com.android.launcher3/.uioverrides.QuickstepLauncher (has extras) }
+        rootOfTask=true task=Task{8c44c1b #6 type=home I=com.android.launcher3/.uioverrides.QuickstepLauncher}
+        taskAffinity=null
+        mActivityComponent=com.android.launcher3/.uioverrides.QuickstepLauncher
+        baseDir=/system/system_ext/priv-app/Launcher3QuickStep/Launcher3QuickStep.apk
+        dataDir=/data/user/0/com.android.launcher3
+        stateNotNeeded=true componentSpecified=false mActivityType=home
+        compat={320dpi} labelRes=0x7f11008f icon=0x7f080273 theme=0x7f12000c
+        mLastReportedConfigurations:
+          mGlobalConfig={1.0 ?mcc0mnc [en_US] ldltr sw360dp w360dp h568dp 320dpi nrml port -touch -keyb/v/h -nav/h winConfig={ mBounds=Rect(0, 0 - 720, 1280) mAppBounds=Rect(0, 0 - 720, 1184) mMaxBounds=Rect(0, 0 - 720, 1280) mDisplayRotation=ROTATION_0 mWindowingMode=fullscreen mDisplayWindowingMode=fullscreen mActivityType=undefined mAlwaysOnTop=undefined mRotation=ROTATION_0} s.19 fontWeightAdjustment=0}
+          mOverrideConfig={1.0 ?mcc0mnc [en_US] ldltr sw360dp w360dp h568dp 320dpi nrml port -touch -keyb/v/h -nav/h winConfig={ mBounds=Rect(0, 0 - 720, 1280) mAppBounds=Rect(0, 0 - 720, 1184) mMaxBounds=Rect(0, 0 - 720, 1280) mDisplayRotation=ROTATION_0 mWindowingMode=fullscreen mDisplayWindowingMode=fullscreen mActivityType=home mAlwaysOnTop=undefined mRotation=ROTATION_0} s.2 fontWeightAdjustment=0}
+        CurrentConfiguration={1.0 ?mcc0mnc [en_US] ldltr sw360dp w360dp h568dp 320dpi nrml port -touch -keyb/v/h -nav/h winConfig={ mBounds=Rect(0, 0 - 720, 1280) mAppBounds=Rect(0, 0 - 720, 1184) mMaxBounds=Rect(0, 0 - 720, 1280) mDisplayRotation=ROTATION_0 mWindowingMode=fullscreen mDisplayWindowingMode=fullscreen mActivityType=home mAlwaysOnTop=undefined mRotation=ROTATION_0} s.2 fontWeightAdjustment=0}
+        RequestedOverrideConfiguration={0.0 ?mcc0mnc ?localeList ?layoutDir ?swdp ?wdp ?hdp ?density ?lsize ?long ?ldr ?wideColorGamut ?orien ?uimode ?night ?touch ?keyb/?/? ?nav/? winConfig={ mBounds=Rect(0, 0 - 0, 0) mAppBounds=null mMaxBounds=Rect(0, 0 - 0, 0) mDisplayRotation=undefined mWindowingMode=undefined mDisplayWindowingMode=undefined mActivityType=home mAlwaysOnTop=undefined mRotation=undefined} ?fontWeightAdjustment}
+        taskDescription: label="null" icon=null iconResource=/0 iconFilename=null primaryColor=fff1f0f7
+          backgroundColor=fff1f0f7 statusBarColor=0 navigationBarColor=0
+         backgroundColorFloating=fff1f0f7
+        launchFailed=false launchCount=0 lastLaunchTime=-1m34s832ms
+        mHaveState=true mIcicle=Bundle[mParcelledData.dataSize=5016]
+        state=STOPPED delayedResume=false finishing=false
+        keysPaused=false inHistory=true idle=true
+        occludesParent=true noDisplay=false immersive=false launchMode=2
+        frozenBeforeDestroy=false forceNewConfig=false
+        mActivityType=home
+        mImeInsetsFrozenUntilStartInput=true
+        windows=[Window{85b3cd9 u0 com.android.launcher3/com.android.launcher3.uioverrides.QuickstepLauncher}]
+        windowType=2
+        mOccludesParent=true
+        overrideOrientation=SCREEN_ORIENTATION_NOSENSOR
+        requestedOrientation=SCREEN_ORIENTATION_NOSENSOR
+        mVisibleRequested=false mVisible=false mClientVisible=false reportedDrawn=false reportedVisible=false
+        mAppStopped=true
+        mNumInterestingWindows=1 mNumDrawnWindows=1 allDrawn=true lastAllDrawn=true)
+        nowVisible=false lastVisibleTime=-1m34s21ms
+        connections={ConnectionRecord{6b0ec8a u0 com.android.launcher3/com.android.quickstep.TouchInteractionService:@521a6f5 flags=0x0}}
+        resizeMode=RESIZE_MODE_RESIZEABLE
+        mLastReportedMultiWindowMode=false mLastReportedPictureInPictureMode=false
+        supportsSizeChanges=SIZE_CHANGES_UNSUPPORTED_METADATA
+        configChanges=0xdf3
+        neverSandboxDisplayApis=false
+        alwaysSandboxDisplayApis=false
+        areBoundsLetterboxed=false
+        mCameraCompatControlState=hidden
+        mCameraCompatControlEnabled=false
+
+  * Task{be53f14 #2 type=undefined U=0 visible=false visibleRequested=false mode=fullscreen translucent=true sz=2}
+    mCreatedByOrganizer=true
+    * Task{23a67ae #4 type=undefined U=0 rootTaskId=2 visible=false visibleRequested=false mode=multi-window translucent=true sz=0}
+      mBounds=Rect(0, 1280 - 720, 1920)
+      mCreatedByOrganizer=true
+      isSleeping=false
+    * Task{964fd7b #3 type=undefined U=0 rootTaskId=2 visible=false visibleRequested=false mode=multi-window translucent=true sz=0}
+      mCreatedByOrganizer=true
+      isSleeping=false
+
+  Resumed activities in task display areas (from top to bottom):
+    Resumed: ActivityRecord{27b110f u0 com.tencent.wework/.login.controller.LoginQrCodeForAndroidPad t9}
+
+  ResumedActivity: ActivityRecord{27b110f u0 com.tencent.wework/.login.controller.LoginQrCodeForAndroidPad t9}
+
+ActivityTaskSupervisor state:
+  topDisplayFocusedRootTask=Task{6a0b605 #9 type=standard A=10089:com.tencent.wework}
+  Display: mDisplayId=0 (organized)
+    init=720x1280 320dpi mMinSizeOfResizeableTaskDp=220 cur=720x1280 app=720x1184 rng=720x672-1184x1136
+    deferred=false mLayoutNeeded=true mTouchExcludeRegion=SkRegion((0,0,720,1280))
+
+  mLastOrientationSource=WindowedMagnification:0:31@31280926
+  deepestLastOrientationSource=ActivityRecord{27b110f u0 com.tencent.wework/.login.controller.LoginQrCodeForAndroidPad t9}
+  overrideConfig={1.0 ?mcc0mnc [en_US] ldltr sw360dp w360dp h568dp 320dpi nrml port -touch -keyb/v/h -nav/h winConfig={ mBounds=Rect(0, 0 - 720, 1280) mAppBounds=Rect(0, 0 - 720, 1184) mMaxBounds=Rect(0, 0 - 720, 1280) mDisplayRotation=ROTATION_0 mWindowingMode=fullscreen mDisplayWindowingMode=fullscreen mActivityType=undefined mAlwaysOnTop=undefined mRotation=ROTATION_0} s.18 fontWeightAdjustment=0}
+  mLayoutSeq=121
+  mCurrentFocus=Window{ce13b7a u0 com.tencent.wework/com.tencent.wework.login.controller.LoginQrCodeForAndroidPad}
+  mFocusedApp=ActivityRecord{27b110f u0 com.tencent.wework/.login.controller.LoginQrCodeForAndroidPad t9}
+
+  mHoldScreenWindow=null
+  mObscuringWindow=Window{ce13b7a u0 com.tencent.wework/com.tencent.wework.login.controller.LoginQrCodeForAndroidPad}
+  mLastWakeLockHoldingWindow=null
+  mLastWakeLockObscuringWindow=null
+
+  displayId=0
+  mWallpaperTarget=null
+  mLastWallpaperX=0.0 mLastWallpaperY=0.5
+
+  Display areas in top down Z order:
+    * Leaf:36:36
+    * HideDisplayCutout:32:35
+      * OneHanded:34:35
+        * FullscreenMagnification:34:35
+          * Leaf:34:35
+      * FullscreenMagnification:33:33
+        * Leaf:33:33
+      * OneHanded:32:32
+        * Leaf:32:32
+    * WindowedMagnification:0:31
+      * HideDisplayCutout:26:31
+        * OneHanded:26:31
+          * FullscreenMagnification:29:31
+            * Leaf:29:31
+          * Leaf:28:28
+          * FullscreenMagnification:26:27
+            * Leaf:26:27
+      * Leaf:24:25
+      * HideDisplayCutout:18:23
+        * OneHanded:18:23
+          * FullscreenMagnification:18:23
+            * Leaf:18:23
+      * OneHanded:17:17
+        * FullscreenMagnification:17:17
+          * Leaf:17:17
+      * HideDisplayCutout:16:16
+        * OneHanded:16:16
+          * FullscreenMagnification:16:16
+            * Leaf:16:16
+      * OneHanded:15:15
+        * FullscreenMagnification:15:15
+          * Leaf:15:15
+      * HideDisplayCutout:0:14
+        * OneHanded:0:14
+          * ImePlaceholder:13:14
+            * ImeContainer
+          * FullscreenMagnification:0:12
+            * Leaf:3:12
+            * DefaultTaskDisplayArea (organized)
+            * Leaf:0:1
+
+  Task display areas in top down Z order:
+    TaskDisplayArea DefaultTaskDisplayArea
+      overrideConfig={0.0 ?mcc0mnc ?localeList ?layoutDir ?swdp ?wdp ?hdp ?density ?lsize ?long ?ldr ?wideColorGamut ?orien ?uimode ?night ?touch ?keyb/?/? ?nav/? winConfig={ mBounds=Rect(0, 0 - 0, 0) mAppBounds=null mMaxBounds=Rect(0, 0 - 0, 0) mDisplayRotation=undefined mWindowingMode=fullscreen mDisplayWindowingMode=fullscreen mActivityType=undefined mAlwaysOnTop=undefined mRotation=undefined} ?fontWeightAdjustment}
+      mPreferredTopFocusableRootTask=Task{6a0b605 #9 type=standard A=10089:com.tencent.wework}
+      mLastFocusedRootTask=Task{6a0b605 #9 type=standard A=10089:com.tencent.wework}
+      Application tokens in top down Z order:
+      * Task{6a0b605 #9 type=standard A=10089:com.tencent.wework U=0 visible=true visibleRequested=true mode=fullscreen translucent=false sz=2}
+        bounds=[0,0][720,1280]
+        * ActivityRecord{27b110f u0 com.tencent.wework/.login.controller.LoginQrCodeForAndroidPad t9}
+        * ActivityRecord{691c09 u0 com.tencent.wework/.login.controller.LoginWxAuthActivity t9}
+      * Task{7c7022d #7 type=standard A=10087:org.lsposed.manager U=0 visible=false visibleRequested=false mode=fullscreen translucent=true sz=1}
+        bounds=[0,0][720,1280]
+        * ActivityRecord{57fd144 u0 org.lsposed.manager/.ui.activity.MainActivity t7}
+      * Task{63595cc #1 type=home U=0 visible=false visibleRequested=false mode=fullscreen translucent=true sz=1}
+        bounds=[0,0][720,1280]
+        * Task{8c44c1b #6 type=home I=com.android.launcher3/.uioverrides.QuickstepLauncher U=0 rootTaskId=1 visible=false visibleRequested=false mode=fullscreen translucent=true sz=1}
+          bounds=[0,0][720,1280]
+          * ActivityRecord{d49762a u0 com.android.launcher3/.uioverrides.QuickstepLauncher t6}
+      * Task{be53f14 #2 type=undefined U=0 visible=false visibleRequested=false mode=fullscreen translucent=true sz=2}
+        bounds=[0,0][720,1280]
+        * Task{23a67ae #4 type=undefined U=0 rootTaskId=2 visible=false visibleRequested=false mode=multi-window translucent=true sz=0}
+          bounds=[0,1280][720,1920]
+        * Task{964fd7b #3 type=undefined U=0 rootTaskId=2 visible=false visibleRequested=false mode=multi-window translucent=true sz=0}
+          bounds=[0,0][720,1280]
+
+  no ScreenRotationAnimation 
+
+  rootHomeTask=Task=1
+
+  PinnedTaskController
+    mIsImeShowing=false
+    mImeHeight=0
+    mMinAspectRatio=0.41841003
+    mMaxAspectRatio=2.39
+
+  DisplayFrames w=720 h=1280 r=0
+
+  DisplayPolicy
+    mCarDockEnablesAccelerometer=true mDeskDockEnablesAccelerometer=true
+    mDockMode=EXTRA_DOCK_STATE_UNDOCKED mLidState=LID_ABSENT
+    mAwake=true mScreenOnEarly=true mScreenOnFully=true
+    mKeyguardDrawComplete=true mWindowManagerDrawComplete=true
+    mHdmiPlugged=false
+    mLastAppearance=LIGHT_STATUS_BARS LIGHT_NAVIGATION_BARS
+    mLastBehavior=DEFAULT
+    mShowingDream=false mDreamingLockscreen=false
+    mStatusBar=Window{b9929d9 u0 StatusBar}
+    mExpandedPanel=Window{bdb68b4 u0 NotificationShade}
+    isKeyguardShowing=false
+    mNavigationBar=Window{824f58d u0 NavigationBar0}
+    mNavBarOpacityMode=0
+    mNavigationBarCanMove=true
+    mNavigationBarPosition=4
+    mTopGestureHost=Window{b9929d9 u0 StatusBar}
+    mBottomGestureHost=Window{824f58d u0 NavigationBar0}
+    mFocusedWindow=Window{ce13b7a u0 com.tencent.wework/com.tencent.wework.login.controller.LoginQrCodeForAndroidPad}
+    mTopFullscreenOpaqueWindowState=Window{ce13b7a u0 com.tencent.wework/com.tencent.wework.login.controller.LoginQrCodeForAndroidPad}
+    mSystemBarColorApps={ActivityRecord{27b110f u0 com.tencent.wework/.login.controller.LoginQrCodeForAndroidPad t9}}
+    mNavBarColorWindowCandidate=Window{ce13b7a u0 com.tencent.wework/com.tencent.wework.login.controller.LoginQrCodeForAndroidPad}
+    mNavBarBackgroundWindowCandidate=Window{ce13b7a u0 com.tencent.wework/com.tencent.wework.login.controller.LoginQrCodeForAndroidPad}
+    mLastStatusBarAppearanceRegions=
+      AppearanceRegion{LIGHT_STATUS_BARS bounds=[0,0][720,1280]}
+    mLastLetterboxDetails=
+    mStatusBarBackgroundWindows=
+      Window{ce13b7a u0 com.tencent.wework/com.tencent.wework.login.controller.LoginQrCodeForAndroidPad}
+    mTopIsFullscreen=false
+    mForceShowNavigationBarEnabled=false mAllowLockscreenWhenOn=false
+    mRemoteInsetsControllerControlsSystemBars=false
+    mDecorInsetsInfo:
+      ROTATION_0={nonDecorInsets=[0,0][0,96], configInsets=[0,48][0,96], nonDecorFrame=[0,0][720,1184], configFrame=[0,48][720,1184]}
+      ROTATION_90={nonDecorInsets=[0,0][96,0], configInsets=[0,48][96,0], nonDecorFrame=[0,0][1184,720], configFrame=[0,48][1184,720]}
+      ROTATION_180={nonDecorInsets=[0,0][0,96], configInsets=[0,48][0,96], nonDecorFrame=[0,0][720,1184], configFrame=[0,48][720,1184]}
+      ROTATION_270={nonDecorInsets=[96,0][0,0], configInsets=[96,48][0,0], nonDecorFrame=[96,0][1280,720], configFrame=[96,48][1280,720]}
+    SystemGestures:
+      mDisplayCutoutTouchableRegionSize=0
+      mSwipeStartThreshold=Rect(48, 48 - 48, 48)
+      mSwipeDistanceThreshold=48
+    Looper state:
+      Looper (android.ui, tid 22) {387ea2c}
+        (Total messages: 0, polling=true, quitting=false)
+
+  DisplayRotation
+    mCurrentAppOrientation=SCREEN_ORIENTATION_PORTRAIT
+    mLastOrientation=1
+    mRotation=0 mDeferredRotationPauseCount=0
+    mLandscapeRotation=ROTATION_90 mSeascapeRotation=ROTATION_270
+    mPortraitRotation=ROTATION_0 mUpsideDownRotation=ROTATION_180
+    mSupportAutoRotation=true
+    WindowOrientationListener
+      mEnabled=false
+      mCurrentRotation=ROTATION_0
+      mSensorType=null
+      mSensor=null
+      mRate=2
+
+    mCarDockRotation=-1 mDeskDockRotation=-1
+    mUserRotationMode=USER_ROTATION_LOCKED mUserRotation=ROTATION_0 mCameraRotationMode=0 mAllowAllRotations=unknown
+    mDemoHdmiRotation=ROTATION_90 mDemoHdmiRotationLock=false mUndockedHdmiRotation=-1
+    mLidOpenRotation=-1
+    mFixedToUserRotation=false
+
+  InputConsumers:
+    name=recents_animation_input_consumer pid=932 user=UserHandle{0}
+
+  WindowInsetsStateController
+    InsetsState
+      mDisplayFrame=Rect(0, 0 - 720, 1280)
+      mDisplayCutout=DisplayCutout{insets=Rect(0, 0 - 0, 0) waterfall=Insets{left=0, top=0, right=0, bottom=0} boundingRect={Bounds=[Rect(0, 0 - 0, 0), Rect(0, 0 - 0, 0), Rect(0, 0 - 0, 0), Rect(0, 0 - 0, 0)]} cutoutPathParserInfo={CutoutPathParserInfo{displayWidth=0 displayHeight=0 physicalDisplayWidth=0 physicalDisplayHeight=0 density={0.0} cutoutSpec={} rotation={0} scale={0.0} physicalPixelDisplaySizeRatio={0.0}}}}
+      mRoundedCorners=RoundedCorners{[RoundedCorner{position=TopLeft, radius=0, center=Point(0, 0)}, RoundedCorner{position=TopRight, radius=0, center=Point(0, 0)}, RoundedCorner{position=BottomRight, radius=0, center=Point(0, 0)}, RoundedCorner{position=BottomLeft, radius=0, center=Point(0, 0)}]}
+      mRoundedCornerFrame=Rect(0, 0 - 0, 0)
+      mPrivacyIndicatorBounds=PrivacyIndicatorBounds {static bounds=Rect(528, 0 - 692, 48) rotation=0}
+      mDisplayShape=DisplayShape{ spec=42744253 displayWidth=720 displayHeight=1280 physicalPixelDisplaySizeRatio=1.0 rotation=0 offsetX=0 offsetY=0 scale=1.0}
+        InsetsSource id=8ece0001 type=navigationBars frame=[0,1184][720,1280] visible=true flags=
+        InsetsSource id=8ece0004 type=systemGestures frame=[0,0][0,0] visible=true flags=
+        InsetsSource id=8ece0005 type=mandatorySystemGestures frame=[0,1184][720,1280] visible=true flags=
+        InsetsSource id=8ece0006 type=tappableElement frame=[0,1184][720,1280] visible=true flags=
+        InsetsSource id=8ece0024 type=systemGestures frame=[0,0][0,0] visible=true flags=
+        InsetsSource id=f3060000 type=statusBars frame=[0,0][720,48] visible=true flags=
+        InsetsSource id=f3060005 type=mandatorySystemGestures frame=[0,0][720,48] visible=true flags=
+        InsetsSource id=f3060006 type=tappableElement frame=[0,0][720,48] visible=true flags=
+        InsetsSource id=3 type=ime frame=[0,0][0,0] visible=false flags=
+    Control map:
+      Window{ce13b7a u0 com.tencent.wework/com.tencent.wework.login.controller.LoginQrCodeForAndroidPad}:
+        InsetsSourceControl: {3 mType=ime mSurfacePosition=Point(40, 1184) mInsetsHint=Insets{left=0, top=0, right=0, bottom=0}}
+        InsetsSourceControl: {8ece0001 mType=navigationBars initiallyVisible mSurfacePosition=Point(0, 1184) mInsetsHint=Insets{left=0, top=0, right=0, bottom=96}}
+        InsetsSourceControl: {f3060000 mType=statusBars initiallyVisible mSurfacePosition=Point(0, 0) mInsetsHint=Insets{left=0, top=48, right=0, bottom=0}}
+    InsetsSourceProviders:
+      ImeInsetsSourceProvider
+        mSource=InsetsSource id=3 type=ime frame=[0,0][0,0] visible=false flags=
+        mSourceFrame=Rect(40, 1280 - 680, 1280)
+        mControl=InsetsSourceControl mId=3 mType=ime mLeash=Surface(name=Surface(name=807f3af InputMethod)/@0xa744f45 - animation-leash of insets_animation)/@0x83bfeda mInitiallyVisible=false mSurfacePosition=Point(40, 1184) mInsetsHint=Insets{left=0, top=0, right=0, bottom=0} mSkipAnimationOnce=false
+        mInsetsHint=Insets{left=0, top=0, right=0, bottom=0} stale
+        mIsLeashReadyForDispatching=true
+        mWindowContainer=Window{807f3af u0 InputMethod}
+        mAdapter=ControlAdapter mCapturedLeash=Surface(name=Surface(name=807f3af InputMethod)/@0xa744f45 - animation-leash of insets_animation)/@0x83bfeda
+        mControlTarget=Window{ce13b7a u0 com.tencent.wework/com.tencent.wework.login.controller.LoginQrCodeForAndroidPad}
+        mImeShowing=false
+      InsetsSourceProvider
+        mSource=InsetsSource id=f3060006 type=tappableElement frame=[0,0][720,48] visible=true flags=
+        mSourceFrame=Rect(0, 0 - 720, 48)
+        mIsLeashReadyForDispatching=true
+        mWindowContainer=Window{b9929d9 u0 StatusBar}
+      InsetsSourceProvider
+        mSource=InsetsSource id=f3060005 type=mandatorySystemGestures frame=[0,0][720,48] visible=true flags=
+        mSourceFrame=Rect(0, 0 - 720, 48)
+        mIsLeashReadyForDispatching=true
+        mWindowContainer=Window{b9929d9 u0 StatusBar}
+      InsetsSourceProvider
+        mSource=InsetsSource id=f3060000 type=statusBars frame=[0,0][720,48] visible=true flags=
+        mSourceFrame=Rect(0, 0 - 720, 48)
+        mControl=InsetsSourceControl mId=f3060000 mType=statusBars mLeash=Surface(name=Surface(name=b9929d9 StatusBar)/@0x11a7d8f - animation-leash of insets_animation)/@0xfce1f0b mInitiallyVisible=true mSurfacePosition=Point(0, 0) mInsetsHint=Insets{left=0, top=48, right=0, bottom=0} mSkipAnimationOnce=false
+        mInsetsHint=Insets{left=0, top=48, right=0, bottom=0}
+        mIsLeashReadyForDispatching=true
+        mWindowContainer=Window{b9929d9 u0 StatusBar}
+        mAdapter=ControlAdapter mCapturedLeash=Surface(name=Surface(name=b9929d9 StatusBar)/@0x11a7d8f - animation-leash of insets_animation)/@0xfce1f0b
+        mControlTarget=Window{ce13b7a u0 com.tencent.wework/com.tencent.wework.login.controller.LoginQrCodeForAndroidPad}
+      InsetsSourceProvider
+        mSource=InsetsSource id=8ece0024 type=systemGestures frame=[0,0][0,0] visible=true flags=
+        mSourceFrame=Rect(0, 0 - 0, 0)
+        mIsLeashReadyForDispatching=true
+        mWindowContainer=Window{824f58d u0 NavigationBar0}
+      InsetsSourceProvider
+        mSource=InsetsSource id=8ece0006 type=tappableElement frame=[0,1184][720,1280] visible=true flags=
+        mSourceFrame=Rect(0, 1184 - 720, 1280)
+        mIsLeashReadyForDispatching=true
+        mWindowContainer=Window{824f58d u0 NavigationBar0}
+      InsetsSourceProvider
+        mSource=InsetsSource id=8ece0005 type=mandatorySystemGestures frame=[0,1184][720,1280] visible=true flags=
+        mSourceFrame=Rect(0, 1184 - 720, 1280)
+        mIsLeashReadyForDispatching=true
+        mWindowContainer=Window{824f58d u0 NavigationBar0}
+      InsetsSourceProvider
+        mSource=InsetsSource id=8ece0004 type=systemGestures frame=[0,0][0,0] visible=true flags=
+        mSourceFrame=Rect(0, 0 - 0, 0)
+        mIsLeashReadyForDispatching=true
+        mWindowContainer=Window{824f58d u0 NavigationBar0}
+      InsetsSourceProvider
+        mSource=InsetsSource id=8ece0001 type=navigationBars frame=[0,1184][720,1280] visible=true flags=
+        mSourceFrame=Rect(0, 1184 - 720, 1280)
+        mControl=InsetsSourceControl mId=8ece0001 mType=navigationBars mLeash=Surface(name=Surface(name=824f58d NavigationBar0)/@0x623381c - animation-leash of insets_animation)/@0x5bac1e8 mInitiallyVisible=true mSurfacePosition=Point(0, 1184) mInsetsHint=Insets{left=0, top=0, right=0, bottom=96} mSkipAnimationOnce=false
+        mInsetsHint=Insets{left=0, top=0, right=0, bottom=96}
+        mIsLeashReadyForDispatching=true
+        mWindowContainer=Window{824f58d u0 NavigationBar0}
+        mAdapter=ControlAdapter mCapturedLeash=Surface(name=Surface(name=824f58d NavigationBar0)/@0x623381c - animation-leash of insets_animation)/@0x5bac1e8
+        mControlTarget=Window{ce13b7a u0 com.tencent.wework/com.tencent.wework.login.controller.LoginQrCodeForAndroidPad}
+  InsetsPolicy
+    status: WINDOW_STATE_SHOWING
+    nav: WINDOW_STATE_SHOWING
+
+  KeyguardController:
+    mKeyguardShowing=false
+    mAodShowing=false
+    mKeyguardGoingAway=false
+   KeyguardShowing=false AodShowing=false KeyguardGoingAway=false DismissalRequested=false  Occluded=false DismissingKeyguardActivity=null TurnScreenOnActivity=null at display=0
+    mDismissalRequested=false
+
+  LockTaskController:
+    mLockTaskModeState=NONE
+    mLockTaskModeTasks=
+    mLockTaskPackages (userId:packages)=
+
+  mCurTaskIdForUser={0=9}
+  mUserRootTaskInFront={}
+  mVisibilityTransactionDepth=0
+  isHomeRecentsComponent=true
+  mNoHistoryActivities=[]
+
+  TaskOrganizerController:
+      android.window.ITaskOrganizer$Stub$Proxy@262dc0 uid=10063:
+        (fullscreen) Task{63595cc #1 type=home}
+        (fullscreen) Task{be53f14 #2 type=undefined}
+        (multi-window) Task{964fd7b #3 type=undefined}
+        (multi-window) Task{23a67ae #4 type=undefined}
+        (fullscreen) Task{7c7022d #7 type=standard A=10087:org.lsposed.manager}
+        (fullscreen) Task{6a0b605 #9 type=standard A=10089:com.tencent.wework}
+
+  VisibleActivityProcess:[ ProcessRecord{26fc08b 2929:com.tencent.wework/u0a89}]
+  NumNonAppVisibleWindowUidMap:[ 10063:2]
