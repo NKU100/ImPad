@@ -1,5 +1,6 @@
 import argparse
 import hashlib
+from http.client import HTTPException
 import json
 import os
 import re
@@ -24,6 +25,10 @@ CHUNK_SIZE = 1024 * 1024
 PROGRESS_INTERVAL_SECONDS = 10
 PROGRESS_BAR_WIDTH = 30
 MIB = 1024 * 1024
+
+
+class TruncatedDownload(HTTPException):
+    """The response ended before its advertised APK bytes arrived."""
 
 
 class DownloadProgress:
@@ -148,6 +153,13 @@ def header_metadata(headers) -> dict[str, object]:
 
 
 def request_urlopen(request, timeout, allow_external):
+    from scripts.ci.apps.qq.download_transport import enabled_for_url, transport
+    if enabled_for_url(request.full_url):
+        if os.environ.get('APK_DOWNLOAD_DIAGNOSTICS'):
+            from scripts.ci.download_diagnostics import DownloadTrace, TracedResponse
+            trace = DownloadTrace(request)
+            return TracedResponse(transport.open(request, timeout, trace), trace)
+        return transport.open(request, timeout)
     if os.environ.get('APK_DOWNLOAD_DIAGNOSTICS'):
         from scripts.ci.download_diagnostics import (
             DownloadTrace, TracedHTTPHandler, TracedHTTPSHandler, TracedResponse, error_fields,
@@ -211,6 +223,25 @@ def write_metadata(path: Path, metadata: dict[str, object]) -> None:
 
 
 def download_candidate(
+    url: str, cache_dir: Path, expected_sha256: str, remote: dict[str, object], policy,
+    *, allow_external=False,
+) -> tuple[Path, str, bool, dict[str, object]]:
+    from scripts.ci.apps.qq.download_transport import enabled_for_url, transient, transport
+    failover = enabled_for_url(url)
+    deadline = time.monotonic() + 900 if failover else None
+    for attempt in range(3 if failover else 1):
+        try:
+            return _download_candidate_once(url, cache_dir, expected_sha256, remote, policy,
+                                            allow_external=allow_external, deadline=deadline)
+        except Exception as error:
+            if not failover or not transient(error) or attempt == 2 or time.monotonic() >= deadline:
+                raise
+            transport.reject_preferred()
+            print(f'QQ APK transfer interrupted ({type(error).__name__}); retrying on another edge '
+                  f'({attempt + 2}/3)', file=sys.stderr, flush=True)
+
+
+def _download_candidate_once(
     url: str,
     cache_dir: Path,
     expected_sha256: str,
@@ -218,6 +249,7 @@ def download_candidate(
     policy,
     *,
     allow_external=False,
+    deadline=None,
 ) -> tuple[Path, str, bool, dict[str, object]]:
     if allow_external:
         validate_download_url(url)
@@ -272,6 +304,8 @@ def download_candidate(
                 try:
                     # read1 returns whatever has arrived, so a slow transfer still reports progress.
                     for block in iter(lambda: response.read1(CHUNK_SIZE), b""):
+                        if deadline is not None and time.monotonic() >= deadline:
+                            raise TimeoutError('QQ APK download exceeded its 15 minute budget')
                         byte_count += len(block)
                         if byte_count > MAX_APK_BYTES:
                             raise ValueError("Official WeChat APK exceeded the 1.5 GB safety limit")
@@ -287,7 +321,8 @@ def download_candidate(
         if advertised_length is None:
             advertised_length = downloaded_headers.get("content_length")
         if advertised_length is not None and byte_count != advertised_length:
-            raise ValueError(f"Downloaded byte count {byte_count} does not match Content-Length {advertised_length}")
+            error = TruncatedDownload if deadline is not None else ValueError
+            raise error(f"Downloaded byte count {byte_count} does not match Content-Length {advertised_length}")
 
         actual_sha256 = digest.hexdigest()
         if expected_sha256 and actual_sha256 != expected_sha256:

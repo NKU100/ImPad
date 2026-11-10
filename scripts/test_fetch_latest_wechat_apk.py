@@ -1,4 +1,5 @@
 import io
+import os
 import tempfile
 import unittest
 from dataclasses import replace
@@ -72,6 +73,38 @@ class DownloadProgressTest(unittest.TestCase):
 
 
 class AppScopedDownloadTest(unittest.TestCase):
+    def test_qq_early_eof_retries_without_accepting_a_truncated_apk(self):
+        url = 'https://downv6.qq.com/qqweb/QQ_1/android_apk/test.apk'
+        truncated = Response(url, body=b'partial')
+        truncated.headers['Content-Length'] = '100'
+        complete = Response(url, body=b'complete-apk')
+        with tempfile.TemporaryDirectory() as temporary, \
+                patch.dict(os.environ, {'QQ_APK_EDGE_FALLBACK': '1'}), \
+                patch('scripts.ci.apps.qq.download_transport.getproxies', return_value={}), \
+                patch('scripts.ci.fetch_latest_wechat_apk.request_urlopen', side_effect=[truncated, complete]), \
+                patch('scripts.ci.apps.qq.download_transport.transport.reject_preferred'), \
+                patch('sys.stderr', io.StringIO()):
+            path, _, _, _ = download_candidate(url, Path(temporary), '', {}, get_policy('qq'))
+            self.assertEqual(path.read_bytes(), b'complete-apk')
+
+    def test_qq_partial_transfer_is_discarded_before_retrying_another_edge(self):
+        url = 'https://downv6.qq.com/qqweb/QQ_1/android_apk/test.apk'
+        interrupted = Response(url, body=b'partial', failure=TimeoutError('read stalled'))
+        interrupted.headers['Content-Length'] = '100'
+        completed = Response(url, body=b'complete-apk')
+        with tempfile.TemporaryDirectory() as temporary, \
+                patch.dict(os.environ, {'QQ_APK_EDGE_FALLBACK': '1'}), \
+                patch('scripts.ci.apps.qq.download_transport.getproxies', return_value={}), \
+                patch('scripts.ci.fetch_latest_wechat_apk.request_urlopen', side_effect=[interrupted, completed]), \
+                patch('scripts.ci.apps.qq.download_transport.transport.reject_preferred') as reject, \
+                patch('sys.stderr', io.StringIO()):
+            path, digest, reused, _ = download_candidate(url, Path(temporary), '', {}, get_policy('qq'))
+            self.assertEqual(path.read_bytes(), b'complete-apk')
+            self.assertFalse(reused)
+            self.assertEqual(len(digest), 64)
+            self.assertFalse(list(Path(temporary).glob('.candidate-download-*')))
+            reject.assert_called_once()
+
     def setUp(self):
         self.prefix = 'https://apk.synthetic.invalid/official/'
         self.policy = replace(get_policy('wechat'), official_apk_prefix=self.prefix)

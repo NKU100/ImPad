@@ -96,6 +96,7 @@ jobs:
             --output work/build-badge/compatibility-tests.json \
             --tests "$discovery_test" scripts.test_candidate_selection scripts.test_app_policy \
             scripts.test_download_diagnostics scripts.test_fetch_latest_wechat_apk scripts.test_download_url \
+            scripts.test_qq_download_routes \
             scripts.test_codex_adaptation scripts.test_adaptation_checkpoint scripts.test_codex_task \
             scripts.test_runtime_adaptation scripts.test_runtime_task scripts.test_static_regression \
             scripts.test_acceptance_reuse scripts.test_acceptance_reuse_workflow \
@@ -226,6 +227,7 @@ jobs:
       ARTIFACT_PREFIX: ${{ needs.prepare.outputs.artifact_prefix }}
       ADAPTATION_PROMPT: ${{ needs.prepare.outputs.adaptation_prompt }}
       APK_DOWNLOAD_DIAGNOSTICS: ${{ github.workspace }}/work/download-diagnostics
+      QQ_APK_EDGE_FALLBACK: '1'
     steps:
       - name: Check out trusted DexKit preparation source
         uses: actions/checkout@v7

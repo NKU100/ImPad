@@ -1,13 +1,41 @@
 """Resolve alternative public IPv4 edges for QQ's official APK host."""
 from concurrent.futures import ThreadPoolExecutor
 import ipaddress
+import http.client
 import json
 import time
-from urllib.parse import urlencode
-from urllib.request import Request, urlopen
+import socket
+from urllib.parse import urlencode, urlsplit
+from urllib.request import Request, urlopen, HTTPSHandler, build_opener
 
 from scripts.ci.apps.qq.discovery_policy import MAINLAND_CLIENT_SUBNETS
 from scripts.ci.discover_latest_wechat import USER_AGENT
+from scripts.ci.download_url import SafeRedirectHandler
+
+
+def edge_opener(address, host='downv6.qq.com', trace=None):
+    if not ipaddress.IPv4Address(address).is_global:
+        raise ValueError('QQ edge address must be public IPv4')
+    base = http.client.HTTPSConnection
+    if trace is not None:
+        from scripts.ci.download_diagnostics import connection_class
+        base = connection_class(base, trace)
+
+    class EdgeHandler(HTTPSHandler):
+        def https_open(self, request):
+            def connection(target_host, **kwargs):
+                result = base(target_host, **kwargs)
+                connect = trace.connect if trace is not None else socket.create_connection
+
+                def pinned(target, timeout=socket._GLOBAL_DEFAULT_TIMEOUT, source_address=None):
+                    destination = (address, target[1]) if target[0] == host else target
+                    return connect(destination, timeout, source_address)
+
+                result._create_connection = pinned
+                return result
+            return self.do_open(connection, request, context=self._context)
+
+    return build_opener(EdgeHandler(), SafeRedirectHandler(diagnostics=trace))
 
 
 def public_ipv4_answers(payload):

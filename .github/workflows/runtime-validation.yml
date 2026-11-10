@@ -94,6 +94,7 @@ jobs:
       APP_ID: ${{ inputs.app_id }}
       CANDIDATE_MODE: ${{ inputs.candidate_mode || 'latest' }}
       APK_DOWNLOAD_DIAGNOSTICS: ${{ github.workspace }}/work/download-diagnostics
+      QQ_APK_EDGE_FALLBACK: '1'
     steps:
       - name: Validate operation and candidate artifact contract
         env:
@@ -420,6 +421,7 @@ jobs:
       IMPAD_ADB_BINARY: /usr/bin/adb
       GH_TOKEN: ${{ github.token }}
       APK_DOWNLOAD_DIAGNOSTICS: ${{ github.workspace }}/work/download-diagnostics
+      QQ_APK_EDGE_FALLBACK: '1'
     steps:
       - uses: actions/checkout@v7
       - uses: actions/download-artifact@v8

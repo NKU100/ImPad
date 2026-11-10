@@ -11,11 +11,12 @@ import sys
 import time
 import traceback
 from urllib.parse import urlsplit
+from urllib.request import Request
 from unittest.mock import patch
 
 from scripts.ci.app_policy import get_policy
-from scripts.ci.apps.qq.discovery_policy import EdgeConnection
-from scripts.ci.apps.qq.download_routes import resolve_download_routes
+from scripts.ci.apps.qq.download_policy import valid_download_redirect
+from scripts.ci.apps.qq.download_routes import edge_opener, resolve_download_routes
 from scripts.ci.discover_latest_wechat import USER_AGENT, validate_official_apk_url
 from scripts.ci.fetch_latest_wechat_apk import remote_metadata
 
@@ -112,28 +113,26 @@ def probe_download_route(item, url):
     parsed = urlsplit(url)
     result = {'address': address, 'sources': sources, 'stage': 'HEAD'}
     started = time.monotonic()
-    connection = None
     try:
-        connection = EdgeConnection(parsed.hostname, address, timeout=6)
-        connection.request('HEAD', parsed.path, headers={'User-Agent': USER_AGENT})
-        response = connection.getresponse()
-        result['headStatus'] = response.status
-        result['headSeconds'] = round(time.monotonic() - started, 3)
-        connection.close()
-        if response.status != 200:
-            result['stage'] = 'HEAD_REJECTED'
-            return result
+        opener = edge_opener(address, parsed.hostname)
+        with opener.open(Request(url, headers={'User-Agent': USER_AGENT}, method='HEAD'), timeout=6) as response:
+            result['headStatus'] = response.status
+            result['headSeconds'] = round(time.monotonic() - started, 3)
+            if response.status != 200:
+                result['stage'] = 'HEAD_REJECTED'
+                return result
         result['stage'] = 'GET'
-        connection = EdgeConnection(parsed.hostname, address, timeout=6)
-        connection.request('GET', parsed.path, headers={
-            'User-Agent': USER_AGENT, 'Range': 'bytes=0-65535',
-        })
-        response = connection.getresponse()
-        result['getStatus'] = response.status
-        if response.status not in (200, 206):
-            result['stage'] = 'GET_REJECTED'
-            return result
-        data = response.read(65536)
+        with opener.open(Request(url, headers={
+                'User-Agent': USER_AGENT, 'Range': 'bytes=0-65535'}), timeout=6) as response:
+            result['getStatus'] = response.status
+            result['redirected'] = response.geturl() != url
+            if result['redirected'] and not valid_download_redirect(response.geturl(), url):
+                result['stage'] = 'UNTRUSTED_REDIRECT'
+                return result
+            if response.status not in (200, 206):
+                result['stage'] = 'GET_REJECTED'
+                return result
+            data = response.read(65536)
         result['bytes'] = len(data)
         result['sampleSha256'] = hashlib.sha256(data).hexdigest()
         result['apkZipHeader'] = data.startswith(b'PK\x03\x04')
@@ -141,8 +140,6 @@ def probe_download_route(item, url):
     except Exception as error:
         result['error'] = repr(error)
     finally:
-        if connection is not None:
-            connection.close()
         result['seconds'] = round(time.monotonic() - started, 3)
         print(json.dumps(result), flush=True)
     return result
