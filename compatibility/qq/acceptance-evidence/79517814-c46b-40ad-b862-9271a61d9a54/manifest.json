@@ -1,0 +1,161 @@
+{
+  "schemaVersion": 1,
+  "recordId": "79517814-c46b-40ad-b862-9271a61d9a54",
+  "files": [
+    {
+      "sourcePath": "/home/runner/work/ImPad/ImPad/runtime-result/inputs/static-check.json",
+      "path": "compatibility/qq/acceptance-evidence/79517814-c46b-40ad-b862-9271a61d9a54/static-report.json",
+      "sha256": "ec46184c1b57202493f9f0c5e69091c6fe2fa78cbb1db4fdd76295bcd79a2c0a"
+    },
+    {
+      "sourcePath": "/home/runner/work/ImPad/ImPad/runtime-result/inputs/regression/results.json",
+      "path": "compatibility/qq/acceptance-evidence/79517814-c46b-40ad-b862-9271a61d9a54/regression-report.json",
+      "sha256": "5024bd756e80cc79be0e1a3f8c199c1285f39c7a0cc4b952491491ec91dcb0c1"
+    },
+    {
+      "sourcePath": "/home/runner/work/ImPad/ImPad/runtime-result/evidence/runtime-smoke/evidence/smoke-report.json",
+      "path": "compatibility/qq/acceptance-evidence/79517814-c46b-40ad-b862-9271a61d9a54/runtime-report.json",
+      "sha256": "94da46cd69e4fc6e4a296a421f1f3e8edefdb7d806da8f87d5ca211b6649f029"
+    },
+    {
+      "sourcePath": "/home/runner/work/ImPad/ImPad/runtime-result/evidence/runtime-smoke/apps/qq/capture-disabled.json",
+      "path": "compatibility/qq/acceptance-evidence/79517814-c46b-40ad-b862-9271a61d9a54/raw/raw-0000-capture-disabled.json",
+      "sha256": "b1c4ff084228fc25ae344bc4bca3de0b8d28348dcabc86cec48b4101b171a4c6"
+    },
+    {
+      "sourcePath": "/home/runner/work/ImPad/ImPad/runtime-result/evidence/runtime-smoke/apps/qq/capture-enabled.json",
+      "path": "compatibility/qq/acceptance-evidence/79517814-c46b-40ad-b862-9271a61d9a54/raw/raw-0001-capture-enabled.json",
+      "sha256": "9c61fa1f5eb756227b152314e79bf03b24fea87e05afde5903a1c680adbb44f9"
+    },
+    {
+      "sourcePath": "/home/runner/work/ImPad/ImPad/runtime-result/evidence/runtime-smoke/apps/qq/collector-disabled.txt",
+      "path": "compatibility/qq/acceptance-evidence/79517814-c46b-40ad-b862-9271a61d9a54/raw/raw-0002-collector-disabled.txt",
+      "sha256": "3c24a39151bd823aa9f395489a12343cb0c742ec97e6dfbf5e134c9aed2a631e"
+    },
+    {
+      "sourcePath": "/home/runner/work/ImPad/ImPad/runtime-result/evidence/runtime-smoke/apps/qq/collector-enabled.txt",
+      "path": "compatibility/qq/acceptance-evidence/79517814-c46b-40ad-b862-9271a61d9a54/raw/raw-0003-collector-enabled.txt",
+      "sha256": "d00218f4652a14ab17200e50f4fca55bfaa3d3a6446f75f331bb14ecf379fd45"
+    },
+    {
+      "sourcePath": "/home/runner/work/ImPad/ImPad/runtime-result/evidence/runtime-smoke/apps/qq/events-disabled.jsonl",
+      "path": "compatibility/qq/acceptance-evidence/79517814-c46b-40ad-b862-9271a61d9a54/raw/raw-0004-events-disabled.jsonl",
+      "sha256": "da02574365a45fb5889f257dbf3ad2960be6a2c8e42a7f8327251fad372ef3b1"
+    },
+    {
+      "sourcePath": "/home/runner/work/ImPad/ImPad/runtime-result/evidence/runtime-smoke/apps/qq/events-enabled.jsonl",
+      "path": "compatibility/qq/acceptance-evidence/79517814-c46b-40ad-b862-9271a61d9a54/raw/raw-0005-events-enabled.jsonl",
+      "sha256": "0f89fd406e9fc6b4f903610ba485118108205c5e8a4dbdd1d5e18a09a1d7bc37"
+    },
+    {
+      "sourcePath": "/home/runner/work/ImPad/ImPad/runtime-result/evidence/runtime-smoke/apps/qq/logcat-disabled.txt",
+      "path": "compatibility/qq/acceptance-evidence/79517814-c46b-40ad-b862-9271a61d9a54/raw/raw-0006-logcat-disabled.txt",
+      "sha256": "2ffd8fab4693f9c00fa6eef82e121d1e151175f2a2eea3c2b8968546b12f860f"
+    },
+    {
+      "sourcePath": "/home/runner/work/ImPad/ImPad/runtime-result/evidence/runtime-smoke/apps/qq/logcat-enabled.txt",
+      "path": "compatibility/qq/acceptance-evidence/79517814-c46b-40ad-b862-9271a61d9a54/raw/raw-0007-logcat-enabled.txt",
+      "sha256": "61c97c69da6d6e37ab8b3399fec678dc30dd979a82cbfc21b5dc6b073ab02997"
+    },
+    {
+      "sourcePath": "/home/runner/work/ImPad/ImPad/runtime-result/evidence/runtime-smoke/apps/qq/login-click.txt",
+      "path": "compatibility/qq/acceptance-evidence/79517814-c46b-40ad-b862-9271a61d9a54/raw/raw-0008-login-click.txt",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "sourcePath": "/home/runner/work/ImPad/ImPad/runtime-result/evidence/runtime-smoke/apps/qq/login-ready-activity.txt",
+      "path": "compatibility/qq/acceptance-evidence/79517814-c46b-40ad-b862-9271a61d9a54/raw/raw-0009-login-ready-activity.txt",
+      "sha256": "99dd99253475e2b46c3ad7a10968f6f2615c398f239c14220e2b0d6102af9764"
+    },
+    {
+      "sourcePath": "/home/runner/work/ImPad/ImPad/runtime-result/evidence/runtime-smoke/apps/qq/login-ready-current-activity.txt",
+      "path": "compatibility/qq/acceptance-evidence/79517814-c46b-40ad-b862-9271a61d9a54/raw/raw-0010-login-ready-current-activity.txt",
+      "sha256": "26fe6778ad2f51f1318c7cdf54ecfd44523e64ed72fffeaaa8c4a1e6daf3ffc7"
+    },
+    {
+      "sourcePath": "/home/runner/work/ImPad/ImPad/runtime-result/evidence/runtime-smoke/apps/qq/login-ready-current-dump.txt",
+      "path": "compatibility/qq/acceptance-evidence/79517814-c46b-40ad-b862-9271a61d9a54/raw/raw-0011-login-ready-current-dump.txt",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "sourcePath": "/home/runner/work/ImPad/ImPad/runtime-result/evidence/runtime-smoke/apps/qq/login-ready-current.png",
+      "path": "compatibility/qq/acceptance-evidence/79517814-c46b-40ad-b862-9271a61d9a54/raw/raw-0012-login-ready-current.png",
+      "sha256": "bc9b779728deb2996a7c6699d37c39aab6db262fe00a038d208230166181a8cf"
+    },
+    {
+      "sourcePath": "/home/runner/work/ImPad/ImPad/runtime-result/evidence/runtime-smoke/apps/qq/login-ready-current.xml",
+      "path": "compatibility/qq/acceptance-evidence/79517814-c46b-40ad-b862-9271a61d9a54/raw/raw-0013-login-ready-current.xml",
+      "sha256": "615cd7dfa54522322e3131ce75ef607189c988598889f4684551494db82cecf8"
+    },
+    {
+      "sourcePath": "/home/runner/work/ImPad/ImPad/runtime-result/evidence/runtime-smoke/apps/qq/login-ready-dump.txt",
+      "path": "compatibility/qq/acceptance-evidence/79517814-c46b-40ad-b862-9271a61d9a54/raw/raw-0014-login-ready-dump.txt",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "sourcePath": "/home/runner/work/ImPad/ImPad/runtime-result/evidence/runtime-smoke/apps/qq/login-ready.png",
+      "path": "compatibility/qq/acceptance-evidence/79517814-c46b-40ad-b862-9271a61d9a54/raw/raw-0015-login-ready.png",
+      "sha256": "bc9b779728deb2996a7c6699d37c39aab6db262fe00a038d208230166181a8cf"
+    },
+    {
+      "sourcePath": "/home/runner/work/ImPad/ImPad/runtime-result/evidence/runtime-smoke/apps/qq/login-ready.xml",
+      "path": "compatibility/qq/acceptance-evidence/79517814-c46b-40ad-b862-9271a61d9a54/raw/raw-0016-login-ready.xml",
+      "sha256": "615cd7dfa54522322e3131ce75ef607189c988598889f4684551494db82cecf8"
+    },
+    {
+      "sourcePath": "/home/runner/work/ImPad/ImPad/runtime-result/evidence/runtime-smoke/apps/qq/manager-current-activity.txt",
+      "path": "compatibility/qq/acceptance-evidence/79517814-c46b-40ad-b862-9271a61d9a54/raw/raw-0017-manager-current-activity.txt",
+      "sha256": "563a26e391e3d27879a94889e6369d2ee7623fd8f048a6aa2e378b212c5b774c"
+    },
+    {
+      "sourcePath": "/home/runner/work/ImPad/ImPad/runtime-result/evidence/runtime-smoke/apps/qq/manager-current-dump.txt",
+      "path": "compatibility/qq/acceptance-evidence/79517814-c46b-40ad-b862-9271a61d9a54/raw/raw-0018-manager-current-dump.txt",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "sourcePath": "/home/runner/work/ImPad/ImPad/runtime-result/evidence/runtime-smoke/apps/qq/manager-current-ocr.tsv",
+      "path": "compatibility/qq/acceptance-evidence/79517814-c46b-40ad-b862-9271a61d9a54/raw/raw-0019-manager-current-ocr.tsv",
+      "sha256": "8577d441a39f44e3562b1eca16e26a7f594fabef8fa4ec4afd4cb01e12bb2e19"
+    },
+    {
+      "sourcePath": "/home/runner/work/ImPad/ImPad/runtime-result/evidence/runtime-smoke/apps/qq/manager-current.png",
+      "path": "compatibility/qq/acceptance-evidence/79517814-c46b-40ad-b862-9271a61d9a54/raw/raw-0020-manager-current.png",
+      "sha256": "422ae40eb28e586b0b8734a16aff1ec8fbbc57b6de2b299c502803efd9d42ed4"
+    },
+    {
+      "sourcePath": "/home/runner/work/ImPad/ImPad/runtime-result/evidence/runtime-smoke/apps/qq/manager-current.xml",
+      "path": "compatibility/qq/acceptance-evidence/79517814-c46b-40ad-b862-9271a61d9a54/raw/raw-0021-manager-current.xml",
+      "sha256": "4c557e09d44242e6adf37cbd553eb65af809bbc6e1931108bb497474694ac2b3"
+    },
+    {
+      "sourcePath": "/home/runner/work/ImPad/ImPad/runtime-result/evidence/runtime-smoke/apps/qq/manager-enable-requested-activity.txt",
+      "path": "compatibility/qq/acceptance-evidence/79517814-c46b-40ad-b862-9271a61d9a54/raw/raw-0022-manager-enable-requested-activity.txt",
+      "sha256": "b7d43ff133e3a7b73bbc63c40311b2124c7efbb54743420dbfc0dd0ed103a009"
+    },
+    {
+      "sourcePath": "/home/runner/work/ImPad/ImPad/runtime-result/evidence/runtime-smoke/apps/qq/manager-enable-requested-dump.txt",
+      "path": "compatibility/qq/acceptance-evidence/79517814-c46b-40ad-b862-9271a61d9a54/raw/raw-0023-manager-enable-requested-dump.txt",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "sourcePath": "/home/runner/work/ImPad/ImPad/runtime-result/evidence/runtime-smoke/apps/qq/manager-enable-requested.png",
+      "path": "compatibility/qq/acceptance-evidence/79517814-c46b-40ad-b862-9271a61d9a54/raw/raw-0024-manager-enable-requested.png",
+      "sha256": "a2b619e530e7851d5578c660761bb97f3c150d807cb343547986cf4a19c45638"
+    },
+    {
+      "sourcePath": "/home/runner/work/ImPad/ImPad/runtime-result/evidence/runtime-smoke/apps/qq/manager-enable-requested.xml",
+      "path": "compatibility/qq/acceptance-evidence/79517814-c46b-40ad-b862-9271a61d9a54/raw/raw-0025-manager-enable-requested.xml",
+      "sha256": "4c557e09d44242e6adf37cbd553eb65af809bbc6e1931108bb497474694ac2b3"
+    },
+    {
+      "sourcePath": "/home/runner/work/ImPad/ImPad/runtime-result/evidence/runtime-smoke/apps/qq/manager-module-state.json",
+      "path": "compatibility/qq/acceptance-evidence/79517814-c46b-40ad-b862-9271a61d9a54/raw/raw-0026-manager-module-state.json",
+      "sha256": "501a11c33ad8759cbd2d539b4078deee8e930fff335dec7af5cd14066acf72a5"
+    },
+    {
+      "sourcePath": "/home/runner/work/ImPad/ImPad/runtime-result/evidence/runtime-smoke/apps/qq/processes-enabled.txt",
+      "path": "compatibility/qq/acceptance-evidence/79517814-c46b-40ad-b862-9271a61d9a54/raw/raw-0027-processes-enabled.txt",
+      "sha256": "b778506c54d1096cefd752406f1a086ef1202168ced4d74bdd4f94386c8cbf01"
+    }
+  ]
+}

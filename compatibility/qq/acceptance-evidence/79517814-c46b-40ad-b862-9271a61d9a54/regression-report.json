@@ -1,0 +1,62 @@
+[
+  {
+    "appId": "qq",
+    "recordId": "882ecfff-4b7f-4dcb-bd78-fbb3c68afb32",
+    "identity": {
+      "packageName": "com.tencent.mobileqq",
+      "versionName": "9.3.1",
+      "versionCode": 14378,
+      "abi": "arm64-v8a",
+      "apkSha256": "ccf9714d268662ee8311add537705e66dee3367d45a20eabbf57b0070949595e",
+      "signerSha256": "ea6e97ad6c34f7039a9c6daba732c97d0e098e83ede2b4d52c76eb0184ac7a38"
+    },
+    "acceptanceSnapshotSha256": "34c459bb3dfe1e2ec4de62bb7a8760466209448a1e49b54882ae443d26599aee",
+    "migrationHistorySha256": "abb60b738afb73ba75cda027f8943ccf1d0045bc72f7d14470cfc4e2a82307d7",
+    "migrationExpectationsSha256": "19e5b477f985c3711ef011582a057c0909ac7791e1811932531dd395918b828f",
+    "profileId": "qq-14378",
+    "initialMigration": false,
+    "baselineSha256": "2e38dcee07586d444840332e6b7cccc246f2ac487fa42a3f9636f30d05f4c5f5",
+    "v2SnapshotSha256": "4151253486715e560c1e8eec2b9f5eca7a92dd663e6611fa3f89f892ef4f9a90",
+    "baselineSourceCase": {
+      "kind": "MIGRATION",
+      "recordId": "882ecfff-4b7f-4dcb-bd78-fbb3c68afb32",
+      "profileId": "qq-14378",
+      "sourceSha256": "34c459bb3dfe1e2ec4de62bb7a8760466209448a1e49b54882ae443d26599aee"
+    },
+    "staticEvidence": {
+      "path": "qq-com.tencent.mobileqq-arm64-v8a-14378-ccf9714d268662ee8311add537705e66dee3367d45a20eabbf57b0070949595e.json",
+      "sha256": "6e62abbc4370752dad4484e775a6adaf6f75e1acc351518333614a3f08f27c9f"
+    },
+    "status": "PASSED"
+  },
+  {
+    "appId": "qq",
+    "recordId": "ad67d3de-5630-4e18-8812-124c24474d2d",
+    "identity": {
+      "packageName": "com.tencent.mobileqq",
+      "versionName": "9.3.80",
+      "versionCode": 16750,
+      "abi": "arm64-v8a",
+      "apkSha256": "fb8d513903b724ead9542c5607a82b0397fe33059d9b2c80fd40c9edc25861d5",
+      "signerSha256": "ea6e97ad6c34f7039a9c6daba732c97d0e098e83ede2b4d52c76eb0184ac7a38"
+    },
+    "acceptanceSnapshotSha256": "4151253486715e560c1e8eec2b9f5eca7a92dd663e6611fa3f89f892ef4f9a90",
+    "migrationHistorySha256": "abb60b738afb73ba75cda027f8943ccf1d0045bc72f7d14470cfc4e2a82307d7",
+    "migrationExpectationsSha256": "19e5b477f985c3711ef011582a057c0909ac7791e1811932531dd395918b828f",
+    "profileId": null,
+    "initialMigration": false,
+    "baselineSha256": "2e38dcee07586d444840332e6b7cccc246f2ac487fa42a3f9636f30d05f4c5f5",
+    "v2SnapshotSha256": "4151253486715e560c1e8eec2b9f5eca7a92dd663e6611fa3f89f892ef4f9a90",
+    "baselineSourceCase": {
+      "kind": "ACCEPTED_V2",
+      "recordId": "ad67d3de-5630-4e18-8812-124c24474d2d",
+      "profileId": null,
+      "sourceSha256": "4151253486715e560c1e8eec2b9f5eca7a92dd663e6611fa3f89f892ef4f9a90"
+    },
+    "staticEvidence": {
+      "path": "qq-com.tencent.mobileqq-arm64-v8a-16750-fb8d513903b724ead9542c5607a82b0397fe33059d9b2c80fd40c9edc25861d5.json",
+      "sha256": "c3e16e8fd838a5d4c2bea1861e6c234d060f3b79f636ccb7df6d67bf1b90e662"
+    },
+    "status": "PASSED"
+  }
+]
