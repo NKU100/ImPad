@@ -1,4 +1,4 @@
-"""Diagnose QQ download connectivity without retrieving the APK body."""
+"""Diagnose QQ download connectivity with bounded APK transfer samples."""
 import argparse
 from concurrent.futures import ThreadPoolExecutor
 import hashlib
