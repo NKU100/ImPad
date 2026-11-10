@@ -17,6 +17,45 @@ from scripts.ci.fetch_latest_wechat_apk import request_urlopen
 
 
 class DownloadDiagnosticsTest(unittest.TestCase):
+    def test_url_paths_are_omitted_from_diagnostics(self):
+        from scripts.ci.download_diagnostics import DownloadTrace
+        with tempfile.TemporaryDirectory() as temporary, \
+                patch.dict(os.environ, {'APK_DOWNLOAD_DIAGNOSTICS': temporary}), \
+                patch('sys.stderr', io.StringIO()) as log:
+            DownloadTrace(Request('https://download.example/secret/app.apk?token=also-secret'))
+            text = log.getvalue() + ''.join(p.read_text() for p in Path(temporary).glob('*.jsonl'))
+            self.assertNotIn('secret', text)
+            self.assertIn('download.example', text)
+
+    def test_proxy_connect_timeout_is_distinguished_from_tls(self):
+        class Handler(BaseHTTPRequestHandler):
+            def do_CONNECT(self):
+                time.sleep(0.2)
+
+            def log_message(self, *args):
+                pass
+
+        server = ThreadingHTTPServer(('127.0.0.1', 0), Handler)
+        thread = threading.Thread(target=server.serve_forever, daemon=True)
+        thread.start()
+        try:
+            with tempfile.TemporaryDirectory() as temporary, \
+                    patch.dict(os.environ, {'APK_DOWNLOAD_DIAGNOSTICS': temporary}), \
+                    patch('urllib.request.getproxies', return_value={'https': f'http://127.0.0.1:{server.server_port}'}), \
+                    patch('urllib.request.proxy_bypass', return_value=False), \
+                    patch('sys.stderr', io.StringIO()):
+                with self.assertRaises(URLError):
+                    request_urlopen(Request('https://download.example/app.apk'), 0.1, False)
+                events = [json.loads(line) for p in Path(temporary).glob('*.jsonl')
+                          for line in p.read_text().splitlines()]
+                kinds = [row['event'] for row in events]
+                self.assertIn('proxy_tunnel_error', kinds)
+                self.assertNotIn('tls_start', kinds)
+        finally:
+            server.shutdown()
+            server.server_close()
+            thread.join()
+
     def test_external_private_addresses_remain_blocked_with_tracing(self):
         rows = [(socket.AF_INET, socket.SOCK_STREAM, 6, '', ('127.0.0.1', 443))]
         with tempfile.TemporaryDirectory() as temporary, \

@@ -14,7 +14,7 @@ import uuid
 
 def public_url(url):
     parsed = urlsplit(url)
-    return urlunsplit((parsed.scheme, parsed.netloc.rsplit('@', 1)[-1], parsed.path, '', ''))
+    return urlunsplit((parsed.scheme, parsed.netloc.rsplit('@', 1)[-1], '', '', ''))
 
 
 def error_fields(error):
@@ -117,9 +117,21 @@ def connection_class(base, trace):
             if hasattr(self, '_context'):
                 self._context = TracedTLSContext(self._context, trace)
 
+        def _tunnel(self):
+            started = time.monotonic()
+            trace.emit('proxy_tunnel_start', proxy=self.host, host=self._tunnel_host,
+                       port=self._tunnel_port)
+            try:
+                super()._tunnel()
+            except Exception as error:
+                trace.emit('proxy_tunnel_error', seconds=round(time.monotonic() - started, 3),
+                           **error_fields(error))
+                raise
+            trace.emit('proxy_tunnel_complete', seconds=round(time.monotonic() - started, 3))
+
         def getresponse(self):
             started = time.monotonic()
-            trace.emit('http_headers_start', host=self.host)
+            trace.emit('http_headers_start', host=self._tunnel_host or self.host)
             try:
                 response = super().getresponse()
             except Exception as error:
