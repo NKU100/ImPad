@@ -1,6 +1,7 @@
 """Diagnose QQ download connectivity without retrieving the APK body."""
 import argparse
 from concurrent.futures import ThreadPoolExecutor
+import hashlib
 import json
 from pathlib import Path
 import socket
@@ -13,6 +14,8 @@ from urllib.parse import urlsplit
 from unittest.mock import patch
 
 from scripts.ci.app_policy import get_policy
+from scripts.ci.apps.qq.discovery_policy import EdgeConnection
+from scripts.ci.apps.qq.download_routes import resolve_download_routes
 from scripts.ci.discover_latest_wechat import USER_AGENT, validate_official_apk_url
 from scripts.ci.fetch_latest_wechat_apk import remote_metadata
 
@@ -104,6 +107,47 @@ def probe_address(row, url):
     return result
 
 
+def probe_download_route(item, url):
+    address, sources = item
+    parsed = urlsplit(url)
+    result = {'address': address, 'sources': sources, 'stage': 'HEAD'}
+    started = time.monotonic()
+    connection = None
+    try:
+        connection = EdgeConnection(parsed.hostname, address, timeout=6)
+        connection.request('HEAD', parsed.path, headers={'User-Agent': USER_AGENT})
+        response = connection.getresponse()
+        result['headStatus'] = response.status
+        result['headSeconds'] = round(time.monotonic() - started, 3)
+        connection.close()
+        if response.status != 200:
+            result['stage'] = 'HEAD_REJECTED'
+            return result
+        result['stage'] = 'GET'
+        connection = EdgeConnection(parsed.hostname, address, timeout=6)
+        connection.request('GET', parsed.path, headers={
+            'User-Agent': USER_AGENT, 'Range': 'bytes=0-65535',
+        })
+        response = connection.getresponse()
+        result['getStatus'] = response.status
+        if response.status not in (200, 206):
+            result['stage'] = 'GET_REJECTED'
+            return result
+        data = response.read(65536)
+        result['bytes'] = len(data)
+        result['sampleSha256'] = hashlib.sha256(data).hexdigest()
+        result['apkZipHeader'] = data.startswith(b'PK\x03\x04')
+        result['stage'] = 'TRANSFER_CONFIRMED' if len(data) == 65536 and result['apkZipHeader'] else 'INVALID_SAMPLE'
+    except Exception as error:
+        result['error'] = repr(error)
+    finally:
+        if connection is not None:
+            connection.close()
+        result['seconds'] = round(time.monotonic() - started, 3)
+        print(json.dumps(result), flush=True)
+    return result
+
+
 def diagnose(url, directory):
     directory.mkdir(parents=True, exist_ok=True)
     baseline = [sys.executable, '-u', '-m', 'scripts.ci.diagnose_qq_download',
@@ -127,6 +171,13 @@ def diagnose(url, directory):
         dns = {'seconds': round(time.monotonic() - started, 3), 'error': repr(error)}
     with ThreadPoolExecutor(max_workers=8) as pool:
         results = list(pool.map(lambda row: probe_address(row, url), rows))
+    alternative_dns = resolve_download_routes(parsed.hostname)
+    candidates = {}
+    for source in alternative_dns:
+        for address in source['addresses']:
+            candidates.setdefault(address, []).append(source['source'])
+    with ThreadPoolExecutor(max_workers=8) as pool:
+        transfers = list(pool.map(lambda item: probe_download_route(item, url), candidates.items()))
     curl_results = []
     for label, flags in [('default', []), ('ipv4', ['-4']), ('ipv6', ['-6'])]:
         command = ['curl', *flags, '--head', '--location', '--max-redirs', '5',
@@ -142,7 +193,8 @@ def diagnose(url, directory):
             except subprocess.TimeoutExpired:
                 curl_results.append({'mode': label, 'error': 'Process exceeded 25s'})
     report = {'url': url, 'originalRequest': baseline_status, 'dns': dns,
-              'addresses': results, 'curl': curl_results}
+              'addresses': results, 'curl': curl_results,
+              'alternativeDns': alternative_dns, 'alternativeTransfers': transfers}
     (directory / 'report.json').write_text(json.dumps(report, indent=2) + '\n')
     summary = ['# QQ download network diagnosis', '', f'URL: `{url}`', '',
                f'Original Python HEAD: **{baseline_status}**; full DNS/TCP trace in artifact.', '',
@@ -153,6 +205,13 @@ def diagnose(url, directory):
         outcome = row.get('error', row.get('statusLine', '')).replace('|', '\\|')
         summary.append(f"| {row['address'][0]} | {row['family']} | {row['stage']} | "
                        f"{row['timings']['total']} | {outcome} |")
+    summary += ['', '## Alternative DNS and bounded APK transfer', '',
+                'Each route keeps the official hostname and TLS verification and reads at most 64 KiB.', '',
+                '| Address | DNS sources | Result | Seconds |',
+                '| --- | --- | --- | --- |']
+    for row in transfers:
+        outcome = row.get('error', row['stage']).replace('|', '\\|')
+        summary.append(f"| {row['address']} | {', '.join(row['sources'])} | {outcome} | {row['seconds']} |")
     summary += ['', 'curl comparison: `' + json.dumps(curl_results) + '`', '',
                 'A completed diagnostic does not imply that download connectivity passed. '
                 'Per-address HEAD probes keep TLS hostname verification and do not follow redirects; '
