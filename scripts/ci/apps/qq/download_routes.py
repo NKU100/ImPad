@@ -3,8 +3,11 @@ from concurrent.futures import ThreadPoolExecutor
 import ipaddress
 import http.client
 import json
+from pathlib import Path
 import time
 import socket
+import subprocess
+import sys
 from urllib.parse import urlencode, urlsplit
 from urllib.request import Request, urlopen, HTTPSHandler, build_opener
 
@@ -52,7 +55,7 @@ def public_ipv4_answers(payload):
     return addresses
 
 
-def resolve_download_routes(host='downv6.qq.com'):
+def _resolve_download_routes(host):
     if host != 'downv6.qq.com':
         raise ValueError('QQ edge resolution is restricted to the official APK host')
 
@@ -77,3 +80,40 @@ def resolve_download_routes(host='downv6.qq.com'):
 
     with ThreadPoolExecutor(max_workers=4) as pool:
         return list(pool.map(query, (None, *MAINLAND_CLIENT_SUBNETS)))
+
+
+def _resolver_process(mode, host, timeout):
+    if host != 'downv6.qq.com':
+        raise ValueError('QQ edge resolution is restricted to the official APK host')
+    # A socket timeout does not bound DNS or slow streaming DoH responses; kill the worker instead.
+    completed = subprocess.run(
+        [sys.executable, '-m', 'scripts.ci.apps.qq.download_routes', mode, host],
+        cwd=Path(__file__).resolve().parents[4],
+        capture_output=True, text=True, check=True, timeout=max(0.001, timeout))
+    return json.loads(completed.stdout)
+
+
+def resolve_download_routes(host='downv6.qq.com', timeout=8):
+    try:
+        return _resolver_process('--regional', host, timeout)
+    except (OSError, subprocess.SubprocessError, ValueError) as error:
+        return [{'source': 'alternative-dns', 'addresses': [], 'error': type(error).__name__}]
+
+
+def system_download_routes(timeout=8):
+    return _resolver_process('--system', 'downv6.qq.com', timeout)
+
+
+if __name__ == '__main__':
+    mode, host = sys.argv[1:]
+    if host != 'downv6.qq.com':
+        raise SystemExit('Unsupported DNS host')
+    if mode == '--system':
+        rows = socket.getaddrinfo(host, 443, socket.AF_INET, socket.SOCK_STREAM)
+        result = list(dict.fromkeys(row[4][0] for row in rows
+                                   if ipaddress.IPv4Address(row[4][0]).is_global))
+    elif mode == '--regional':
+        result = _resolve_download_routes(host)
+    else:
+        raise SystemExit('Unsupported DNS mode')
+    print(json.dumps(result))

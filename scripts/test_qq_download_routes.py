@@ -1,10 +1,29 @@
 import unittest
-import socket
+import subprocess
 from unittest.mock import patch
 from urllib.request import Request
 
 
 class QQDownloadRoutesTest(unittest.TestCase):
+    def test_primary_dns_timeout_still_uses_alternative_routes(self):
+        from scripts.ci.apps.qq.download_transport import QQDownloadTransport
+        response = object()
+        with patch('scripts.ci.apps.qq.download_transport.system_download_routes',
+                   side_effect=subprocess.TimeoutExpired('dns', 8)), \
+                patch('scripts.ci.apps.qq.download_transport.resolve_download_routes', return_value=[
+                    {'source': 'regional', 'addresses': ['8.8.8.8']}]), \
+                patch('scripts.ci.apps.qq.download_transport.edge_opener') as opener:
+            opener.return_value.open.return_value = response
+            self.assertIs(QQDownloadTransport().open(Request(
+                'https://downv6.qq.com/qqweb/QQ_1/android_apk/a.apk'), 30), response)
+
+    def test_alternative_resolution_has_a_process_deadline(self):
+        from scripts.ci.apps.qq.download_routes import resolve_download_routes
+        with patch('subprocess.run', side_effect=subprocess.TimeoutExpired('resolver', 0.01)):
+            result = resolve_download_routes(timeout=0.01)
+        self.assertEqual(result[0]['addresses'], [])
+        self.assertEqual(result[0]['error'], 'TimeoutExpired')
+
     def test_timeout_switches_to_regional_edge_and_reuses_success_for_get(self):
         from scripts.ci.apps.qq.download_transport import QQDownloadTransport
         response = object()
@@ -19,8 +38,7 @@ class QQDownloadRoutesTest(unittest.TestCase):
                     raise TimeoutError('unreachable primary')
                 return response
 
-        rows = [(socket.AF_INET, socket.SOCK_STREAM, 6, '', ('1.1.1.1', 443))]
-        with patch('socket.getaddrinfo', return_value=rows), \
+        with patch('scripts.ci.apps.qq.download_transport.system_download_routes', return_value=['1.1.1.1']), \
                 patch('scripts.ci.apps.qq.download_transport.resolve_download_routes', return_value=[
                     {'source': 'regional', 'addresses': ['8.8.8.8']}]), \
                 patch('scripts.ci.apps.qq.download_transport.edge_opener', side_effect=lambda address, **kw: Opener(address)):
@@ -34,13 +52,13 @@ class QQDownloadRoutesTest(unittest.TestCase):
     def test_http_forbidden_is_not_retried_as_a_network_failure(self):
         from scripts.ci.apps.qq.download_transport import QQDownloadTransport
         from urllib.error import HTTPError
-        rows = [(socket.AF_INET, socket.SOCK_STREAM, 6, '', ('1.1.1.1', 443))]
-        with patch('socket.getaddrinfo', return_value=rows), \
+        with patch('scripts.ci.apps.qq.download_transport.system_download_routes', return_value=['1.1.1.1']), \
                 patch('scripts.ci.apps.qq.download_transport.edge_opener') as opener, \
                 patch('scripts.ci.apps.qq.download_transport.resolve_download_routes') as resolve:
             opener.return_value.open.side_effect = HTTPError('https://downv6.qq.com', 403, 'Forbidden', {}, None)
-            with self.assertRaises(HTTPError):
+            with self.assertRaises(HTTPError) as caught:
                 QQDownloadTransport().open(Request('https://downv6.qq.com/qqweb/QQ_1/android_apk/a.apk'), 30)
+            caught.exception.close()
             resolve.assert_not_called()
     def test_resolver_answers_keep_only_unique_public_ipv4(self):
         from scripts.ci.apps.qq.download_routes import public_ipv4_answers

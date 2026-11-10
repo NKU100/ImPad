@@ -3,12 +3,13 @@ from http.client import HTTPException
 import ipaddress
 import os
 import socket
+import subprocess
 import time
 from urllib.error import HTTPError
 from urllib.request import getproxies, proxy_bypass
 
 from scripts.ci.apps.qq.download_policy import PREFIX
-from scripts.ci.apps.qq.download_routes import edge_opener, resolve_download_routes
+from scripts.ci.apps.qq.download_routes import edge_opener, resolve_download_routes, system_download_routes
 from scripts.ci.discover_latest_wechat import validate_official_apk_url
 from scripts.ci.download_diagnostics import error_fields
 
@@ -46,26 +47,29 @@ class QQDownloadTransport:
         if time.monotonic() - self.updated > 60:
             self.__init__()
         emit = trace.emit if trace else lambda *args, **kwargs: None
+        deadline = time.monotonic() + 90
         queue = [self.preferred] if self.preferred else []
         if not queue:
-            resolve = trace.resolve if trace else socket.getaddrinfo
+            started = time.monotonic()
+            emit('dns_start', host='downv6.qq.com')
             try:
-                rows = resolve('downv6.qq.com', 443, socket.AF_INET, socket.SOCK_STREAM)
-                queue = list(dict.fromkeys(row[4][0] for row in rows
-                                          if ipaddress.IPv4Address(row[4][0]).is_global))[:1]
-            except OSError as error:
-                emit('qq_primary_dns_error', **error_fields(error))
+                queue = system_download_routes(timeout=min(8, deadline - started))[:1]
+            except (OSError, subprocess.SubprocessError, ValueError) as error:
+                emit('dns_error', seconds=round(time.monotonic() - started, 3), **error_fields(error))
+            else:
+                emit('dns_complete', seconds=round(time.monotonic() - started, 3),
+                     addresses=[{'family': int(socket.AF_INET), 'address': [ip, 443]} for ip in queue])
         seen = set(self.failed)
         loaded_alternatives = False
         last_error = None
-        deadline = time.monotonic() + 90
         attempts = 0
         while attempts < 6 and time.monotonic() < deadline:
             if not queue:
                 if loaded_alternatives:
                     break
                 if self.alternatives is None:
-                    sources = resolve_download_routes()
+                    sources = resolve_download_routes(timeout=min(8, deadline - time.monotonic()))
+                    emit('qq_alternative_dns', sources=sources)
                     # Try regional answers before another copy of the default CDN answer set.
                     sources.sort(key=lambda source: source['source'] == 'google-default')
                     self.alternatives = list(dict.fromkeys(
