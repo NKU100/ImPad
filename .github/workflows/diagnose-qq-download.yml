@@ -1,0 +1,49 @@
+name: Diagnose QQ download network
+
+on:
+  workflow_dispatch:
+    inputs:
+      apk_url:
+        description: Official QQ Android APK URL to diagnose
+        type: string
+        default: https://downv6.qq.com/qqweb/QQ_1/android_apk/9.3.80.42775_4bae4d0ebb0636b7.apk
+
+permissions:
+  contents: read
+
+jobs:
+  diagnose:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - name: Record network environment
+        run: |
+          mkdir -p work/qq-download-diagnostic
+          {
+            python3 --version
+            curl --version
+            ip -brief address
+            ip -4 route
+            ip -6 route
+            cat /etc/resolv.conf
+          } > work/qq-download-diagnostic/environment.txt 2>&1
+      - name: Diagnose original request and individual addresses
+        env:
+          APK_URL: ${{ inputs.apk_url }}
+        run: python3 -u -m scripts.ci.diagnose_qq_download --url "$APK_URL"
+      - name: Publish diagnosis summary
+        if: always()
+        run: |
+          if [ -f work/qq-download-diagnostic/summary.md ]; then
+            cat work/qq-download-diagnostic/summary.md >> "$GITHUB_STEP_SUMMARY"
+          fi
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: qq-download-diagnostic
+          path: work/qq-download-diagnostic/
+          if-no-files-found: error
+          retention-days: 7
