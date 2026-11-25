@@ -1,0 +1,468 @@
+{
+  "appId": "qq",
+  "versionName": "9.3.90",
+  "status": "RUNTIME_SMOKE_VERIFIED",
+  "moduleApkSha256": "eaad2f94e4223f4bb1d3e9c87f44af2198f11bd0fad1c3890f0ef24165e70113",
+  "noAccountAuthentication": true,
+  "requestIdentityExpectation": {
+    "contract": "QQ_SSO_REQUEST_IDENTITY_V1",
+    "apkSha256": "638b2b6fe53b7c363b8f225e172259641b4af005a5410f4f3c010cbcb291563c",
+    "phoneAppId": 537407147,
+    "tabletAppId": 537407186
+  },
+  "disabled": {
+    "contract": "QQ_SSO_REQUEST_IDENTITY_V1",
+    "captureKind": "KERNEL_SOCKET_REQUEST_IDENTITY_V1",
+    "frames": [
+      {
+        "command": "trpc.o3.ecdh_access.EcdhAccess.SsoEstablishShareKey",
+        "packetAppId": 537407147,
+        "sequence": 92419,
+        "firstObservedMonotonicNs": 247062945436
+      }
+    ],
+    "captureHealthy": true,
+    "errors": [],
+    "kernelDrops": 0,
+    "partialStreams": 0,
+    "ownershipVerified": true,
+    "owners": [
+      {
+        "pid": 1886,
+        "uid": 10089,
+        "started": 24419,
+        "inode": 87821
+      }
+    ],
+    "moduleEnabled": false,
+    "scopeVerified": true,
+    "observerSha256": "19c2d4e8607bbcd14a2d27bf5dc496e7917e0a481942d178372d6eb8f3c5ffa8",
+    "collectorBinarySha256": "c62d761352a0e9d57e96899e6fb50386c2c956edd56b173d2056abb828985898",
+    "ndkVersion": "29.0.14206865",
+    "apkSha256": "638b2b6fe53b7c363b8f225e172259641b4af005a5410f4f3c010cbcb291563c",
+    "appUid": 10089,
+    "moduleApkSha256": "eaad2f94e4223f4bb1d3e9c87f44af2198f11bd0fad1c3890f0ef24165e70113",
+    "processName": "com.tencent.mobileqq:MSF"
+  },
+  "enabled": {
+    "contract": "QQ_SSO_REQUEST_IDENTITY_V1",
+    "captureKind": "KERNEL_SOCKET_REQUEST_IDENTITY_V1",
+    "frames": [
+      {
+        "command": "trpc.o3.ecdh_access.EcdhAccess.SsoEstablishShareKey",
+        "packetAppId": 537407186,
+        "sequence": 87975,
+        "firstObservedMonotonicNs": 330486084204
+      },
+      {
+        "command": "trpc.o3.ecdh_access.EcdhAccess.SsoSecureAccess",
+        "packetAppId": 537407186,
+        "sequence": 87979,
+        "firstObservedMonotonicNs": 330486084204
+      }
+    ],
+    "captureHealthy": true,
+    "errors": [],
+    "kernelDrops": 0,
+    "partialStreams": 0,
+    "ownershipVerified": true,
+    "owners": [
+      {
+        "pid": 1899,
+        "uid": 10089,
+        "started": 32454,
+        "inode": 111294
+      }
+    ],
+    "moduleEnabled": true,
+    "scopeVerified": true,
+    "observerSha256": "19c2d4e8607bbcd14a2d27bf5dc496e7917e0a481942d178372d6eb8f3c5ffa8",
+    "collectorBinarySha256": "c62d761352a0e9d57e96899e6fb50386c2c956edd56b173d2056abb828985898",
+    "ndkVersion": "29.0.14206865",
+    "apkSha256": "638b2b6fe53b7c363b8f225e172259641b4af005a5410f4f3c010cbcb291563c",
+    "appUid": 10089,
+    "moduleApkSha256": "eaad2f94e4223f4bb1d3e9c87f44af2198f11bd0fad1c3890f0ef24165e70113",
+    "processName": "com.tencent.mobileqq:MSF"
+  },
+  "requestIdentityEvidence": {
+    "contract": "QQ_SSO_REQUEST_IDENTITY_V1",
+    "apkSha256": "638b2b6fe53b7c363b8f225e172259641b4af005a5410f4f3c010cbcb291563c",
+    "phoneAppId": 537407147,
+    "tabletAppId": 537407186,
+    "disabled": {
+      "contract": "QQ_SSO_REQUEST_IDENTITY_V1",
+      "captureKind": "KERNEL_SOCKET_REQUEST_IDENTITY_V1",
+      "frames": [
+        {
+          "command": "trpc.o3.ecdh_access.EcdhAccess.SsoEstablishShareKey",
+          "packetAppId": 537407147,
+          "sequence": 92419,
+          "firstObservedMonotonicNs": 247062945436
+        }
+      ],
+      "captureHealthy": true,
+      "errors": [],
+      "kernelDrops": 0,
+      "partialStreams": 0,
+      "ownershipVerified": true,
+      "owners": [
+        {
+          "pid": 1886,
+          "uid": 10089,
+          "started": 24419,
+          "inode": 87821
+        }
+      ],
+      "moduleEnabled": false,
+      "scopeVerified": true,
+      "observerSha256": "19c2d4e8607bbcd14a2d27bf5dc496e7917e0a481942d178372d6eb8f3c5ffa8",
+      "collectorBinarySha256": "c62d761352a0e9d57e96899e6fb50386c2c956edd56b173d2056abb828985898",
+      "ndkVersion": "29.0.14206865",
+      "apkSha256": "638b2b6fe53b7c363b8f225e172259641b4af005a5410f4f3c010cbcb291563c",
+      "appUid": 10089,
+      "moduleApkSha256": "eaad2f94e4223f4bb1d3e9c87f44af2198f11bd0fad1c3890f0ef24165e70113",
+      "processName": "com.tencent.mobileqq:MSF"
+    },
+    "enabled": {
+      "contract": "QQ_SSO_REQUEST_IDENTITY_V1",
+      "captureKind": "KERNEL_SOCKET_REQUEST_IDENTITY_V1",
+      "frames": [
+        {
+          "command": "trpc.o3.ecdh_access.EcdhAccess.SsoEstablishShareKey",
+          "packetAppId": 537407186,
+          "sequence": 87975,
+          "firstObservedMonotonicNs": 330486084204
+        },
+        {
+          "command": "trpc.o3.ecdh_access.EcdhAccess.SsoSecureAccess",
+          "packetAppId": 537407186,
+          "sequence": 87979,
+          "firstObservedMonotonicNs": 330486084204
+        }
+      ],
+      "captureHealthy": true,
+      "errors": [],
+      "kernelDrops": 0,
+      "partialStreams": 0,
+      "ownershipVerified": true,
+      "owners": [
+        {
+          "pid": 1899,
+          "uid": 10089,
+          "started": 32454,
+          "inode": 111294
+        }
+      ],
+      "moduleEnabled": true,
+      "scopeVerified": true,
+      "observerSha256": "19c2d4e8607bbcd14a2d27bf5dc496e7917e0a481942d178372d6eb8f3c5ffa8",
+      "collectorBinarySha256": "c62d761352a0e9d57e96899e6fb50386c2c956edd56b173d2056abb828985898",
+      "ndkVersion": "29.0.14206865",
+      "apkSha256": "638b2b6fe53b7c363b8f225e172259641b4af005a5410f4f3c010cbcb291563c",
+      "appUid": 10089,
+      "moduleApkSha256": "eaad2f94e4223f4bb1d3e9c87f44af2198f11bd0fad1c3890f0ef24165e70113",
+      "processName": "com.tencent.mobileqq:MSF"
+    }
+  },
+  "runtimeDiagnostics": {
+    "moduleLoaded": "OBSERVED",
+    "compatibility": "COMPATIBLE",
+    "hookInstallation": "INSTALLED_1",
+    "resolvedHooks": [],
+    "records": [
+      "11-25 15:01:54.901  1899  1899 I LSPosedFramework: (com.tencent.mobileqq:MSF)[io.github.nku100.impad,ImPad,76b-1a2133a4255-2-1,0,1] rule-runtime event=qfix_ready elapsedRealtimeNs=326878250580 contextPackage=com.tencent.mobileqq loaderClass=dalvik.system.PathClassLoader",
+      "11-25 15:01:54.943  1899  1899 I LSPosedFramework: (com.tencent.mobileqq:MSF)[io.github.nku100.impad,ImPad,76b-1a2133a4255-2-2,0,1] rule-runtime event=native_loaded elapsedRealtimeNs=326921065000 apiSha256=8df532c4126b58490667f71127dc57aef62ccf3578d1d17330f2a1cb8836218e nativeSha256=0444cf15146c256e8bbd2154ae8b120130dab47e9226c7e853a7d653737a95cd nativeAbi=arm64-v8a packagingMode=APK_DIRECT sourceApkPath=/data/app/~~bgiGiLBF8P2EN5sZCxPpww==/io.github.nku100.impad-9v3EQNpvtNp3aJF75gqlrg==/base.apk nativeLoadPath=/data/app/~~bgiGiLBF8P2EN5sZCxPpww==/io.github.nku100.impad-9v3EQNpvtNp3aJF75gqlrg==/base.apk!/lib/arm64-v8a/libdexkit.so",
+      "11-25 15:01:58.003  1899  1899 I LSPosedFramework: (com.tencent.mobileqq:MSF)[io.github.nku100.impad,ImPad,76b-1a2133a4255-2-3,0,1] rule-runtime event=semantic_plan protocolVersion=2 elapsedRealtimeNs=329980445044 executionSha256=7ab899271d3a8df18edc15dabdc0dcc002c453f1b793777ce3287c9a3dcfaeb9 plan=eyJzbmFwc2hvdFNoYTI1NiI6ImE5N2NmYTNlMTU2OTFmNjMxODgzNmRkMWU1MTg1ZmVjN2JlYjVjNmIxZWQ5ODUzMzYwNTIxOGI2OWExYjY5OWIiLCJjb250cmFjdElkIjoicXFfdGFibGV0X2RldmljZV90eXBlIiwiY29udHJhY3RSZXZpc2lvbiI6MSwic3RyYXRlZ3lJZCI6InFxX3RhYmxldF9lbnVtIiwic3RyYXRlZ3lSZXZpc2lvbiI6MSwiaG9va3MiOlt7InJvbGUiOiJkZXZpY2VfdHlwZSIsImRlc2NyaXB0b3IiOiJMY29tL3RlbmNlbnQvY29tbW9uL2NvbmZpZy9wYWQvUGFkVXRpbDstPmEoTGFuZHJvaWQvY29udGVudC9Db250ZXh0OylMY29tL3RlbmNlbnQvY29tbW9uL2NvbmZpZy9wYWQvRGV2aWNlVHlwZTsiLCJzaGFwZSI6eyJwYXJhbWV0ZXJzIjpbImFuZHJvaWQuY29udGVudC5Db250ZXh0Il0sInJldHVyblR5cGUiOiJjb20udGVuY2VudC5jb21tb24uY29uZmlnLnBhZC5EZXZpY2VUeXBlIiwiaXNTdGF0aWMiOnRydWV9LCJzb3VyY2UiOnsibG9hZGVySWQiOiJsb2FkZXItMCIsImRleEluZGV4IjowLCJkZXhTaGEyNTYiOiI3NmRmMWRhMzFiMGFhMzk3ZDdjYjZlZmM4MGYwOGI1NmMxNmI2MzNhMDBkZmY2MTBmNmIyNzUyYTAzNjlhZWIxIn0sInBoYXNlIjoiQVJPVU5EIiwiY29uZmlndXJhdGlvbiI6eyJlbnVtIjoiVEFCTEVUIn19XSwic2NoZW1hVmVyc2lvbiI6MX0 cacheHit=true attempts=1",
+      "11-25 15:01:58.003  1899  1899 I LSPosedFramework: (com.tencent.mobileqq:MSF)[io.github.nku100.impad,ImPad,76b-1a2133a4255-2-4,0,1] installed 1 QQ hooks",
+      "11-25 15:01:58.003  1899  1899 I LSPosedFramework: (com.tencent.mobileqq:MSF)[io.github.nku100.impad,ImPad,76b-1a2133a4255-2-5,0,1] rule-runtime event=hook_installed protocolVersion=2 elapsedRealtimeNs=329981053774 contractId=qq_tablet_device_type contractRevision=1 strategyId=qq_tablet_enum strategyRevision=1 executionSha256=7ab899271d3a8df18edc15dabdc0dcc002c453f1b793777ce3287c9a3dcfaeb9 snapshotSha256=a97cfa3e15691f6318836dd1e5185fec7beb5c6b1ed98533605218b69a1b699b hookCount=1 processName=com.tencent.mobileqq:MSF"
+    ]
+  },
+  "runtimeLifecycleEvidence": {
+    "qfixEvidence": {
+      "status": "READY",
+      "contextPackage": "com.tencent.mobileqq",
+      "loaderClass": "dalvik.system.PathClassLoader",
+      "elapsedRealtimeNs": 326878250580
+    },
+    "nativeEvidence": {
+      "status": "LOADED",
+      "apiSha256": "8df532c4126b58490667f71127dc57aef62ccf3578d1d17330f2a1cb8836218e",
+      "nativeSha256": "0444cf15146c256e8bbd2154ae8b120130dab47e9226c7e853a7d653737a95cd",
+      "nativeAbi": "arm64-v8a",
+      "packagingMode": "APK_DIRECT",
+      "sourceApkPath": "/data/app/~~bgiGiLBF8P2EN5sZCxPpww==/io.github.nku100.impad-9v3EQNpvtNp3aJF75gqlrg==/base.apk",
+      "nativeLoadPath": "/data/app/~~bgiGiLBF8P2EN5sZCxPpww==/io.github.nku100.impad-9v3EQNpvtNp3aJF75gqlrg==/base.apk!/lib/arm64-v8a/libdexkit.so",
+      "elapsedRealtimeNs": 326921065000
+    },
+    "semanticPlanEvidence": {
+      "status": "RESOLVED",
+      "protocolVersion": 2,
+      "executionSha256": "7ab899271d3a8df18edc15dabdc0dcc002c453f1b793777ce3287c9a3dcfaeb9",
+      "snapshotSha256": "a97cfa3e15691f6318836dd1e5185fec7beb5c6b1ed98533605218b69a1b699b",
+      "cacheHit": true,
+      "attempts": 1,
+      "elapsedRealtimeNs": 329980445044
+    },
+    "hookEvidence": {
+      "status": "INSTALLED",
+      "protocolVersion": 2,
+      "contractId": "qq_tablet_device_type",
+      "contractRevision": 1,
+      "strategyId": "qq_tablet_enum",
+      "strategyRevision": 1,
+      "executionSha256": "7ab899271d3a8df18edc15dabdc0dcc002c453f1b793777ce3287c9a3dcfaeb9",
+      "snapshotSha256": "a97cfa3e15691f6318836dd1e5185fec7beb5c6b1ed98533605218b69a1b699b",
+      "completePlan": {
+        "snapshotSha256": "a97cfa3e15691f6318836dd1e5185fec7beb5c6b1ed98533605218b69a1b699b",
+        "contractId": "qq_tablet_device_type",
+        "contractRevision": 1,
+        "strategyId": "qq_tablet_enum",
+        "strategyRevision": 1,
+        "hooks": [
+          {
+            "role": "device_type",
+            "descriptor": "Lcom/tencent/common/config/pad/PadUtil;->a(Landroid/content/Context;)Lcom/tencent/common/config/pad/DeviceType;",
+            "shape": {
+              "parameters": [
+                "android.content.Context"
+              ],
+              "returnType": "com.tencent.common.config.pad.DeviceType",
+              "isStatic": true
+            },
+            "source": {
+              "loaderId": "loader-0",
+              "dexIndex": 0,
+              "dexSha256": "76df1da31b0aa397d7cb6efc80f08b56c16b633a00dff610f6b2752a0369aeb1"
+            },
+            "phase": "AROUND",
+            "configuration": {
+              "enum": "TABLET"
+            }
+          }
+        ],
+        "schemaVersion": 1
+      },
+      "hookCount": 1,
+      "processName": "com.tencent.mobileqq:MSF"
+    },
+    "hookCount": 1,
+    "timingEvidence": {
+      "readyBeforeNative": true,
+      "nativeBeforePlan": true,
+      "planBeforeHook": true,
+      "tinkerBeforeNative": false,
+      "qfixBeforeNative": true,
+      "nativeBeforeHook": true,
+      "compatibleBeforeHook": true,
+      "qfixReadyBeforeNative": true,
+      "hookInstalledBeforeRequest": true
+    }
+  },
+  "qfixEvidence": {
+    "status": "READY",
+    "contextPackage": "com.tencent.mobileqq",
+    "loaderClass": "dalvik.system.PathClassLoader",
+    "elapsedRealtimeNs": 326878250580
+  },
+  "nativeEvidence": {
+    "status": "LOADED",
+    "apiSha256": "8df532c4126b58490667f71127dc57aef62ccf3578d1d17330f2a1cb8836218e",
+    "nativeSha256": "0444cf15146c256e8bbd2154ae8b120130dab47e9226c7e853a7d653737a95cd",
+    "nativeAbi": "arm64-v8a",
+    "packagingMode": "APK_DIRECT",
+    "sourceApkPath": "/data/app/~~bgiGiLBF8P2EN5sZCxPpww==/io.github.nku100.impad-9v3EQNpvtNp3aJF75gqlrg==/base.apk",
+    "nativeLoadPath": "/data/app/~~bgiGiLBF8P2EN5sZCxPpww==/io.github.nku100.impad-9v3EQNpvtNp3aJF75gqlrg==/base.apk!/lib/arm64-v8a/libdexkit.so",
+    "elapsedRealtimeNs": 326921065000
+  },
+  "semanticPlanEvidence": {
+    "status": "RESOLVED",
+    "protocolVersion": 2,
+    "executionSha256": "7ab899271d3a8df18edc15dabdc0dcc002c453f1b793777ce3287c9a3dcfaeb9",
+    "snapshotSha256": "a97cfa3e15691f6318836dd1e5185fec7beb5c6b1ed98533605218b69a1b699b",
+    "cacheHit": true,
+    "attempts": 1,
+    "elapsedRealtimeNs": 329980445044
+  },
+  "hookEvidence": {
+    "status": "INSTALLED",
+    "protocolVersion": 2,
+    "contractId": "qq_tablet_device_type",
+    "contractRevision": 1,
+    "strategyId": "qq_tablet_enum",
+    "strategyRevision": 1,
+    "executionSha256": "7ab899271d3a8df18edc15dabdc0dcc002c453f1b793777ce3287c9a3dcfaeb9",
+    "snapshotSha256": "a97cfa3e15691f6318836dd1e5185fec7beb5c6b1ed98533605218b69a1b699b",
+    "completePlan": {
+      "snapshotSha256": "a97cfa3e15691f6318836dd1e5185fec7beb5c6b1ed98533605218b69a1b699b",
+      "contractId": "qq_tablet_device_type",
+      "contractRevision": 1,
+      "strategyId": "qq_tablet_enum",
+      "strategyRevision": 1,
+      "hooks": [
+        {
+          "role": "device_type",
+          "descriptor": "Lcom/tencent/common/config/pad/PadUtil;->a(Landroid/content/Context;)Lcom/tencent/common/config/pad/DeviceType;",
+          "shape": {
+            "parameters": [
+              "android.content.Context"
+            ],
+            "returnType": "com.tencent.common.config.pad.DeviceType",
+            "isStatic": true
+          },
+          "source": {
+            "loaderId": "loader-0",
+            "dexIndex": 0,
+            "dexSha256": "76df1da31b0aa397d7cb6efc80f08b56c16b633a00dff610f6b2752a0369aeb1"
+          },
+          "phase": "AROUND",
+          "configuration": {
+            "enum": "TABLET"
+          }
+        }
+      ],
+      "schemaVersion": 1
+    },
+    "hookCount": 1,
+    "processName": "com.tencent.mobileqq:MSF"
+  },
+  "hookCount": 1,
+  "timingEvidence": {
+    "readyBeforeNative": true,
+    "nativeBeforePlan": true,
+    "planBeforeHook": true,
+    "tinkerBeforeNative": false,
+    "qfixBeforeNative": true,
+    "nativeBeforeHook": true,
+    "compatibleBeforeHook": true,
+    "qfixReadyBeforeNative": true,
+    "hookInstalledBeforeRequest": true
+  },
+  "moduleSourceTreeSha256": "b5600c90a3655f85c4554df417898892c6aa1d96dc19231e64e69e037a3bb6eb",
+  "ruleCatalogSha256": "69f24b9da20a1ac55ebb67da428943f92b6b9d5a664b4df2cab1bc1ca2ec409d",
+  "recognitionSha256": "900c748431ac579f0eb083e07dad6d0aa55701fac7257da7a3e9112b2a66d4e3",
+  "dependencyLockSha256": "aca6875d66e53b71bba739630aa95aacbf32f857b838a5f7133d05b2fa14103a",
+  "evidence": [
+    {
+      "path": "apps/qq/capture-disabled.json",
+      "sha256": "7410d5ed935a2971208e58c533878d40b1b24b62b0a6a8f7da44758770b59144"
+    },
+    {
+      "path": "apps/qq/capture-enabled.json",
+      "sha256": "0aa456843d4e79a7542d9047d9fa43f375580e0d40fd4b950d004b8541219cae"
+    },
+    {
+      "path": "apps/qq/collector-disabled.txt",
+      "sha256": "5c5f918ab8bcdcd0f8194da3bcf28d3670101c5aa1383ae59c35d6027bf11678"
+    },
+    {
+      "path": "apps/qq/collector-enabled.txt",
+      "sha256": "1cfead016856047038ebd456b2228eb9e5f7ff16d13deb4d6414dd3c7294891b"
+    },
+    {
+      "path": "apps/qq/events-disabled.jsonl",
+      "sha256": "49d820344e0d67853c7c95a645c5dc20e35a1b7a2f89f2df76a6c6c275157b1f"
+    },
+    {
+      "path": "apps/qq/events-enabled.jsonl",
+      "sha256": "9c4ed41ef28744b7523eb48ecd607e1e623288857c7845eaf400857a5141ef13"
+    },
+    {
+      "path": "apps/qq/logcat-disabled.txt",
+      "sha256": "c100346b43e01ee171db01ee06283f715eec1d4da9932c489b941c5c08c96bc9"
+    },
+    {
+      "path": "apps/qq/logcat-enabled.txt",
+      "sha256": "f61ec2467636f0fa3fc9b35ec47ed6d94d35ae2353f3cb89ee952ff20645c865"
+    },
+    {
+      "path": "apps/qq/login-click.txt",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "path": "apps/qq/login-ready-activity.txt",
+      "sha256": "d845bc85c27f3e697274edacaf5051ddf75fbe350abfc08177836bba86888224"
+    },
+    {
+      "path": "apps/qq/login-ready-current-activity.txt",
+      "sha256": "999ae4416d305755604af92559d8b581976e8f91a39e3ba2052b06383e8b6e20"
+    },
+    {
+      "path": "apps/qq/login-ready-current-dump.txt",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "path": "apps/qq/login-ready-current.png",
+      "sha256": "a91e821b1cdb51c6b2022732de64c8e978221b1debb0f138ae8807db33a5710c"
+    },
+    {
+      "path": "apps/qq/login-ready-current.xml",
+      "sha256": "92745ca4dddbbcadafda66b16d1d0c5c28770853c2b1531a3ef10023d8722dba"
+    },
+    {
+      "path": "apps/qq/login-ready-dump.txt",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "path": "apps/qq/login-ready.png",
+      "sha256": "a91e821b1cdb51c6b2022732de64c8e978221b1debb0f138ae8807db33a5710c"
+    },
+    {
+      "path": "apps/qq/login-ready.xml",
+      "sha256": "92745ca4dddbbcadafda66b16d1d0c5c28770853c2b1531a3ef10023d8722dba"
+    },
+    {
+      "path": "apps/qq/manager-current-activity.txt",
+      "sha256": "3226e44685124f09b7d63ad3678e4d4a50d69070a5f8554cafa5093d5a34570b"
+    },
+    {
+      "path": "apps/qq/manager-current-dump.txt",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "path": "apps/qq/manager-current-ocr.tsv",
+      "sha256": "23ccfd3d676c9a227636ee2dd222b52bfe7c2d3e6f25327a78439442c7535c64"
+    },
+    {
+      "path": "apps/qq/manager-current.png",
+      "sha256": "9d822ad79b86e1e40211b935e034548ffa81a4a91237f3568daf07c2fbbe4635"
+    },
+    {
+      "path": "apps/qq/manager-current.xml",
+      "sha256": "4c557e09d44242e6adf37cbd553eb65af809bbc6e1931108bb497474694ac2b3"
+    },
+    {
+      "path": "apps/qq/manager-enable-requested-activity.txt",
+      "sha256": "9caafc32c69fb6adfc2070a04940637044287a32e9b0c7d64bd801272e119e05"
+    },
+    {
+      "path": "apps/qq/manager-enable-requested-dump.txt",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "path": "apps/qq/manager-enable-requested.png",
+      "sha256": "9e0467f5371032fdffeaee7424f278d1de0586d59a439abd12ac3f7d2b2e593d"
+    },
+    {
+      "path": "apps/qq/manager-enable-requested.xml",
+      "sha256": "4c557e09d44242e6adf37cbd553eb65af809bbc6e1931108bb497474694ac2b3"
+    },
+    {
+      "path": "apps/qq/manager-module-state.json",
+      "sha256": "501a11c33ad8759cbd2d539b4078deee8e930fff335dec7af5cd14066acf72a5"
+    },
+    {
+      "path": "apps/qq/processes-enabled.txt",
+      "sha256": "3c3bd0400056df372d713f2090b5fb979478d2128a2b1b1e2d7463fd18c0008d"
+    }
+  ],
+  "runtimeValidationSha256": "81ede7df88ae74e23412803f40e79f708d4c9c5bd992fa6faaebc46cd9da7c0e",
+  "packageName": "com.tencent.mobileqq",
+  "abi": "arm64-v8a",
+  "apkSha256": "638b2b6fe53b7c363b8f225e172259641b4af005a5410f4f3c010cbcb291563c",
+  "baseline": "PHONE_REQUEST_APP_ID",
+  "hookIds": [
+    "device_type"
+  ],
+  "hooks": 1,
+  "acceptanceKind": "REQUEST_APP_ID_CONTRAST"
+}

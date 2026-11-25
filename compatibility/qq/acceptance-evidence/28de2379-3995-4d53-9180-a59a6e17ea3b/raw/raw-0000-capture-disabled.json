@@ -1,0 +1,25 @@
+{
+  "contract": "QQ_SSO_REQUEST_IDENTITY_V1",
+  "captureKind": "KERNEL_SOCKET_REQUEST_IDENTITY_V1",
+  "frames": [
+    {
+      "command": "trpc.o3.ecdh_access.EcdhAccess.SsoEstablishShareKey",
+      "packetAppId": 537407147,
+      "sequence": 92419,
+      "firstObservedMonotonicNs": 247062945436
+    }
+  ],
+  "captureHealthy": true,
+  "errors": [],
+  "kernelDrops": 0,
+  "partialStreams": 0,
+  "ownershipVerified": true,
+  "owners": [
+    {
+      "pid": 1886,
+      "uid": 10089,
+      "started": 24419,
+      "inode": 87821
+    }
+  ]
+}

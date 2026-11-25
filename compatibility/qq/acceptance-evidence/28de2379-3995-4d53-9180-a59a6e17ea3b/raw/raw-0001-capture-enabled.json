@@ -1,0 +1,31 @@
+{
+  "contract": "QQ_SSO_REQUEST_IDENTITY_V1",
+  "captureKind": "KERNEL_SOCKET_REQUEST_IDENTITY_V1",
+  "frames": [
+    {
+      "command": "trpc.o3.ecdh_access.EcdhAccess.SsoEstablishShareKey",
+      "packetAppId": 537407186,
+      "sequence": 87975,
+      "firstObservedMonotonicNs": 330486084204
+    },
+    {
+      "command": "trpc.o3.ecdh_access.EcdhAccess.SsoSecureAccess",
+      "packetAppId": 537407186,
+      "sequence": 87979,
+      "firstObservedMonotonicNs": 330486084204
+    }
+  ],
+  "captureHealthy": true,
+  "errors": [],
+  "kernelDrops": 0,
+  "partialStreams": 0,
+  "ownershipVerified": true,
+  "owners": [
+    {
+      "pid": 1899,
+      "uid": 10089,
+      "started": 32454,
+      "inode": 111294
+    }
+  ]
+}
