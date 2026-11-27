@@ -85,7 +85,7 @@
       "license": "Apache-2.0"
     },
     "androidAar": {
-      "url": "https://repo1.maven.org/maven2/org/luckypray/dexkit/2.3.0/dexkit-2.3.0.aar",
+      "gradleArtifact": true,
       "sha256": "8df532c4126b58490667f71127dc57aef62ccf3578d1d17330f2a1cb8836218e",
       "sourceCommit": "c9cd12a14b75409bebd2f73e4dfc5ff575df3eb8",
       "license": "Apache-2.0; Core/ is LGPL-3.0"

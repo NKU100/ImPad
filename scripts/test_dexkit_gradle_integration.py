@@ -8,6 +8,8 @@ import json
 import os
 import platform
 import re
+import shutil
+import tomllib
 import subprocess
 import sys
 import tempfile
@@ -374,7 +376,7 @@ class DexKitGradleIntegrationTest(unittest.TestCase):
 
             first_run = self._run_gradle(output_root)
             self.assertEqual(first_run.returncode, 0, first_run.stdout + first_run.stderr)
-            self.assert_mocked_official_download(output_root)
+            self.assert_gradle_supplied_aar(output_root)
             expected_platform = host_platform()
             host_dir = output_root / expected_platform
             android_dir = output_root / "android-arm64-v8a"
@@ -404,7 +406,7 @@ class DexKitGradleIntegrationTest(unittest.TestCase):
             aar_output_root = Path(temporary) / "aar-dexkit"
             aar_setup = self._run_gradle(aar_output_root)
             self.assertEqual(aar_setup.returncode, 0, aar_setup.stdout + aar_setup.stderr)
-            self.assert_mocked_official_download(aar_output_root)
+            self.assert_gradle_supplied_aar(aar_output_root)
             android_dir = aar_output_root / "android-arm64-v8a"
             (android_dir / "dexkit.aar").write_bytes(b"tampered Android AAR")
             aar_run = self._run_gradle(aar_output_root, ":app:checkDebugAarMetadata")
@@ -423,12 +425,37 @@ class DexKitGradleIntegrationTest(unittest.TestCase):
         self.assertTrue(fixture.is_file(), "The authentic locked DexKit AAR test fixture is required")
         self.assertEqual(artifact["sha256"], hashlib.sha256(fixture.read_bytes()).hexdigest())
         fixture_root = output_root.parent / f".{output_root.name}-dexkit-test-mock"
+        version = tomllib.loads((ROOT / "gradle/libs.versions.toml").read_text())["versions"]["dexkit"]
+        repo = fixture_root / "maven"
+        module_dir = repo / "org/luckypray/dexkit" / version
+        module_dir.mkdir(parents=True, exist_ok=True)
+        shutil.copyfile(fixture, module_dir / f"dexkit-{version}.aar")
+        (module_dir / f"dexkit-{version}.pom").write_text(textwrap.dedent(f"""\
+            <project>
+              <modelVersion>4.0.0</modelVersion>
+              <groupId>org.luckypray</groupId>
+              <artifactId>dexkit</artifactId>
+              <version>{version}</version>
+              <packaging>aar</packaging>
+            </project>
+        """))
+        init_script = fixture_root / "dexkit-test.init.gradle"
+        init_script.write_text(textwrap.dedent("""
+            settingsEvaluated { settings ->
+                def repositories = settings.dependencyResolutionManagement.repositories
+                repositories.exclusiveContent {
+                    forRepository {
+                        repositories.maven { url = new File(System.getenv('DEXKIT_TEST_MAVEN')).toURI() }
+                    }
+                    filter { includeModule('org.luckypray', 'dexkit') }
+                }
+            }
+        """))
+
         wrapper_dir = fixture_root / "bin"
         wrapper_dir.mkdir(parents=True, exist_ok=True)
-        download_log = fixture_root / "official-download-urls.txt"
-        toolchain_download_log = fixture_root / "official-toolchain-download-urls.txt"
         wrapper = wrapper_dir / "python3"
-        wrapper.write_text(textwrap.dedent(f'''\
+        wrapper.write_text(textwrap.dedent(f"""\
             #!{sys.executable}
             import os, sys
             sys.path.insert(0, {str(ROOT)!r})
@@ -436,48 +463,25 @@ class DexKitGradleIntegrationTest(unittest.TestCase):
             script = {str(ROOT / "scripts/ci/prepare_dexkit.py")!r}
             if arguments and os.path.realpath(arguments[0]) == os.path.realpath(script):
                 import scripts.ci.prepare_dexkit as prepare
-                expected_url = os.environ["DEXKIT_TEST_OFFICIAL_URL"]
                 allowed_toolchain_urls = set(os.environ["DEXKIT_TEST_TOOLCHAIN_URLS"].splitlines())
                 original_urlopen = prepare.urllib.request.urlopen
-                fixture = os.environ["DEXKIT_TEST_AAR_FIXTURE"]
-                log = os.environ["DEXKIT_TEST_DOWNLOAD_LOG"]
-                toolchain_log = os.environ["DEXKIT_TEST_TOOLCHAIN_LOG"]
-                class Response:
-                    status = 200
-                    headers = {{}}
-                    def __init__(self, payload): self.payload, self.offset = payload, 0
-                    def read(self, size=-1):
-                        end = len(self.payload) if size < 0 else min(len(self.payload), self.offset + size)
-                        block = self.payload[self.offset:end]
-                        self.offset = end
-                        return block
-                    def __enter__(self): return self
-                    def __exit__(self, *_args): return False
-                def mocked_urlopen(request, timeout=60):
-                    url = request.full_url
-                    if url in allowed_toolchain_urls:
-                        with open(toolchain_log, "a", encoding="utf-8") as output:
-                            output.write(url + "\\n")
-                        return original_urlopen(request, timeout=timeout)
-                    if url != expected_url:
-                        raise AssertionError("Unexpected DexKit artifact URL: " + url)
-                    with open(log, "a", encoding="utf-8") as output:
-                        output.write(url + "\\n")
-                    with open(fixture, "rb") as source:
-                        return Response(source.read())
-                prepare.urllib.request.urlopen = mocked_urlopen
+                def toolchain_only(request, timeout=60):
+                    if request.full_url not in allowed_toolchain_urls:
+                        raise AssertionError("Unexpected Python download: " + request.full_url)
+                    return original_urlopen(request, timeout=timeout)
+                prepare.urllib.request.urlopen = toolchain_only
+                with open(os.environ["DEXKIT_TEST_AAR_LOG"], "a", encoding="utf-8") as output:
+                    output.write(arguments[arguments.index("--aar") + 1] + "\\n")
                 sys.argv = [script, *arguments[1:]]
                 prepare.main()
             else:
                 os.execv({sys.executable!r}, [{sys.executable!r}, *arguments])
-        '''))
+        """))
         wrapper.chmod(0o755)
         environment = dict(os.environ)
         environment["PATH"] = str(wrapper_dir) + os.pathsep + environment.get("PATH", "")
-        environment["DEXKIT_TEST_OFFICIAL_URL"] = artifact["url"]
-        environment["DEXKIT_TEST_AAR_FIXTURE"] = str(fixture)
-        environment["DEXKIT_TEST_DOWNLOAD_LOG"] = str(download_log)
-        environment["DEXKIT_TEST_TOOLCHAIN_LOG"] = str(toolchain_download_log)
+        environment["DEXKIT_TEST_MAVEN"] = str(repo)
+        environment["DEXKIT_TEST_AAR_LOG"] = str(fixture_root / "gradle-aar-paths.txt")
         environment["DEXKIT_TEST_TOOLCHAIN_URLS"] = "\n".join(sorted({
             spec["url"]
             for build in lock["build"].values()
@@ -487,6 +491,7 @@ class DexKitGradleIntegrationTest(unittest.TestCase):
             [
                 "./gradlew",
                 "--no-daemon",
+                "--init-script", str(init_script),
                 *selected_tasks,
                 f"-PdexkitOutputRoot={output_root}",
             ],
@@ -497,13 +502,13 @@ class DexKitGradleIntegrationTest(unittest.TestCase):
             check=False,
         )
 
-    def assert_mocked_official_download(self, output_root: Path) -> None:
-        log = output_root.parent / f".{output_root.name}-dexkit-test-mock/official-download-urls.txt"
-        self.assertTrue(log.is_file(), "DexKit integration must explicitly exercise its download mock")
-        urls = log.read_text().splitlines()
-        expected_url = json.loads(LOCK_PATH.read_text())["artifacts"]["androidAar"]["url"]
-        self.assertTrue(urls, "DexKit integration did not exercise the official AAR acquisition path")
-        self.assertEqual([expected_url] * len(urls), urls)
+    def assert_gradle_supplied_aar(self, output_root: Path) -> None:
+        log = output_root.parent / f".{output_root.name}-dexkit-test-mock/gradle-aar-paths.txt"
+        paths = log.read_text().splitlines()
+        expected = json.loads(LOCK_PATH.read_text())["artifacts"]["androidAar"]["sha256"]
+        self.assertTrue(paths, "Gradle must pass an AAR to the preparation script")
+        for path in paths:
+            self.assertEqual(expected, hashlib.sha256(Path(path).read_bytes()).hexdigest())
 
 
 if __name__ == "__main__":

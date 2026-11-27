@@ -11,7 +11,6 @@ import shutil
 import subprocess
 import tempfile
 import tarfile
-from urllib.parse import urlparse
 import urllib.request
 import zipfile
 from pathlib import Path
@@ -47,22 +46,17 @@ def _sha256(path: Path) -> str:
     return digest.hexdigest()
 
 
-def _download_or_resolve(spec: dict, lock_dir: Path, temporary: Path) -> Path:
+def _resolve_artifact(spec: dict, lock_dir: Path, temporary: Path, aar: Path | None = None) -> Path:
     if "file" in spec:
         path = (lock_dir / spec["file"]).resolve()
     elif "buildOutput" in spec:
         path = temporary / "source" / spec["buildOutput"]
-    elif "url" in spec:
-        name = Path(urlparse(spec["url"]).path).name or "artifact"
-        path = temporary / name
-        request = urllib.request.Request(spec["url"], headers={"User-Agent": "ImPad-DexKit-lock/1"})
-        try:
-            with urllib.request.urlopen(request, timeout=60) as response, path.open("wb") as target:
-                shutil.copyfileobj(response, target)
-        except Exception as error:
-            raise DexKitPreparationError(f"Could not acquire {spec['url']}: {error}") from error
+    elif spec.get("gradleArtifact") is True:
+        if aar is None:
+            raise DexKitPreparationError("Gradle-resolved AAR is required. Run the DexKit preparation task with Gradle.")
+        path = aar
     else:
-        raise DexKitPreparationError("Artifact must declare a file or URL")
+        raise DexKitPreparationError("Artifact must declare a local file, build output, or Gradle artifact")
     if not path.is_file():
         raise DexKitPreparationError(f"Artifact does not exist: {path}")
     actual_sha256 = _sha256(path)
@@ -73,14 +67,14 @@ def _download_or_resolve(spec: dict, lock_dir: Path, temporary: Path) -> Path:
     return path
 
 
-def _resolve_api(api_spec: dict, artifacts: dict, lock_dir: Path, temporary: Path) -> Path:
+def _resolve_api(api_spec: dict, artifacts: dict, lock_dir: Path, temporary: Path, aar: Path | None) -> Path:
     source_artifact = api_spec.get("sourceArtifact")
     if source_artifact is None:
-        return _download_or_resolve(api_spec, lock_dir, temporary)
+        return _resolve_artifact(api_spec, lock_dir, temporary, aar)
     source_spec = artifacts.get(source_artifact)
     if not isinstance(source_spec, dict):
         raise DexKitPreparationError(f"JVM API references missing source artifact: {source_artifact}")
-    source_path = _download_or_resolve(source_spec, lock_dir, temporary)
+    source_path = _resolve_artifact(source_spec, lock_dir, temporary, aar)
     member = api_spec.get("archiveMember")
     if not member:
         raise DexKitPreparationError("JVM API archive source must declare an archive member")
@@ -194,7 +188,7 @@ def _validate_lock(lock: dict, platform: str) -> tuple[dict, dict]:
     return selected[api_key], selected[native_key]
 
 
-def prepare(lock_path: Path, output: Path, platform: str) -> dict:
+def prepare(lock_path: Path, output: Path, platform: str, *, aar: Path | None = None) -> dict:
     lock_path = Path(lock_path)
     output = Path(output)
     try:
@@ -214,7 +208,7 @@ def prepare(lock_path: Path, output: Path, platform: str) -> dict:
         build = lock.get("build", {}).get(platform)
         if build:
             checkout = _build_from_source(lock, platform, input_root / "source")
-        api_path = _resolve_api(api_spec, lock.get("artifacts", {}), lock_path.parent, input_root)
+        api_path = _resolve_api(api_spec, lock.get("artifacts", {}), lock_path.parent, input_root, aar)
 
         if platform == "android-arm64-v8a":
             member = native_spec.get("archiveMember")
@@ -235,7 +229,7 @@ def prepare(lock_path: Path, output: Path, platform: str) -> dict:
                 if not native_path.is_file() or _sha256(native_path) != native_spec["sha256"]:
                     raise DexKitPreparationError("Native source build did not produce the locked library")
             else:
-                native_path = _download_or_resolve(native_spec, lock_path.parent, input_root)
+                native_path = _resolve_artifact(native_spec, lock_path.parent, input_root)
 
         artifact_dir = staging_root / "artifacts"
         artifact_dir.mkdir()
@@ -432,12 +426,13 @@ def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--lock", type=Path, required=True)
     parser.add_argument("--output", type=Path, required=True)
+    parser.add_argument("--aar", type=Path, help="DexKit AAR resolved by Gradle")
     parser.add_argument("--platform", choices=["host", *sorted(PLATFORMS)], required=True)
     args = parser.parse_args()
     platform = args.platform
     if platform == "host":
         platform = platform_for_host(host_platform.system(), host_platform.machine()) or "android-arm64-v8a"
-    result = prepare(args.lock, args.output, platform)
+    result = prepare(args.lock, args.output, platform, aar=args.aar)
     print(json.dumps(result, indent=2, sort_keys=True))
     return 0
 

@@ -352,6 +352,39 @@ class PrepareDexKitTest(unittest.TestCase):
         self.assertEqual((self.output / "libdexkit.so").read_bytes(), self.native)
         self.assertEqual(prepare_dexkit.prepare(self.lock_path, self.output, "android-arm64-v8a"), prepared)
 
+    def test_gradle_supplied_aar_is_required_and_verified_on_both_platforms(self):
+        aar = self.root / "gradle-resolved.aar"
+        with zipfile.ZipFile(aar, "w") as archive:
+            archive.writestr("classes.jar", self.api)
+            archive.writestr("jni/arm64-v8a/libdexkit.so", self.native)
+        self.lock["artifacts"]["androidAar"] = {
+            "gradleArtifact": True,
+            "sha256": hashlib.sha256(aar.read_bytes()).hexdigest(),
+            "sourceCommit": "a" * 40,
+        }
+        self.lock["artifacts"]["jvmApi"].update(
+            sourceArtifact="androidAar", archiveMember="classes.jar"
+        )
+        self.lock["artifacts"]["androidArm64V8a"] = {
+            "archiveMember": "jni/arm64-v8a/libdexkit.so",
+            "sha256": hashlib.sha256(self.native).hexdigest(),
+            "sourceCommit": "a" * 40,
+        }
+        self._write_lock()
+
+        for platform in ("android-arm64-v8a", "linux-x86_64"):
+            with self.subTest(platform=platform), patch.object(prepare_dexkit.urllib.request, "urlopen") as download:
+                output = self.root / platform
+                with self.assertRaisesRegex(prepare_dexkit.DexKitPreparationError, "Gradle-resolved AAR"):
+                    prepare_dexkit.prepare(self.lock_path, output, platform)
+                wrong_aar = self.root / "invalid.aar"
+                wrong_aar.write_bytes(b"wrong bytes")
+                with self.assertRaisesRegex(prepare_dexkit.DexKitPreparationError, "SHA-256 mismatch"):
+                    prepare_dexkit.prepare(self.lock_path, output, platform, aar=wrong_aar)
+                prepare_dexkit.prepare(self.lock_path, output, platform, aar=aar)
+                self.assertEqual((output / "dexkit.jar").read_bytes(), self.api)
+                download.assert_not_called()
+
     def test_rejects_embedded_android_native_mismatch_atomically(self):
         aar = self.root / "dexkit.aar"
         with zipfile.ZipFile(aar, "w") as archive:

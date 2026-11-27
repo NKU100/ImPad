@@ -34,10 +34,19 @@ extra["dexkitOutputRoot"] = dexkitOutputRoot
 val dexkitPrepareScript = layout.projectDirectory.file("scripts/ci/prepare_dexkit.py")
 val dexkitLockFile = layout.projectDirectory.file("gradle/dexkit-lock.json")
 
+val dexkitAar = configurations.create("dexkitAar") {
+    isCanBeConsumed = false
+    isTransitive = false
+}
+dependencies {
+    add(dexkitAar.name, "org.luckypray:dexkit:${libs.versions.dexkit.get()}@aar")
+}
+
 fun registerDexKitPreparation(name: String, platform: String) = tasks.register<Exec>(name) {
     val destination = File(dexkitOutputRoot, platform)
     inputs.file(dexkitPrepareScript)
     inputs.file(dexkitLockFile)
+    inputs.files(dexkitAar)
     commandLine(
         "python3",
         dexkitPrepareScript.asFile.absolutePath,
@@ -45,25 +54,18 @@ fun registerDexKitPreparation(name: String, platform: String) = tasks.register<E
         "--output", destination.absolutePath,
         "--platform", platform,
     )
+    doFirst {
+        args("--aar", dexkitAar.singleFile.absolutePath)
+    }
 }
 
 val prepareDexKitForHost = registerDexKitPreparation("prepareDexKitForHost", dexkitHostPlatform)
-val prepareDexKitAndroid = tasks.register<Exec>("prepareDexKitAndroid") {
-    if (dexkitHostPlatform == "android-arm64-v8a") {
+if (dexkitHostPlatform == "android-arm64-v8a") {
+    tasks.register("prepareDexKitAndroid") {
         dependsOn(prepareDexKitForHost)
-        onlyIf { false }
-    } else {
-        val destination = File(dexkitOutputRoot, "android-arm64-v8a")
-        inputs.file(dexkitPrepareScript)
-        inputs.file(dexkitLockFile)
-        commandLine(
-            "python3",
-            dexkitPrepareScript.asFile.absolutePath,
-            "--lock", dexkitLockFile.asFile.absolutePath,
-            "--output", destination.absolutePath,
-            "--platform", "android-arm64-v8a",
-        )
     }
+} else {
+    registerDexKitPreparation("prepareDexKitAndroid", "android-arm64-v8a")
 }
 
 tasks.register("verifyModuleMetadata") {
