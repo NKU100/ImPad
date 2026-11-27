@@ -76,7 +76,8 @@ def main():
     regression = json.loads((args.directory / 'regression/results.json').read_text())
     record = None
     reason = 'No unchanged verified acceptance record.'
-    if classify_regression(regression) in {'PASSED', 'PARTIAL'}:
+    regression_outcome = classify_regression(regression)
+    if regression_outcome in {'PASSED', 'PARTIAL'}:
         try:
             static = json.loads(static_bytes)
             record = find_reusable_acceptance(args.repository, candidate, static)
@@ -98,7 +99,14 @@ def main():
                        version_name=str(candidate['identity']['versionName']),
                        version_code=str(candidate['identity']['versionCode']),
                        candidate_sha256=candidate['identity']['apkSha256'])
-        reason = f"Reused verified acceptance `{record['recordId']}`. Current static checks and grouped regression passed; module build and ReDroid were skipped."
+        reason = f"Reused verified acceptance `{record['recordId']}`. Current static checks passed."
+        if regression_outcome == 'PARTIAL':
+            skipped = ', '.join(f"`{row['groupId']}`" for row in regression['groups']
+                                if row['status'] == 'SKIPPED')
+            reason += f' Historical APKs were unavailable for regression groups {skipped}.'
+        else:
+            reason += ' All selected regression groups passed.'
+        reason += ' Module build and ReDroid were skipped.'
     append_github_output(args.github_output, outputs)
     with args.report.open('a') as report:
         report.write(f'\n## Acceptance reuse\n\n{reason}\n')

@@ -122,3 +122,31 @@ class AcceptanceReuseTest(unittest.TestCase):
             main()
         self.assertEqual('acceptance_reused=false\n', output.read_text())
         self.assertIn('stale baseline', report.read_text())
+
+    def test_reuse_summary_identifies_unavailable_regression_groups(self):
+        from scripts.ci.acceptance_reuse import main
+
+        directory = self.root / 'candidate'
+        regression_dir = directory / 'regression'
+        regression_dir.mkdir(parents=True)
+        static_path = directory / 'static.json'
+        static_path.write_text(json.dumps(self.static))
+        candidate = dict(self.candidate, staticReport='static.json',
+                         staticReportSha256=hashlib.sha256(static_path.read_bytes()).hexdigest())
+        (directory / 'candidate-report.json').write_text(json.dumps(candidate))
+        group = {'groupId': 'selected-group', 'candidateRecordIds': ['unavailable-record'],
+                 'cacheMissRecordIds': ['unavailable-record'], 'status': 'SKIPPED',
+                 'skipReason': 'APK_UNAVAILABLE',
+                 'unavailable': [{'recordId': 'unavailable-record', 'error': 'HTTP 404'}]}
+        (regression_dir / 'results.json').write_text(json.dumps({
+            'schemaVersion': 1, 'groupingVersion': 1, 'appId': 'wechat', 'groups': [group],
+        }))
+        output = self.root / 'outputs'
+        report = self.root / 'summary.md'
+        with patch('sys.argv', ['acceptance_reuse', '--directory', str(directory),
+                               '--repository', str(self.root), '--github-output', str(output),
+                               '--report', str(report)]), patch(
+                'scripts.ci.runtime_task._semantic_stage_context'):
+            main()
+        self.assertIn('acceptance_reused=true', output.read_text())
+        self.assertIn('unavailable for regression groups `selected-group`', report.read_text())
