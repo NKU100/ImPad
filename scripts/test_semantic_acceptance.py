@@ -201,47 +201,49 @@ class SemanticAcceptanceTest(unittest.TestCase):
         self.assertEqual(self.record['rawStageEvidence'], draft['rawStageEvidence'])
         self.assertEqual(self.record['migrationBundle'], draft['migrationBundle'])
 
-    def test_wecom_registration_records_skipped_regression_ids(self):
-        table = json.loads((ROOT / 'compatibility/wecom/acceptance-v2.json').read_text())
-        accepted = next(row for row in table['records']
-                        if len(row['regressionBaseline']['regressionRecordIds']) > 1)
-        record_id = accepted['regressionBaseline']['regressionRecordIds'][0]
-        candidate = {key: accepted[key] for key in
-                     ('appId', 'identity', 'apkFiles', 'recognition', 'recognitionSha256')}
-        candidate.update(expectedPlan=accepted['completePlan'],
-                         expectedExecutionSha256=accepted['executionSha256'],
-                         sourceUrl=accepted['source']['url'])
-        stage = accepted['rawStageEvidence']
-        validation = {'schemaVersion': 2, 'outcome': 'VERIFIED', 'candidate': candidate,
-                      'module': accepted['module'], 'static': accepted['staticReport'],
-                      'stageEvidence': {key: stage[key] for key in ('static', 'regression', 'runtime')},
-                      'runtime': {'evidence': stage['files']}, 'migrationBundle': accepted['migrationBundle'],
-                      'regressionBaseline': accepted['regressionBaseline'],
-                      'evidenceArchive': accepted['evidenceArchive'],
-                      'regression': {'status': 'PARTIAL', 'records': [
-                          {'appId': 'wecom', 'recordId': record_id, 'status': 'SKIPPED',
-                           'skipReason': 'APK_UNAVAILABLE', 'error': 'HTTP 404'}]}}
-        ids = accepted['regressionBaseline']['regressionRecordIds']
-        rows = validation['regression']['records']
-        rows.extend({'appId': 'wecom', 'recordId': case_id, 'status': 'PASSED'}
-                    for case_id in ids[1:])
-        draft = build_semantic_acceptance_record(validation)
-        self.assertEqual([record_id], draft['skippedRegressionRecordIds'])
-        reference = draft['rawStageEvidence']['regression']
-        report = self.root / reference['path']
-        report.parent.mkdir(parents=True)
-        report.write_text(json.dumps(rows))
-        digest = hashlib.sha256(report.read_bytes()).hexdigest()
-        reference['sha256'] = draft['evidenceArchive']['files'][1]['sha256'] = digest
-        draft_table = dict(table, records=[draft])
-        self.assertEqual([draft], validate_semantic_acceptance_table(draft_table, 'wecom', self.root))
-        draft['skippedRegressionRecordIds'] = ['unknown-record']
-        with self.assertRaisesRegex(ValueError, 'skipped regression'):
-            validate_semantic_acceptance_table(draft_table, 'wecom', self.root)
+    def test_registration_records_skipped_regression_ids_for_each_app(self):
+        for app_id in ('wechat', 'qq', 'wecom'):
+            with self.subTest(app_id=app_id):
+                table = json.loads((ROOT / f'compatibility/{app_id}/acceptance-v2.json').read_text())
+                accepted = next(row for row in table['records']
+                                if len(row['regressionBaseline']['regressionRecordIds']) > 1)
+                record_id = accepted['regressionBaseline']['regressionRecordIds'][0]
+                candidate = {key: accepted[key] for key in
+                             ('appId', 'identity', 'apkFiles', 'recognition', 'recognitionSha256')}
+                candidate.update(expectedPlan=accepted['completePlan'],
+                                 expectedExecutionSha256=accepted['executionSha256'],
+                                 sourceUrl=accepted['source']['url'])
+                stage = accepted['rawStageEvidence']
+                validation = {'schemaVersion': 2, 'outcome': 'VERIFIED', 'candidate': candidate,
+                              'module': accepted['module'], 'static': accepted['staticReport'],
+                              'stageEvidence': {key: stage[key] for key in ('static', 'regression', 'runtime')},
+                              'runtime': {'evidence': stage['files']}, 'migrationBundle': accepted['migrationBundle'],
+                              'regressionBaseline': accepted['regressionBaseline'],
+                              'evidenceArchive': accepted['evidenceArchive'],
+                              'regression': {'status': 'PARTIAL', 'records': [
+                                  {'appId': app_id, 'recordId': record_id, 'status': 'SKIPPED',
+                                   'skipReason': 'APK_UNAVAILABLE', 'error': 'HTTP 404'}]}}
+                ids = accepted['regressionBaseline']['regressionRecordIds']
+                rows = validation['regression']['records']
+                rows.extend({'appId': app_id, 'recordId': case_id, 'status': 'PASSED'}
+                            for case_id in ids[1:])
+                draft = build_semantic_acceptance_record(validation)
+                self.assertEqual([record_id], draft['skippedRegressionRecordIds'])
+                reference = draft['rawStageEvidence']['regression']
+                report = self.root / reference['path']
+                report.parent.mkdir(parents=True)
+                report.write_text(json.dumps(rows))
+                digest = hashlib.sha256(report.read_bytes()).hexdigest()
+                reference['sha256'] = draft['evidenceArchive']['files'][1]['sha256'] = digest
+                draft_table = dict(table, records=[draft])
+                self.assertEqual([draft], validate_semantic_acceptance_table(draft_table, app_id, self.root))
+                draft['skippedRegressionRecordIds'] = ['unknown-record']
+                with self.assertRaisesRegex(ValueError, 'skipped regression'):
+                    validate_semantic_acceptance_table(draft_table, app_id, self.root)
 
-        draft['skippedRegressionRecordIds'] = [ids[1]]
-        with self.assertRaisesRegex(ValueError, 'archived.*regression'):
-            validate_semantic_acceptance_table(draft_table, 'wecom', self.root)
+                draft['skippedRegressionRecordIds'] = [ids[1]]
+                with self.assertRaisesRegex(ValueError, 'archived.*regression'):
+                    validate_semantic_acceptance_table(draft_table, app_id, self.root)
 
     def test_draft_normalizes_absolute_stage_paths_under_trusted_roots(self):
         candidate = {'appId': 'wechat', 'identity': self.record['identity'],

@@ -9,6 +9,8 @@ import sys
 import time
 import xml.etree.ElementTree as ET
 
+from scripts.ci.static_regression import is_unavailable_regression, regression_status
+
 
 REPOSITORY = 'NKU100/ImPad'
 WORKFLOW_PATH = '.github/workflows/build.yml'
@@ -23,7 +25,7 @@ EXECUTION_CAUSE = re.compile(
     r'daemon|disk.?full|no space|broken pipe|process.*(?:died|exit|terminated)|killed', re.I)
 OUTCOMES = {
     'unitTests': {'passed', 'failed', 'unknown'},
-    'staticRegression': {'passed', 'check_failure', 'execution_failure', 'unknown'},
+    'staticRegression': {'passed', 'partial', 'check_failure', 'execution_failure', 'unknown'},
     'moduleBuild': {'passed', 'failed', 'unknown'},
     'artifactUpload': {'passed', 'failed', 'unknown'},
 }
@@ -82,10 +84,11 @@ def classify(run, report):
     if report['moduleBuild'] == 'failed':
         return {'state': 'red', 'label': '构建', 'message': '构建失败', 'color': 'red'}
     if (conclusion == 'success' and report['unitTests'] == 'passed'
-            and report['staticRegression'] == 'passed'
+            and report['staticRegression'] in {'passed', 'partial'}
             and report['moduleBuild'] == 'passed'
             and report['artifactUpload'] == 'passed'):
-        return {'state': 'green', 'label': '构建', 'message': '通过', 'color': 'brightgreen'}
+        message = '通过（有回归跳过）' if report['staticRegression'] == 'partial' else '通过'
+        return {'state': 'green', 'label': '构建', 'message': message, 'color': 'brightgreen'}
     return {'state': 'gray', 'label': '构建', 'message': '执行异常', 'color': 'lightgrey'}
 
 
@@ -173,9 +176,11 @@ def _static_outcome(path):
     rows = _read_json(path, limit=2 * 1024 * 1024)
     if not isinstance(rows, list) or not rows:
         return 'unknown'
-    failures = [row for row in rows if not isinstance(row, dict) or row.get('status') != 'PASSED']
-    if not failures:
-        return 'passed'
+    status = regression_status(rows)
+    if status != 'FAILED':
+        return status.lower()
+    failures = [row for row in rows if not isinstance(row, dict)
+                or (row.get('status') != 'PASSED' and not is_unavailable_regression(row))]
     kinds = {row.get('failureKind') for row in failures
              if isinstance(row, dict) and row.get('failureKind') in {'check_failure', 'execution_failure'}}
     if any(not isinstance(row, dict) or row.get('failureKind') not in
@@ -265,7 +270,7 @@ def validate_record(record):
     if not isinstance(record['message'], str) or len(record['message']) > 24:
         raise ValueError('Invalid published badge message')
     allowed_appearance = {
-        'green': {('通过', 'brightgreen')},
+        'green': {('通过', 'brightgreen'), ('通过（有回归跳过）', 'brightgreen')},
         'red': {('检查失败', 'red'), ('构建失败', 'red')},
         'gray': {('已取消', 'lightgrey'), ('执行异常', 'lightgrey'), ('暂无记录', 'lightgrey')},
     }

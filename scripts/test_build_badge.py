@@ -61,6 +61,25 @@ class BuildBadgeTest(unittest.TestCase):
             with self.subTest(field=field):
                 self.assertNotEqual('green', classify(run(), report(**{field: value}))['state'])
 
+    def test_build_badge_reports_success_with_unavailable_historical_apks(self):
+        from scripts.ci.build_badge import _static_outcome, validate_record
+
+        skipped = {'appId': 'qq', 'recordId': 'old-apk', 'status': 'SKIPPED',
+                   'skipReason': 'APK_UNAVAILABLE', 'error': 'HTTP 404'}
+        with tempfile.TemporaryDirectory() as temporary:
+            path = Path(temporary) / 'results.json'
+            path.write_text(json.dumps([{'status': 'PASSED'}, skipped]))
+            self.assertEqual('partial', _static_outcome(path))
+            for failure in ('check_failure', 'execution_failure'):
+                path.write_text(json.dumps([skipped, {'status': 'FAILED', 'failureKind': failure}]))
+                self.assertEqual(failure, _static_outcome(path))
+            path.write_text(json.dumps([dict(skipped, skipReason='OTHER')]))
+            self.assertEqual('unknown', _static_outcome(path))
+        badge = classify(run(), report(staticRegression='partial'))
+        self.assertEqual(('green', '通过（有回归跳过）'), (badge['state'], badge['message']))
+        validate_record(dict(badge, schemaVersion=1, runNumber=40, runAttempt=1, runId=120, sha='a' * 40))
+        self.assertNotEqual('green', classify(run(conclusion='failure'), report(staticRegression='partial'))['state'])
+
     def test_structured_matcher_failure_remains_red_when_another_sample_download_fails(self):
         with tempfile.TemporaryDirectory() as temporary:
             path = Path(temporary) / 'results.json'

@@ -9,7 +9,7 @@ import shutil
 from pathlib import Path
 from urllib.error import HTTPError, URLError
 
-from scripts.ci.app_policy import get_policy
+from scripts.ci.app_policy import POLICIES, get_policy
 from scripts.ci.discover_latest_wechat import validate_official_apk_url
 from scripts.ci.fetch_latest_wechat_apk import (ApkDigestMismatch, download_candidate,
                                                 file_sha256, remote_metadata, TruncatedDownload)
@@ -34,7 +34,8 @@ class HistoricalApkUnavailable(ValueError):
 
 
 def is_unavailable_regression(row):
-    return (isinstance(row, dict) and row.get('appId') == 'wecom'
+    return (isinstance(row, dict) and isinstance(row.get('appId'), str)
+            and row['appId'] in POLICIES
             and row.get('status') == 'SKIPPED' and row.get('skipReason') == 'APK_UNAVAILABLE'
             and isinstance(row.get('recordId'), str) and bool(row['recordId'])
             and isinstance(row.get('error'), str) and bool(row['error'])
@@ -86,8 +87,6 @@ def ensure_apk(record, cache, app_id):
             archive, archive_hash, _, _ = download_candidate(
                 source_url, cache, expected_archive, remote, policy, **options)
         except (ApkDigestMismatch, URLError, TimeoutError, ConnectionError, HTTPException) as error:
-            if app_id != 'wecom':
-                raise
             if isinstance(error, HTTPError):
                 detail = f'HTTP {error.code}'
             elif isinstance(error, (ApkDigestMismatch, TruncatedDownload)):

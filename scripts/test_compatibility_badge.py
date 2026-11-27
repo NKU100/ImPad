@@ -209,17 +209,20 @@ class CompatibilityBadgeTest(unittest.TestCase):
         self.assertEqual('UNKNOWN', runtime_summary(candidate, None,
                          [{'status': 'NO_HISTORICAL_SAMPLES'}])['regressionOutcome'])
 
-    def test_wecom_skip_is_partial_and_does_not_mask_a_rule_failure(self):
-        skipped = {'appId': 'wecom', 'recordId': 'old-apk', 'status': 'SKIPPED',
-                   'skipReason': 'APK_UNAVAILABLE', 'error': 'APK SHA-256 mismatch'}
-        self.assertEqual('PARTIAL', classify_regression([{'status': 'PASSED'}, skipped]))
-        self.assertEqual('FAILED', classify_regression([skipped,
-                         {'status': 'FAILED', 'failureKind': 'check_failure', 'recordId': 'other'}]))
-        self.assertEqual('UNKNOWN', classify_regression([dict(skipped, appId='qq')]))
-        evidence = report(appId='wecom', regressionOutcome='PARTIAL')
-        validate_report(evidence)
-        badge = classify(run(appId='wecom', workflowPath='.github/workflows/compatibility-wecom.yml'), evidence)
-        self.assertEqual(('green', '已兼容（有回归跳过）'), (badge['state'], badge['message']))
+    def test_unavailable_regression_badges_apply_to_all_apps(self):
+        for app_id in ('wechat', 'qq', 'wecom'):
+            with self.subTest(app_id=app_id):
+                skipped = {'appId': app_id, 'recordId': 'old-apk', 'status': 'SKIPPED',
+                           'skipReason': 'APK_UNAVAILABLE', 'error': 'APK SHA-256 mismatch'}
+                self.assertEqual('PARTIAL', classify_regression([{'status': 'PASSED'}, skipped]))
+                self.assertEqual('FAILED', classify_regression([skipped,
+                                 {'status': 'FAILED', 'failureKind': 'check_failure', 'recordId': 'other'}]))
+                evidence = report(appId=app_id, regressionOutcome='PARTIAL')
+                validate_report(evidence)
+                badge = classify(run(appId=app_id, workflowPath=f'.github/workflows/compatibility-{app_id}.yml'),
+                                 evidence)
+                self.assertEqual(('green', '已兼容（有回归跳过）'), (badge['state'], badge['message']))
+        self.assertEqual('UNKNOWN', classify_regression([dict(skipped, appId='unknown')]))
 
     def test_only_confirmed_sample_mismatch_is_regression_failure(self):
         execution_error = [{'status': 'FAILED', 'failureKind': 'execution_failure',

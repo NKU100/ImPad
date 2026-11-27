@@ -28,22 +28,24 @@ class StaticRegressionTest(unittest.TestCase):
             with self.subTest(stage=stage, error=type(error).__name__):
                 self.assertEqual(expected, classify_regression_failure(stage, error))
 
-    def test_wecom_unavailable_historical_apk_is_skipped(self):
+    def test_unavailable_historical_apk_is_skipped_for_each_app(self):
         from urllib.error import URLError
 
-        with tempfile.TemporaryDirectory() as temporary:
-            root = Path(temporary)
-            copy_migration_baseline(ROOT / 'compatibility', root / 'compatibility')
-            args = ['static_regression', '--app-id', 'wecom', '--reports', str(root / 'reports')]
-            with patch('sys.argv', args), patch('scripts.ci.static_regression.Path.cwd', return_value=root), \
-                 patch('scripts.ci.static_regression.remote_metadata', side_effect=URLError('unavailable')), \
-                 patch('scripts.ci.static_regression.check_apk') as check:
-                main()
-            rows = json.loads((root / 'reports/results.json').read_text())
-            self.assertTrue(rows)
-            self.assertTrue(all(row['status'] == 'SKIPPED' and row['skipReason'] == 'APK_UNAVAILABLE'
-                                and 'staticEvidence' not in row for row in rows), rows)
-            check.assert_not_called()
+        for app_id in ('wechat', 'qq', 'wecom'):
+            with self.subTest(app_id=app_id):
+                with tempfile.TemporaryDirectory() as temporary:
+                    root = Path(temporary)
+                    copy_migration_baseline(ROOT / 'compatibility', root / 'compatibility')
+                    args = ['static_regression', '--app-id', app_id, '--reports', str(root / 'reports')]
+                    with patch('sys.argv', args), patch('scripts.ci.static_regression.Path.cwd', return_value=root), \
+                         patch('scripts.ci.static_regression.remote_metadata', side_effect=URLError('unavailable')), \
+                         patch('scripts.ci.static_regression.check_apk') as check:
+                        main()
+                    rows = json.loads((root / 'reports/results.json').read_text())
+                    self.assertTrue(rows)
+                    self.assertTrue(all(row['status'] == 'SKIPPED' and row['skipReason'] == 'APK_UNAVAILABLE'
+                                        and 'staticEvidence' not in row for row in rows), rows)
+                    check.assert_not_called()
 
     def test_wecom_old_url_returning_another_apk_skips_only_affected_records(self):
         from scripts.ci.fetch_latest_wechat_apk import ApkDigestMismatch

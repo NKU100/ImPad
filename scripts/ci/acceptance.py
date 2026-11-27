@@ -296,7 +296,7 @@ def _validate_semantic_record(record: dict, app_id: str,
         raise ValueError('Semantic acceptance regression baseline differs from its migration or case bindings')
     if 'skippedRegressionRecordIds' in record:
         skipped_ids = record['skippedRegressionRecordIds']
-        if (app_id != 'wecom' or not isinstance(skipped_ids, list) or not skipped_ids
+        if (not isinstance(skipped_ids, list) or not skipped_ids
                 or skipped_ids != [record_id for record_id in case_ids if record_id in skipped_ids]):
             raise ValueError('Semantic acceptance skipped regression IDs differ from the baseline')
         if repository is not None:
@@ -309,6 +309,7 @@ def _validate_semantic_record(record: dict, app_id: str,
                 raise ValueError('Semantic acceptance archived regression hash changed')
             rows = json.loads(raw)
             if (regression_status(rows) != 'PARTIAL'
+                    or any(row.get('appId') != app_id for row in rows)
                     or [row.get('recordId') for row in rows] != case_ids
                     or [row['recordId'] for row in rows if is_unavailable_regression(row)] != skipped_ids):
                 raise ValueError('Semantic acceptance archived regression differs from its skipped cases')

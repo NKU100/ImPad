@@ -79,8 +79,7 @@ def validate_report(report):
         raise ValueError('Invalid registration status')
     for field in ('regressionOutcome', 'checkOutcome', 'buildOutcome'):
         if (report[field] not in {'PASSED', 'FAILED', 'UNKNOWN'}
-                and not (field == 'regressionOutcome' and report['appId'] == 'wecom'
-                         and report[field] == 'PARTIAL')):
+                and not (field == 'regressionOutcome' and report[field] == 'PARTIAL')):
             raise ValueError(f'Invalid {field}')
     if report['runtimeEnvironment'] not in {'HEALTHY', 'UNKNOWN'}:
         raise ValueError('Invalid runtime environment evidence')
