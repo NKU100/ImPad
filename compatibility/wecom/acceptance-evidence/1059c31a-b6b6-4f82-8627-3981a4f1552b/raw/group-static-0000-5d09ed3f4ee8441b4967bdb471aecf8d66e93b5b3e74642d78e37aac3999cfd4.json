@@ -1,0 +1,316 @@
+{
+    "schemaVersion": 2,
+    "analysisScope": "APK_FILE_SNAPSHOT",
+    "appId": "wecom",
+    "identity": {
+        "packageName": "com.tencent.wework",
+        "versionName": "5.0.13",
+        "versionCode": 86692,
+        "abi": "arm64-v8a",
+        "apkSha256": "6c3cc9c810fa98fae376c503ffa7af955b996d23d3e1ef93cdd1f588cb3246b9",
+        "signerSha256": "66896ae0aae48b9e963a3e034fa2ca813ca2f661f53619a92263a8a5c2e3f388"
+    },
+    "inputHashes": [
+        {
+            "path": "/home/runner/work/ImPad/ImPad/.cache/wecom-apks/6c3cc9c810fa98fae376c503ffa7af955b996d23d3e1ef93cdd1f588cb3246b9.apk",
+            "sha256": "6c3cc9c810fa98fae376c503ffa7af955b996d23d3e1ef93cdd1f588cb3246b9"
+        }
+    ],
+    "ruleCatalog": {
+        "schemaVersion": 2,
+        "appId": "wecom",
+        "ruleCatalogSha256": "4679d12ae621a09fdb716f7bad6d2dab42b06da597c41bdedf299a6756474390",
+        "contractId": "wecom_local_tablet",
+        "contractRevision": 1,
+        "requiredRoles": [
+            "app_pad",
+            "device_type",
+            "service_pad"
+        ],
+        "recognizerIds": [
+            "wecom_local_features"
+        ],
+        "strategies": [
+            {
+                "id": "wecom_local_tablet_callbacks",
+                "revision": 1,
+                "roles": [
+                    {
+                        "role": "device_type",
+                        "phase": "AROUND",
+                        "configuration": {
+                            "result": "131076"
+                        }
+                    },
+                    {
+                        "role": "app_pad",
+                        "phase": "AROUND",
+                        "configuration": {
+                            "result": "true"
+                        }
+                    },
+                    {
+                        "role": "service_pad",
+                        "phase": "AROUND",
+                        "configuration": {
+                            "result": "true"
+                        }
+                    }
+                ]
+            }
+        ],
+        "versionHints": []
+    },
+    "executionIdentity": {
+        "ruleCatalogSha256": "4679d12ae621a09fdb716f7bad6d2dab42b06da597c41bdedf299a6756474390",
+        "ruleImplementationSha256": "b5b0df2c04fbc6558ebc0f260786ca9bf0656e902f8fe6d2b6f7d30a945b8201",
+        "sharedResolverImplementationSha256": "e356817a9ebd111fa0b284b83e8bd546f33cf7da644f0cf578b0d396739d77e0",
+        "dexkitLockSha256": "e79052203ac5834a2ae2f508b9d184ae0765159337a85e6a5cef250ae51dfbac",
+        "dexkitSourceCommit": "c9cd12a14b75409bebd2f73e4dfc5ff575df3eb8",
+        "dexkitApiSha256": "34a8c16d548aa7d8562128f4d2293cec4e0f9896bb1f46224dcd532e878900f5",
+        "dexkitNativeSha256": "9c085b60c6aed18fa65026837f024167b21bfd5b60439c3e6ba4db98901c2ed1",
+        "dexkitPlatform": "linux-x86_64",
+        "dexkitAndroidApiSha256": "8df532c4126b58490667f71127dc57aef62ccf3578d1d17330f2a1cb8836218e",
+        "dexkitLinuxAarch64NativeSha256": "f23e51a19c10dcf1c395f6bef168af72aab3c9e06edae9446ad8368eb7f5495f",
+        "dexkitLinuxX8664NativeSha256": "9c085b60c6aed18fa65026837f024167b21bfd5b60439c3e6ba4db98901c2ed1",
+        "dexkitAndroidArm64NativeSha256": "0444cf15146c256e8bbd2154ae8b120130dab47e9226c7e853a7d653737a95cd",
+        "strategyImplementationSha256": "b1babe44b395ca5d25a93da5c69b543cee43cfba420909962a99f3a9384b3183",
+        "cacheIdentitySha256": "1412e8b1d452644e98f9fbd84cdeb365edcb34fffbcd7d4da54f9eb122a45237",
+        "sourceTreeSha256": "62da52d0cea6a5d564799c5ef120df455238661b115599d2ff5aed72fc376d80",
+        "routeConfigurationSha256": "dd93428a80e753114672eb53996ead7db125d2758ec6756a0481570abf695dff",
+        "dependencyLockSha256": "c4178fd20cd8c2749e7525323a662bd2054ff73523a19a2e129bc8b6b667937a",
+        "fingerprintFileSha256": "8c7b014fce7c8d6b2cb74c8215200903f4d292635d58463b179b5f16e7df5e99"
+    },
+    "snapshot": {
+        "protocolVersion": 1,
+        "readyLoaderId": "loader-0",
+        "loaders": [
+            {
+                "id": "loader-0",
+                "parentId": null,
+                "delegation": "PARENT_FIRST",
+                "dexSha256": [
+                    "fb80822e55954ae4c32c1628fabf629c12cee42e0b689d166c57ff3a1466bcf7",
+                    "769dc6752f77d09b39729321b1f469b519480e190d33eaa667fccdfb45352e9d",
+                    "8dfc41b14a86dabe3980381b7ba9cef554b4bd245d20a8a1da6d25b4951cd4d1",
+                    "1f84863aa7c19da796356e9aa846ea46666fa46cf2abc21100826218f83f0b3b",
+                    "629e2bea4d640110aefddd7506a4ae60e5214559baff5644eb43454818f1eeac",
+                    "96d2655e6d464a6713d4f12a26973f24717e5bbc4e78ab905c3e005875729ca8",
+                    "a5f022acb7fcb36a2db63b6bc1aef4a2e435400a82e26b6c6978ca9e05afb3c4",
+                    "89105993f1dc96a58593c03562b11485ec15af1030c8304d28c0e870cafc9ad3",
+                    "15feba3beb83d0a286eacc22fd5fd450889bf40cad2a644a16c464ca9bbe19c1",
+                    "7e74e8b4ba217a8cd3243964e1cc489b2ea47d09771671847ab27d500a96b371",
+                    "c8e5ef95592541d3c85b0a2ccdb75a1e51300b7d97346c1c03c1566d8b210ca2",
+                    "c102ae68d0d1ae1e5bef0dafd68e33992b01a4c3c0ac2126f7b1f0f010f19f6d",
+                    "9e1d260c5d9b7c8fa3bdc47567ce0280ada1c419848f01250f26c73fc38cb093",
+                    "fb64dfc443292c0fa332713b05cc1b21adc99d0f562807f00c31b483b8b9ec91",
+                    "61d5aa7ba056ca70bcc1dc8270a5ba359c18b459dc3f9777babea5b44107e164",
+                    "dd17af8b75b7ce451e217a8be5d7e6c4c4e5a5d079d0ff4e0628a46efad4ac03",
+                    "f7c15ba568e8f62a03afb91db238f3bd4fbe19b682602627165bd93f700d6317",
+                    "b21d536ff38a9153b960ec4e0ae231a7d3a303d367b6e1119b93e40979d0d118",
+                    "56ee2bf17ba193acb5fd8cf3d14cce89cdc802806625f076030c4eee8c31b67a",
+                    "a1e5228f0a484bd0d8879d4768e80c557a90423e9d1e4e7c9fb8175e2b14ad47",
+                    "6e453b4f8d9ae2397e3594ad6d5dc75e9e3b62a312912f4dcf7c1fcf0b53f25e"
+                ]
+            }
+        ],
+        "archives": [
+            {
+                "loaderId": "loader-0",
+                "containerIndex": 0,
+                "kind": "ZIP",
+                "containerSha256": "6c3cc9c810fa98fae376c503ffa7af955b996d23d3e1ef93cdd1f588cb3246b9",
+                "dexSha256": [
+                    "fb80822e55954ae4c32c1628fabf629c12cee42e0b689d166c57ff3a1466bcf7",
+                    "769dc6752f77d09b39729321b1f469b519480e190d33eaa667fccdfb45352e9d",
+                    "8dfc41b14a86dabe3980381b7ba9cef554b4bd245d20a8a1da6d25b4951cd4d1",
+                    "1f84863aa7c19da796356e9aa846ea46666fa46cf2abc21100826218f83f0b3b",
+                    "629e2bea4d640110aefddd7506a4ae60e5214559baff5644eb43454818f1eeac",
+                    "96d2655e6d464a6713d4f12a26973f24717e5bbc4e78ab905c3e005875729ca8",
+                    "a5f022acb7fcb36a2db63b6bc1aef4a2e435400a82e26b6c6978ca9e05afb3c4",
+                    "89105993f1dc96a58593c03562b11485ec15af1030c8304d28c0e870cafc9ad3",
+                    "15feba3beb83d0a286eacc22fd5fd450889bf40cad2a644a16c464ca9bbe19c1",
+                    "7e74e8b4ba217a8cd3243964e1cc489b2ea47d09771671847ab27d500a96b371",
+                    "c8e5ef95592541d3c85b0a2ccdb75a1e51300b7d97346c1c03c1566d8b210ca2",
+                    "c102ae68d0d1ae1e5bef0dafd68e33992b01a4c3c0ac2126f7b1f0f010f19f6d",
+                    "9e1d260c5d9b7c8fa3bdc47567ce0280ada1c419848f01250f26c73fc38cb093",
+                    "fb64dfc443292c0fa332713b05cc1b21adc99d0f562807f00c31b483b8b9ec91",
+                    "61d5aa7ba056ca70bcc1dc8270a5ba359c18b459dc3f9777babea5b44107e164",
+                    "dd17af8b75b7ce451e217a8be5d7e6c4c4e5a5d079d0ff4e0628a46efad4ac03",
+                    "f7c15ba568e8f62a03afb91db238f3bd4fbe19b682602627165bd93f700d6317",
+                    "b21d536ff38a9153b960ec4e0ae231a7d3a303d367b6e1119b93e40979d0d118",
+                    "56ee2bf17ba193acb5fd8cf3d14cce89cdc802806625f076030c4eee8c31b67a",
+                    "a1e5228f0a484bd0d8879d4768e80c557a90423e9d1e4e7c9fb8175e2b14ad47",
+                    "6e453b4f8d9ae2397e3594ad6d5dc75e9e3b62a312912f4dcf7c1fcf0b53f25e"
+                ]
+            }
+        ],
+        "contentSha256": "142899669c747594fd0ea4c8b5f26048789f8151882954411b129f48bff35ae3"
+    },
+    "evaluatedRecognizerIds": [
+        "wecom_local_features"
+    ],
+    "recognizers": [
+        {
+            "recognizerId": "wecom_local_features",
+            "status": "PLANS",
+            "plans": [
+                {
+                    "plan": {
+                        "snapshotSha256": "142899669c747594fd0ea4c8b5f26048789f8151882954411b129f48bff35ae3",
+                        "contractId": "wecom_local_tablet",
+                        "contractRevision": 1,
+                        "strategyId": "wecom_local_tablet_callbacks",
+                        "strategyRevision": 1,
+                        "hooks": [
+                            {
+                                "role": "device_type",
+                                "descriptor": "Lcom/tencent/wework/foundation/logic/Application;->getDeviceTypeFromLocal()I",
+                                "shape": {
+                                    "parameters": [],
+                                    "returnType": "int",
+                                    "isStatic": false
+                                },
+                                "source": {
+                                    "loaderId": "loader-0",
+                                    "dexIndex": 4,
+                                    "dexSha256": "629e2bea4d640110aefddd7506a4ae60e5214559baff5644eb43454818f1eeac"
+                                },
+                                "phase": "AROUND",
+                                "configuration": {
+                                    "result": "131076"
+                                }
+                            },
+                            {
+                                "role": "app_pad",
+                                "descriptor": "Lcom/tencent/wework/foundation/logic/Application;->isAndroidPad()Z",
+                                "shape": {
+                                    "parameters": [],
+                                    "returnType": "boolean",
+                                    "isStatic": true
+                                },
+                                "source": {
+                                    "loaderId": "loader-0",
+                                    "dexIndex": 4,
+                                    "dexSha256": "629e2bea4d640110aefddd7506a4ae60e5214559baff5644eb43454818f1eeac"
+                                },
+                                "phase": "AROUND",
+                                "configuration": {
+                                    "result": "true"
+                                }
+                            },
+                            {
+                                "role": "service_pad",
+                                "descriptor": "Lcom/tencent/wework/foundation/impl/WeworkServiceImpl;->isAndroidPad()Z",
+                                "shape": {
+                                    "parameters": [],
+                                    "returnType": "boolean",
+                                    "isStatic": false
+                                },
+                                "source": {
+                                    "loaderId": "loader-0",
+                                    "dexIndex": 4,
+                                    "dexSha256": "629e2bea4d640110aefddd7506a4ae60e5214559baff5644eb43454818f1eeac"
+                                },
+                                "phase": "AROUND",
+                                "configuration": {
+                                    "result": "true"
+                                }
+                            }
+                        ],
+                        "schemaVersion": 1
+                    },
+                    "executionSha256": "0b1642c527c2615db1fa24020783a634755856b6efa5e35b6ded463ee32a28db",
+                    "evidence": [
+                        "namespace=loader-0",
+                        "device_type=Lcom/tencent/wework/foundation/logic/Application;->getDeviceTypeFromLocal()I",
+                        "app_pad=Lcom/tencent/wework/foundation/logic/Application;->isAndroidPad()Z",
+                        "service_pad=Lcom/tencent/wework/foundation/impl/WeworkServiceImpl;->isAndroidPad()Z"
+                    ]
+                }
+            ],
+            "diagnostics": [],
+            "reason": null
+        }
+    ],
+    "selection": {
+        "status": "SELECTED",
+        "plan": {
+            "snapshotSha256": "142899669c747594fd0ea4c8b5f26048789f8151882954411b129f48bff35ae3",
+            "contractId": "wecom_local_tablet",
+            "contractRevision": 1,
+            "strategyId": "wecom_local_tablet_callbacks",
+            "strategyRevision": 1,
+            "hooks": [
+                {
+                    "role": "device_type",
+                    "descriptor": "Lcom/tencent/wework/foundation/logic/Application;->getDeviceTypeFromLocal()I",
+                    "shape": {
+                        "parameters": [],
+                        "returnType": "int",
+                        "isStatic": false
+                    },
+                    "source": {
+                        "loaderId": "loader-0",
+                        "dexIndex": 4,
+                        "dexSha256": "629e2bea4d640110aefddd7506a4ae60e5214559baff5644eb43454818f1eeac"
+                    },
+                    "phase": "AROUND",
+                    "configuration": {
+                        "result": "131076"
+                    }
+                },
+                {
+                    "role": "app_pad",
+                    "descriptor": "Lcom/tencent/wework/foundation/logic/Application;->isAndroidPad()Z",
+                    "shape": {
+                        "parameters": [],
+                        "returnType": "boolean",
+                        "isStatic": true
+                    },
+                    "source": {
+                        "loaderId": "loader-0",
+                        "dexIndex": 4,
+                        "dexSha256": "629e2bea4d640110aefddd7506a4ae60e5214559baff5644eb43454818f1eeac"
+                    },
+                    "phase": "AROUND",
+                    "configuration": {
+                        "result": "true"
+                    }
+                },
+                {
+                    "role": "service_pad",
+                    "descriptor": "Lcom/tencent/wework/foundation/impl/WeworkServiceImpl;->isAndroidPad()Z",
+                    "shape": {
+                        "parameters": [],
+                        "returnType": "boolean",
+                        "isStatic": false
+                    },
+                    "source": {
+                        "loaderId": "loader-0",
+                        "dexIndex": 4,
+                        "dexSha256": "629e2bea4d640110aefddd7506a4ae60e5214559baff5644eb43454818f1eeac"
+                    },
+                    "phase": "AROUND",
+                    "configuration": {
+                        "result": "true"
+                    }
+                }
+            ],
+            "schemaVersion": 1
+        },
+        "executionSha256": "0b1642c527c2615db1fa24020783a634755856b6efa5e35b6ded463ee32a28db",
+        "evidenceByRecognizer": {
+            "wecom_local_features": [
+                "app_pad=Lcom/tencent/wework/foundation/logic/Application;->isAndroidPad()Z",
+                "device_type=Lcom/tencent/wework/foundation/logic/Application;->getDeviceTypeFromLocal()I",
+                "namespace=loader-0",
+                "service_pad=Lcom/tencent/wework/foundation/impl/WeworkServiceImpl;->isAndroidPad()Z"
+            ]
+        },
+        "alternatives": [],
+        "diagnostics": {},
+        "incompleteReasons": {},
+        "behaviorFeatures": {}
+    }
+}

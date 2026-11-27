@@ -1,0 +1,30 @@
+{
+  "schemaVersion": 1,
+  "groupingVersion": 1,
+  "appId": "wecom",
+  "acceptanceSha256": "3296326639a164fab9e9aa283202afab74d798641d6bcb77aa700a4a7bac521f",
+  "excludedGroupIds": [],
+  "groups": [
+    {
+      "groupId": "rg1-2bbc0f5af7dad00d",
+      "candidateRecordIds": [
+        "18be5626-7a1b-44f6-a4ce-8f860e84ec7b",
+        "fcc0bf21-aa96-4922-af28-c9dfb401e8c2",
+        "5c5639dc-34ee-44cd-8b6e-83f9e90206e4"
+      ],
+      "cacheMissRecordIds": [
+        "18be5626-7a1b-44f6-a4ce-8f860e84ec7b",
+        "fcc0bf21-aa96-4922-af28-c9dfb401e8c2",
+        "5c5639dc-34ee-44cd-8b6e-83f9e90206e4"
+      ],
+      "unavailable": [],
+      "status": "PASSED",
+      "recordId": "18be5626-7a1b-44f6-a4ce-8f860e84ec7b",
+      "apkSource": "download",
+      "staticEvidence": {
+        "path": "5d09ed3f4ee8441b4967bdb471aecf8d66e93b5b3e74642d78e37aac3999cfd4.json",
+        "sha256": "626724f6532eec4a074d20833ec1f3afe63c774f3b8dea3e0ad32b871afe46a2"
+      }
+    }
+  ]
+}
