@@ -7,10 +7,12 @@ import shlex
 import subprocess
 import shutil
 from pathlib import Path
+from urllib.error import HTTPError, URLError
 
 from scripts.ci.app_policy import get_policy
 from scripts.ci.discover_latest_wechat import validate_official_apk_url
-from scripts.ci.fetch_latest_wechat_apk import download_candidate, file_sha256, remote_metadata
+from scripts.ci.fetch_latest_wechat_apk import (ApkDigestMismatch, download_candidate,
+                                                file_sha256, remote_metadata, TruncatedDownload)
 from scripts.ci.download_url import validate_download_url
 from scripts.ci.apk_inputs import unpack_apk_inputs
 from scripts.ci.semantic_migration import load_migration_bundle
@@ -25,6 +27,25 @@ class SemanticRegressionMismatch(ValueError):
 
 class StaticCheckerExecutionError(subprocess.SubprocessError):
     """The checker did not produce a fresh valid report for its exact inputs."""
+
+
+class HistoricalApkUnavailable(ValueError):
+    """A pinned historical APK could not be acquired from its source."""
+
+
+def is_unavailable_regression(row):
+    return (isinstance(row, dict) and row.get('appId') == 'wecom'
+            and row.get('status') == 'SKIPPED' and row.get('skipReason') == 'APK_UNAVAILABLE'
+            and isinstance(row.get('recordId'), str) and bool(row['recordId'])
+            and isinstance(row.get('error'), str) and bool(row['error'])
+            and 'staticEvidence' not in row and 'failureKind' not in row)
+
+
+def regression_status(rows):
+    if not isinstance(rows, list) or not rows or not all(isinstance(row, dict) and (
+            row.get('status') == 'PASSED' or is_unavailable_regression(row)) for row in rows):
+        return 'FAILED'
+    return 'PARTIAL' if any(is_unavailable_regression(row) for row in rows) else 'PASSED'
 
 
 def record_apk_inputs(record, cache, base):
@@ -60,8 +81,20 @@ def ensure_apk(record, cache, app_id):
     if not cached:
         expected_archive = source.get('archiveSha256', digest)
         options = {'allow_external': True} if external else {}
-        archive, archive_hash, _, _ = download_candidate(
-            source_url, cache, expected_archive, remote_metadata(source_url, policy, **options), policy, **options)
+        try:
+            remote = remote_metadata(source_url, policy, **options)
+            archive, archive_hash, _, _ = download_candidate(
+                source_url, cache, expected_archive, remote, policy, **options)
+        except (ApkDigestMismatch, URLError, TimeoutError, ConnectionError, HTTPException) as error:
+            if app_id != 'wecom':
+                raise
+            if isinstance(error, HTTPError):
+                detail = f'HTTP {error.code}'
+            elif isinstance(error, (ApkDigestMismatch, TruncatedDownload)):
+                detail = str(error)
+            else:
+                detail = type(error).__name__
+            raise HistoricalApkUnavailable(detail) from error
         if archive_hash != expected_archive or file_sha256(archive) != expected_archive:
             raise ValueError('Fixed source archive hash differs from the acceptance record')
         inputs = unpack_apk_inputs(archive, cache / ('unpacked-' + archive_hash), policy.package_name)
@@ -187,6 +220,10 @@ def run_regression(app_id, reports, cache=None, repository=None):
                 'status': 'PASSED',
             })
         except (OSError, ValueError, HTTPException, subprocess.SubprocessError) as error:
+            if stage == 'download' and isinstance(error, HistoricalApkUnavailable):
+                summary.append({**row_binding, 'status': 'SKIPPED',
+                                'skipReason': 'APK_UNAVAILABLE', 'error': str(error)})
+                continue
             if isinstance(error, SemanticRegressionMismatch):
                 stage = 'checker_report'
             summary.append({
@@ -224,7 +261,7 @@ def main():
         summary.extend(run_regression(app_id, reports, args.cache))
     args.reports.mkdir(parents=True, exist_ok=True)
     (args.reports / 'results.json').write_text(json.dumps(summary, indent=2) + '\n')
-    if any(row['status'] != 'PASSED' for row in summary):
+    if regression_status(summary) == 'FAILED':
         raise SystemExit('Static regression failed; see per-build logs and results.json')
 
 

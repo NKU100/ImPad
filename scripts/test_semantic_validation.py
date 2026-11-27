@@ -1,5 +1,7 @@
 from scripts.testdata.acceptance_baseline import copy_migration_baseline
 import copy
+import hashlib
+import json
 import shutil
 import tempfile
 import unittest
@@ -77,6 +79,33 @@ class SemanticValidationTest(unittest.TestCase):
                 self.assertEqual('PASSED', result['staticStatus'])
                 self.assertEqual('PASSED', result['regressionStatus'])
                 self.assertNotIn('runtimeStatus', result)
+
+    def test_wecom_unavailable_rows_keep_baseline_binding_without_checker_evidence(self):
+        candidate, module, static, rows, reports = self.models('wecom')
+        row = rows[0]
+        row.pop('staticEvidence')
+        reports.pop(row['recordId'])
+        row.update(status='SKIPPED', skipReason='APK_UNAVAILABLE', error='APK SHA-256 mismatch')
+        result = validate_semantic_stage_models(candidate, module, static, rows, self.bundle,
+                                                reports, repository=self.root)
+        self.assertEqual('PARTIAL', result['regressionStatus'])
+        self.assertIn(row['recordId'], result['regressionRecordIds'])
+
+        from scripts.ci.runtime_task import _semantic_stage_context
+        result_path = self.root / 'regression.json'
+        result_path.write_text(json.dumps(rows))
+        regression = {'status': 'PARTIAL', 'records': rows, 'evidence': {
+            'path': str(result_path), 'sha256': hashlib.sha256(result_path.read_bytes()).hexdigest()}}
+        _, gate, _ = _semantic_stage_context(candidate, module, static, regression, self.root)
+        self.assertEqual(result, gate)
+        row['error'] = 'changed after generation'
+        with self.assertRaisesRegex(ValueError, 'do not match the hashed report'):
+            _semantic_stage_context(candidate, module, static, regression, self.root)
+
+        row['identity'] = {}
+        with self.assertRaises(ValueError):
+            validate_semantic_stage_models(candidate, module, static, rows, self.bundle,
+                                           reports, repository=self.root)
 
     def test_rejects_changed_candidate_static_selection_and_module_identity(self):
         mutations = (

@@ -99,7 +99,8 @@ def _validate_semantic_record(record: dict, app_id: str,
                 'completePlan', 'executionSha256', 'recognition', 'recognitionSha256',
                 'module', 'source', 'rawStageEvidence', 'staticReport', 'migrationBundle',
                 'regressionBaseline', 'evidenceArchive', 'acceptedAt'}
-    if not isinstance(record, dict) or set(record) != required:
+    if not isinstance(record, dict) or set(record) not in (
+            required, required | {'skippedRegressionRecordIds'}):
         raise ValueError('Semantic acceptance record has an invalid schema')
     if (type(record['schemaVersion']) is not int or record['schemaVersion'] != SEMANTIC_SCHEMA_VERSION
             or record['appId'] != app_id or record['status'] != 'VERIFIED'
@@ -293,6 +294,24 @@ def _validate_semantic_record(record: dict, app_id: str,
             or baseline['migrationHistorySha256'] != bundle['historySha256']
             or baseline['migrationExpectationsSha256'] != bundle['expectationsSha256']):
         raise ValueError('Semantic acceptance regression baseline differs from its migration or case bindings')
+    if 'skippedRegressionRecordIds' in record:
+        skipped_ids = record['skippedRegressionRecordIds']
+        if (app_id != 'wecom' or not isinstance(skipped_ids, list) or not skipped_ids
+                or skipped_ids != [record_id for record_id in case_ids if record_id in skipped_ids]):
+            raise ValueError('Semantic acceptance skipped regression IDs differ from the baseline')
+        if repository is not None:
+            from scripts.ci.static_regression import is_unavailable_regression, regression_status
+
+            root = Path(repository).resolve()
+            regression_ref = evidence['regression']
+            raw = _verified_source(root / regression_ref['path'], root=root).read_bytes()
+            if hashlib.sha256(raw).hexdigest() != regression_ref['sha256']:
+                raise ValueError('Semantic acceptance archived regression hash changed')
+            rows = json.loads(raw)
+            if (regression_status(rows) != 'PARTIAL'
+                    or [row.get('recordId') for row in rows] != case_ids
+                    or [row['recordId'] for row in rows if is_unavailable_regression(row)] != skipped_ids):
+                raise ValueError('Semantic acceptance archived regression differs from its skipped cases')
     return (hashes[0], *sorted(hashes[1:])), record['recordId']
 
 
@@ -533,6 +552,20 @@ def build_semantic_acceptance_record(validation: dict, *, evidence_archive: dict
         'evidenceArchive': copy.deepcopy(evidence_archive),
         'acceptedAt': datetime.now(timezone.utc).isoformat(),
     }
+    regression = validation.get('regression', {})
+    if isinstance(regression, dict) and regression.get('status') == 'PARTIAL':
+        from scripts.ci.static_regression import is_unavailable_regression, regression_status
+
+        rows = regression.get('records')
+        if regression_status(rows) != 'PARTIAL':
+            raise ValueError('Partial acceptance requires recorded skipped regression rows')
+        skipped_ids = {row['recordId'] for row in rows if is_unavailable_regression(row)}
+        record['skippedRegressionRecordIds'] = [
+            record_id for record_id in record['regressionBaseline']['regressionRecordIds']
+            if record_id in skipped_ids
+        ]
+        if set(record['skippedRegressionRecordIds']) != skipped_ids:
+            raise ValueError('Skipped regression rows differ from the accepted baseline')
     _validate_semantic_record(record, str(record['appId']))
     return record
 

@@ -76,7 +76,7 @@ def main():
     regression = json.loads((args.directory / 'regression/results.json').read_text())
     record = None
     reason = 'No unchanged verified acceptance record.'
-    if classify_regression(regression) == 'PASSED':
+    if classify_regression(regression) in {'PASSED', 'PARTIAL'}:
         try:
             static = json.loads(static_bytes)
             record = find_reusable_acceptance(args.repository, candidate, static)
@@ -91,7 +91,7 @@ def main():
             record = None
             reason = f'Acceptance evidence cannot be reused: {error}'
     else:
-        reason = 'Current fixed-record regression did not pass.'
+        reason = 'Current fixed-record regression contains failed or unusable results.'
     outputs = {'acceptance_reused': 'true' if record else 'false'}
     if record:
         outputs.update(outcome='VERIFIED', record_id=record['recordId'],

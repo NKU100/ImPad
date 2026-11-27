@@ -15,7 +15,7 @@ from scripts.ci.redroid_environment_probe import Probe, SERIAL
 from scripts.ci.redroid_app_smoke import AppSmoke, query_target
 from scripts.ci.candidate_selection import prepare_module, verify_module_identity
 from scripts.ci.runtime_task import _resolve_child, evaluate_validation
-from scripts.ci.static_regression import run_regression
+from scripts.ci.static_regression import regression_status, run_regression
 from scripts.ci.adb_relay import normalize_adb_server_socket
 from scripts.ci.apk_inputs import resolve_apk_inputs
 from scripts.ci.semantic_protocol import validate_check_report
@@ -254,10 +254,11 @@ def verify_runtime(directory):
             raise ValueError('Module identity was prepared for different APK bytes')
         (root / 'module-identity.json').write_text(json.dumps(module_identity, indent=2) + '\n')
         regression_rows = run_regression(policy.app_id, root / 'regression', repository=workspace)
-        if not regression_rows or any(row.get('status') != 'PASSED' for row in regression_rows):
+        status = regression_status(regression_rows)
+        if status == 'FAILED':
             raise ValueError('Fixed acceptance regression failed; runtime acceptance is blocked')
         regression_path = root / 'regression/results.json'
-        regression = {'status': 'PASSED', 'records': regression_rows,
+        regression = {'status': status, 'records': regression_rows,
                       'evidence': {'path': str(regression_path), 'sha256': sha256(regression_path)}}
         smoke.adb('install', '-r', '-g', str(runtime_apk), timeout=240)
         result = smoke.adb('install', '-r', str(module_apk), timeout=120)

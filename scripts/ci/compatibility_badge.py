@@ -78,7 +78,9 @@ def validate_report(report):
     if report['registrationStatus'] not in {'', 'REGISTERED'}:
         raise ValueError('Invalid registration status')
     for field in ('regressionOutcome', 'checkOutcome', 'buildOutcome'):
-        if report[field] not in {'PASSED', 'FAILED', 'UNKNOWN'}:
+        if (report[field] not in {'PASSED', 'FAILED', 'UNKNOWN'}
+                and not (field == 'regressionOutcome' and report['appId'] == 'wecom'
+                         and report[field] == 'PARTIAL')):
             raise ValueError(f'Invalid {field}')
     if report['runtimeEnvironment'] not in {'HEALTHY', 'UNKNOWN'}:
         raise ValueError('Invalid runtime environment evidence')
@@ -197,13 +199,16 @@ def runtime_summary(candidate, result, regression):
 
 
 def classify_regression(regression):
+    from scripts.ci.static_regression import regression_status
+
     rows = [regression] if isinstance(regression, dict) else regression
     if isinstance(rows, list) and rows and all(isinstance(row, dict) for row in rows):
         if any(row.get('status') == 'FAILED' and row.get('failureKind') == 'check_failure'
                and isinstance(row.get('recordId'), str) and row['recordId'] for row in rows):
             return 'FAILED'
-        if all(row.get('status') == 'PASSED' for row in rows):
-            return 'PASSED'
+        status = regression_status(rows)
+        if status != 'FAILED':
+            return status
     return 'UNKNOWN'
 
 
@@ -277,6 +282,7 @@ def write_adaptation_summary(task_directory, claimed, model_outcome, needs_model
         version = version_code = digest = None
     attempted = (task_bound and claimed == 'true' and (
         model_outcome in {'success', 'failure'} or needs_model == 'false'))
+    regression_outcome = classify_regression(regression)
     evidence = {
         'attempted': attempted,
         'static_verified': static_verified,
@@ -285,7 +291,7 @@ def write_adaptation_summary(task_directory, claimed, model_outcome, needs_model
         'version_name': version,
         'version_code': version_code,
         'candidate_sha256': digest,
-        'regression_outcome': ('PASSED' if static_verified else classify_regression(regression)),
+        'regression_outcome': ('PASSED' if static_verified and regression is None else regression_outcome),
         'check_outcome': ('PASSED' if static_verified else classify_regression_check(regression)),
         'build_outcome': 'PASSED' if static_verified else 'UNKNOWN',
     }
@@ -338,9 +344,11 @@ def classify(run, report):
             return _badge('orange', '适配未完成', 'orange', version, app_id)
         return _badge('gray', '执行异常', 'lightgrey', version, app_id)
 
-    complete_static = (report['checkOutcome'] == 'PASSED'
+    partial = report['regressionOutcome'] == 'PARTIAL'
+    suffix = '（有回归跳过）' if partial else ''
+    static_verified = (report['checkOutcome'] == 'PASSED'
                        and report['buildOutcome'] == 'PASSED'
-                       and report['regressionOutcome'] == 'PASSED')
+                       and report['regressionOutcome'] in {'PASSED', 'PARTIAL'})
     has_exact_candidate = (report['versionName'] is not None
                           and report['versionCode'] is not None
                           and report['candidateSha256'] is not None)
@@ -348,8 +356,8 @@ def classify(run, report):
             and report['candidateStatus'] == 'PREPARED'
             and report['validationOutcome'] in {'VERIFIED', 'RUNTIME_VERIFIED'}
             and report['outcome'] in {'VERIFIED', 'RUNTIME_VERIFIED'}
-            and complete_static):
-        return _badge('green', '已兼容', 'brightgreen', version, app_id)
+            and static_verified):
+        return _badge('green', '已兼容' + suffix, 'brightgreen', version, app_id)
 
     if (report['operation'] == 'verify' and report['candidateStatus'] == 'INCOMPATIBLE'
             and report['outcome'] in {'NO_MATCH', 'CONFLICT'}):
@@ -358,14 +366,14 @@ def classify(run, report):
     if report['adaptationAttempted']:
         if (has_exact_candidate and report['outcome'] in {'VERIFIED', 'RUNTIME_VERIFIED'}
                 and report['validationOutcome'] in {'VERIFIED', 'RUNTIME_VERIFIED'}
-                and complete_static and report['registrationStatus'] == 'REGISTERED'
+                and static_verified and report['registrationStatus'] == 'REGISTERED'
                 and report['prReady']):
-            return _badge('yellow', '待合并', 'yellow', version, app_id)
+            return _badge('yellow', '待合并' + suffix, 'yellow', version, app_id)
         if (has_exact_candidate and report['outcome'] == 'PENDING_RUNTIME'
                 and report['validationOutcome'] == 'PENDING_RUNTIME'
                 and report['checkOutcome'] == 'PASSED'
-                and report['regressionOutcome'] == 'PASSED'):
-            return _badge('yellow', '待验证', 'yellow', version, app_id)
+                and report['regressionOutcome'] in {'PASSED', 'PARTIAL'}):
+            return _badge('yellow', '待验证' + suffix, 'yellow', version, app_id)
         if report['outcome'] == 'ADAPTATION_INCOMPLETE':
             return _badge('orange', '适配未完成', 'orange', version, app_id)
 
@@ -393,8 +401,9 @@ def validate_record(record, app_id=None):
             or (app_id is not None and record['appId'] != app_id)):
         raise ValueError('Invalid published compatibility badge identity')
     allowed = {
-        'green': {('已兼容', 'brightgreen')},
-        'yellow': {('待合并', 'yellow'), ('待验证', 'yellow')},
+        'green': {('已兼容', 'brightgreen'), ('已兼容（有回归跳过）', 'brightgreen')},
+        'yellow': {('待合并', 'yellow'), ('待验证', 'yellow'),
+                   ('待合并（有回归跳过）', 'yellow'), ('待验证（有回归跳过）', 'yellow')},
         'orange': {('需适配', 'orange'), ('适配未完成', 'orange')},
         'red': {('回归失败', 'red'), ('验证未通过', 'red'),
                 ('检查失败', 'red'), ('构建失败', 'red')},

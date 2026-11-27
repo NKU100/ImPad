@@ -27,7 +27,11 @@ PROGRESS_BAR_WIDTH = 30
 MIB = 1024 * 1024
 
 
-class TruncatedDownload(HTTPException):
+class ApkDigestMismatch(ValueError):
+    """The downloaded bytes do not match the expected APK digest."""
+
+
+class TruncatedDownload(HTTPException, ValueError):
     """The response ended before its advertised APK bytes arrived."""
 
 
@@ -321,12 +325,11 @@ def _download_candidate_once(
         if advertised_length is None:
             advertised_length = downloaded_headers.get("content_length")
         if advertised_length is not None and byte_count != advertised_length:
-            error = TruncatedDownload if deadline is not None else ValueError
-            raise error(f"Downloaded byte count {byte_count} does not match Content-Length {advertised_length}")
+            raise TruncatedDownload(f"Downloaded byte count {byte_count} does not match Content-Length {advertised_length}")
 
         actual_sha256 = digest.hexdigest()
         if expected_sha256 and actual_sha256 != expected_sha256:
-            raise ValueError(f"APK SHA-256 mismatch: expected {expected_sha256}, received {actual_sha256}")
+            raise ApkDigestMismatch(f"APK SHA-256 mismatch: expected {expected_sha256}, received {actual_sha256}")
 
         apk_path = cache_dir / f"{actual_sha256}.apk"
         os.replace(temporary_path, apk_path)

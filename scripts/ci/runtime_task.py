@@ -11,6 +11,7 @@ import uuid
 
 from scripts.ci.app_policy import get_policy, policy_for_report
 from scripts.ci.download_url import validate_download_url
+from scripts.ci.static_regression import is_unavailable_regression, regression_status
 
 
 def _sha256(path):
@@ -150,11 +151,16 @@ def _semantic_stage_context(candidate, module, static, regression, repository,
     if not isinstance(evidence_ref, dict) or not isinstance(evidence_ref.get('path'), str):
         raise ValueError('Regression report file reference is missing')
     regression_file = Path(evidence_ref['path']).resolve()
-    if not regression_file.is_file() or _sha256(regression_file) != evidence_ref.get('sha256', '').lower():
+    raw_regression = regression_file.read_bytes() if regression_file.is_file() else None
+    if raw_regression is None or hashlib.sha256(raw_regression).hexdigest() != evidence_ref.get('sha256', '').lower():
         raise ValueError('Regression report changed after generation')
+    if any(is_unavailable_regression(row) for row in records) and json.loads(raw_regression) != records:
+        raise ValueError('Skipped regression rows do not match the hashed report')
     regression_root = regression_file.parent
     fixed_reports = {}
     for row in records:
+        if is_unavailable_regression(row):
+            continue
         reference = row.get('staticEvidence') if isinstance(row, dict) else None
         if (not isinstance(reference, dict) or not isinstance(reference.get('path'), str)
                 or not re.fullmatch(r'[a-fA-F0-9]{64}', str(reference.get('sha256', '')))):
@@ -657,9 +663,7 @@ def verify_validation_files(candidate_path, module_apk, regression_path, smoke_p
     regression_raw = _read_json(regression_path, 'Regression')
     if not isinstance(regression_raw, list) or not regression_raw:
         raise ValueError('Regression report must contain per-record results')
-    regression_status = 'PASSED' if all(isinstance(row, dict) and row.get('status') == 'PASSED'
-                                         for row in regression_raw) else 'FAILED'
-    regression = {'status': regression_status, 'records': regression_raw,
+    regression = {'status': regression_status(regression_raw), 'records': regression_raw,
                   'evidence': {'path': str(regression_path),
                                'sha256': _sha256(regression_path)}}
 
@@ -821,7 +825,7 @@ def evaluate_validation(candidate, module, static, regression, smoke, conclusion
     if any(not re.fullmatch(r'[a-f0-9]{64}', str(module.get(key, '')).lower()) for key in required_module):
         result.update(outcome='ERROR', failedStage='module', diagnostics=['Module source identity is incomplete'])
         return result
-    if regression.get('status') != 'PASSED':
+    if regression.get('status') != gate['regressionStatus']:
         result.update(outcome='ERROR', failedStage='regression',
                       diagnostics=['Regression status is missing or invalid'])
         return result

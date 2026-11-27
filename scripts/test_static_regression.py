@@ -28,6 +28,59 @@ class StaticRegressionTest(unittest.TestCase):
             with self.subTest(stage=stage, error=type(error).__name__):
                 self.assertEqual(expected, classify_regression_failure(stage, error))
 
+    def test_wecom_unavailable_historical_apk_is_skipped(self):
+        from urllib.error import URLError
+
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            copy_migration_baseline(ROOT / 'compatibility', root / 'compatibility')
+            args = ['static_regression', '--app-id', 'wecom', '--reports', str(root / 'reports')]
+            with patch('sys.argv', args), patch('scripts.ci.static_regression.Path.cwd', return_value=root), \
+                 patch('scripts.ci.static_regression.remote_metadata', side_effect=URLError('unavailable')), \
+                 patch('scripts.ci.static_regression.check_apk') as check:
+                main()
+            rows = json.loads((root / 'reports/results.json').read_text())
+            self.assertTrue(rows)
+            self.assertTrue(all(row['status'] == 'SKIPPED' and row['skipReason'] == 'APK_UNAVAILABLE'
+                                and 'staticEvidence' not in row for row in rows), rows)
+            check.assert_not_called()
+
+    def test_wecom_old_url_returning_another_apk_skips_only_affected_records(self):
+        from scripts.ci.fetch_latest_wechat_apk import ApkDigestMismatch
+        from scripts.ci.semantic_migration import load_migration_bundle
+
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            copy_migration_baseline(ROOT / 'compatibility', root / 'compatibility')
+            table = Path('compatibility/wecom/acceptance-v2.json')
+            accepted = json.loads((ROOT / table).read_text())
+            known_ids = {'90386bff-5c4f-402a-91f7-a375a64b2927',
+                         'fcc0bf21-aa96-4922-af28-c9dfb401e8c2'}
+            accepted['records'] = [row for row in accepted['records'] if row['recordId'] in known_ids]
+            (root / table).write_text(json.dumps(accepted))
+            bundle = load_migration_bundle(root)
+            profile = next(row for row in bundle.profiles if row['appId'] == 'wecom')
+            report = SemanticMigrationTest().report(profile)
+            cache = root / 'cache'
+            cache.mkdir()
+            saved_apk = cache / (profile['identity']['apkSha256'] + '.apk')
+            saved_apk.write_bytes(b'fixture')
+
+            def check(repository, candidate_apk, digest, log, **_):
+                log.with_suffix('.json').write_text(json.dumps(report))
+                return report
+
+            with patch('scripts.ci.static_regression.remote_metadata', return_value={}), \
+                 patch('scripts.ci.static_regression.download_candidate',
+                       side_effect=ApkDigestMismatch('APK SHA-256 mismatch')), \
+                 patch('scripts.ci.static_regression.file_sha256',
+                       return_value=profile['identity']['apkSha256']), \
+                 patch('scripts.ci.static_regression.check_apk', side_effect=check) as checker:
+                rows = run_regression('wecom', root / 'results', cache=cache, repository=root)
+            self.assertEqual([(70675, 'PASSED'), (84802, 'SKIPPED'), (84802, 'SKIPPED')],
+                             [(row['identity']['versionCode'], row['status']) for row in rows], rows)
+            self.assertEqual(1, checker.call_count)
+
     def test_fixed_xapk_restores_and_hash_checks_all_original_splits(self):
         import zipfile
         from scripts.ci.static_regression import record_apk_inputs

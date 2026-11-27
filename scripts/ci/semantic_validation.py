@@ -90,8 +90,13 @@ def validate_semantic_stage_models(candidate, module, static, regression_rows, b
             or len(regression_rows) != len(cases) or len({row.get('recordId') for row in regression_rows
                                                            if isinstance(row, dict)}) != len(cases)):
         raise ValueError('Regression rows must contain exactly one row per baseline case')
-    if not isinstance(fixed_reports, dict) or set(fixed_reports) != set(expected_ids):
-        raise ValueError('Full regression reports must exactly cover every baseline case')
+    from scripts.ci.static_regression import is_unavailable_regression, regression_status
+    status = regression_status(regression_rows)
+    if status == 'FAILED':
+        raise ValueError('Fixed regression has a failed or invalid row')
+    passed_ids = {row['recordId'] for row in regression_rows if row['status'] == 'PASSED'}
+    if not isinstance(fixed_reports, dict) or set(fixed_reports) != passed_ids:
+        raise ValueError('Fixed regression reports must exactly cover every passed baseline case')
     rows_by_id = {row['recordId']: row for row in regression_rows}
     if set(rows_by_id) != set(expected_ids):
         raise ValueError('Regression rows contain missing or unknown baseline cases')
@@ -103,7 +108,7 @@ def validate_semantic_stage_models(candidate, module, static, regression_rows, b
                        'profileId': case['profileId'],
                        'sourceSha256': case['acceptanceSnapshotSha256']}
         expected_source_cases.append(source_case)
-        if (row.get('status') != 'PASSED' or row.get('appId') != case['appId']
+        if (row.get('appId') != case['appId']
                 or row.get('identity') != case['identity'] or row.get('profileId') != case['profileId']
                 or row.get('recordId') != record_id or row.get('initialMigration') is not False
                 or row.get('acceptanceSnapshotSha256') != case['acceptanceSnapshotSha256']
@@ -113,6 +118,8 @@ def validate_semantic_stage_models(candidate, module, static, regression_rows, b
                 or row.get('v2SnapshotSha256') != baseline.v2_sha256
                 or row.get('baselineSourceCase') != source_case):
             raise ValueError('Regression row differs from its pinned baseline source case')
+        if is_unavailable_regression(row):
+            continue
         evidence = row.get('staticEvidence')
         if not isinstance(evidence, dict) or set(evidence) != {'path', 'sha256'}:
             raise ValueError('Regression row must contain a static evidence reference')
@@ -135,7 +142,7 @@ def validate_semantic_stage_models(candidate, module, static, regression_rows, b
         'sourceCases': expected_source_cases,
     }
 
-    return {'schemaVersion': 2, 'staticStatus': 'PASSED', 'regressionStatus': 'PASSED',
+    return {'schemaVersion': 2, 'staticStatus': 'PASSED', 'regressionStatus': status,
             'migrationHistorySha256': baseline.migration_bundle.history_sha256,
             'migrationExpectationsSha256': baseline.migration_bundle.expectations_sha256,
             'recordIds': migration_ids,

@@ -8,6 +8,7 @@ import re
 import signal
 import shutil
 import subprocess
+import sys
 import tempfile
 from pathlib import Path
 import shlex
@@ -15,7 +16,8 @@ import shlex
 from scripts.ci.app_policy import get_policy, policy_for_report
 from scripts.ci.discover_latest_wechat import append_github_output
 from scripts.ci.download_url import validate_download_url
-from scripts.ci.static_regression import ensure_apk, record_apk_inputs, run_regression
+from scripts.ci.static_regression import (HistoricalApkUnavailable, ensure_apk, record_apk_inputs,
+                                          regression_status, run_regression)
 from scripts.ci.apk_inputs import resolve_apk_inputs
 
 
@@ -295,14 +297,19 @@ def prepare_rules(repository, report_path, candidate_apk, directory):
     candidate_filename = f'candidate-{digest}.apk'
     shutil.copyfile(candidate_apk, apk_dir / candidate_filename)
     apks = [(report['identity']['versionName'], f'work/apks/{candidate_filename}', digest)]
+    cache = Path(repository) / '.cache' / f'{policy.app_id}-apks'
     for accepted in records:
         identity = accepted['identity']
-        cached = ensure_apk(accepted, Path(repository) / '.cache' / f'{policy.app_id}-apks', policy.app_id)
+        try:
+            cached = ensure_apk(accepted, cache, policy.app_id)
+        except HistoricalApkUnavailable as error:
+            print(f"Skipping historical APK {identity['versionCode']}: {error}", file=sys.stderr)
+            continue
         old_digest = identity['apkSha256'].lower()
         destination = apk_dir / f"{identity['versionCode']}-{old_digest}.apk"
         shutil.copyfile(cached, destination)
         apks.append((identity['versionName'], str(destination.relative_to(worktree)), old_digest))
-        for split in record_apk_inputs(accepted, Path(repository) / '.cache' / f'{policy.app_id}-apks', cached)[1:]:
+        for split in record_apk_inputs(accepted, cache, cached)[1:]:
             shutil.copyfile(split, apk_dir / split.name)
 
     analysis = worktree / 'work/analysis'
@@ -528,7 +535,7 @@ def _validate_rules(directory, state, policy, worktree):
         policy.app_id, regression_root,
         cache=worktree / '.cache' / f'{policy.app_id}-apks', repository=worktree)
     expected_cases = state['regressionBaseline']['sourceCases']
-    if (not regression_rows or any(row.get('status') != 'PASSED' for row in regression_rows)
+    if (regression_status(regression_rows) == 'FAILED'
             or [row.get('recordId') for row in regression_rows] != state['regressionRecordIds']
             or any(row.get('baselineSha256') != state['baselineSha256']
                    or row.get('v2SnapshotSha256') != state['v2SnapshotSha256']
