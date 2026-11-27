@@ -2,14 +2,20 @@ import base64
 import copy
 import json
 import unittest
-from pathlib import Path
 
 from scripts.ci.semantic_protocol import plan_execution_sha256
 from scripts.ci.semantic_runtime_events import validate_semantic_install_events
+from scripts.testdata.acceptance_examples import accepted_example
 
 
-ROOT = Path(__file__).resolve().parents[1]
-PROFILES = json.loads((ROOT / 'compatibility/semantic-migration/expectations.json').read_text())['profiles']
+def _profile(app_id):
+    record = accepted_example(app_id)
+    static = record['staticReport']
+    return {'appId': app_id, 'expectedPlan': record['completePlan'],
+            'ruleCatalog': static['ruleCatalog'], 'snapshot': static['snapshot']}
+
+
+PROFILES = [_profile(app_id) for app_id in ('wechat', 'qq', 'wecom')]
 PROCESS = 'com.tencent.example'
 
 
@@ -45,7 +51,7 @@ def event_pair(profile, *, plan=None, plan_hash=None, plan_time=100, hook_time=2
 class SemanticRuntimeEventsTest(unittest.TestCase):
     def test_decodes_valid_complete_plan_events_for_all_three_profiles(self):
         for profile in PROFILES:
-            with self.subTest(profile=profile['profileId']):
+            with self.subTest(app_id=profile['appId']):
                 plan_body, hook_body, plan, catalog, snapshot = event_pair(profile)
                 proof = validate_semantic_install_events(
                     plan_body, hook_body, plan, catalog, snapshot, PROCESS,

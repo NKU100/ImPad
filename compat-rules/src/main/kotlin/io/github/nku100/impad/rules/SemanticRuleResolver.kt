@@ -103,7 +103,9 @@ class RecognitionContext(val session: RuleSession, val snapshot: CapturedCodeSna
         }
     }
 
-    fun plan(strategyId: String, targets: Map<String, RuleMethod>, evidence: List<String>, configurations: Map<String, Map<String, String>> = emptyMap()): RecognizedPlan {
+    fun plan(strategyId: String, targets: Map<String, RuleMethod>, evidence: List<String>,
+        configurations: Map<String, Map<String, String>> = emptyMap(),
+        behaviorFeatures: Map<String, String> = emptyMap()): RecognizedPlan {
         require(targets.keys == catalog.requiredRoles) { "A complete plan must contain all required roles" }
         val strategy = catalog.strategy(strategyId)
         val hooks = strategy.roles.map { role ->
@@ -111,7 +113,8 @@ class RecognitionContext(val session: RuleSession, val snapshot: CapturedCodeSna
             PlanHook(role.role, method.descriptor, MethodShape(method.parameterTypes, method.returnType, method.isStatic),
                 session.sourceOf(method), role.phase, configurations[role.role] ?: role.configuration)
         }
-        return RecognizedPlan(CompletePlan(snapshotSha256, catalog.contractId, catalog.contractRevision, strategy.id, strategy.revision, hooks), evidence.toList())
+        return RecognizedPlan(CompletePlan(snapshotSha256, catalog.contractId, catalog.contractRevision, strategy.id, strategy.revision, hooks),
+            evidence.toList(), behaviorFeatures)
     }
 
     fun isVisibleFromReady(method: RuleMethod): Boolean {

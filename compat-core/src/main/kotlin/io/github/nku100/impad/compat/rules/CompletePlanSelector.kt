@@ -2,8 +2,9 @@ package io.github.nku100.impad.compat.rules
 
 import java.util.Collections
 
-class RecognizedPlan(val plan: CompletePlan, evidence: List<String>) {
+class RecognizedPlan(val plan: CompletePlan, evidence: List<String>, behaviorFeatures: Map<String, String> = emptyMap()) {
     val evidence: List<String> = frozenResultList(evidence)
+    val behaviorFeatures: Map<String, String> = Collections.unmodifiableMap(behaviorFeatures.toSortedMap())
 }
 
 sealed interface RecognitionResult {

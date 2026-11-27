@@ -22,7 +22,7 @@ class AcceptanceTest(unittest.TestCase):
         source = SemanticValidationTest('runTest')
         source.setUp()
         self.addCleanup(source.doCleanups)
-        candidate, module, static, rows, reports = source.models('wechat')
+        candidate, module, static, pool = source.models('wechat')
         root = source.root
         candidate.update(schemaVersion=2, status='PREPARED')
         candidate['apkFiles'] = [
@@ -39,19 +39,13 @@ class AcceptanceTest(unittest.TestCase):
         candidate['staticReportSha256'] = hashlib.sha256(static_bytes).hexdigest()
 
         module['sha256'] = 'f' * 64
-        regression_root = root / 'regression'
-        fixed_root = regression_root / 'fixed'
-        fixed_root.mkdir(parents=True)
-        for row in rows:
-            path = fixed_root / f"{row['recordId']}.json"
-            path.write_text(json.dumps(reports[row['recordId']]))
-            row['staticEvidence'] = {'path': f'fixed/{path.name}',
-                                     'sha256': hashlib.sha256(path.read_bytes()).hexdigest()}
-        regression_path = regression_root / 'results.json'
-        regression_path.write_text(json.dumps(rows))
-        regression = {'status': 'PASSED', 'records': rows,
-                      'evidence': {'path': str(regression_path),
-                                   'sha256': hashlib.sha256(regression_path.read_bytes()).hexdigest()}}
+        report = source.grouped_report(pool)
+        regression_path = root / 'regression/results.json'
+        regression_path.parent.mkdir()
+        regression_path.write_text(json.dumps(report))
+        regression = dict(report, status='PARTIAL',
+                          evidence={'path': str(regression_path),
+                                    'sha256': hashlib.sha256(regression_path.read_bytes()).hexdigest()})
         smoke_path = root / 'runtime/smoke.json'
         smoke_path.parent.mkdir(parents=True)
         smoke = {'status': 'RUNTIME_SMOKE_VERIFIED', 'appId': 'wechat',
@@ -341,7 +335,7 @@ class AcceptanceTest(unittest.TestCase):
         failed = evaluate_validation(candidate, module, static, regression, smoke, 'failure',
                                      runtime_rejection=True, repository=root)
         self.assertEqual('REGRESSION_FAILED', failed['outcome'])
-        regression['status'] = 'PASSED'
+        regression['status'] = 'PARTIAL'
         for conclusion in ('cancelled', 'skipped'):
             cancelled = evaluate_validation(candidate, module, static, regression, smoke, conclusion,
                                             runtime_rejection=True, repository=root)
@@ -395,6 +389,8 @@ class AcceptanceTest(unittest.TestCase):
 
     def test_verified_schema2_draft_preserves_source_and_does_not_write_acceptance_table(self):
         candidate, module, static, regression, smoke, root = self.semantic_stage_fixture()
+        table = root / 'compatibility/wechat/acceptance-v2.json'
+        original = table.read_bytes()
         validation = evaluate_validation(candidate, module, static, regression, smoke, 'success', repository=root)
         self.assertEqual('VERIFIED', validation['outcome'])
         record_id = '7e6b3b7c-61f0-45a8-9c74-7d8b4b890a13'
@@ -414,7 +410,7 @@ class AcceptanceTest(unittest.TestCase):
         self.assertEqual(candidate['sourceUrl'], record['source']['url'])
         self.assertEqual(candidate['identity'], record['identity'])
         self.assertEqual(candidate['expectedPlan'], record['completePlan'])
-        self.assertFalse((root / 'compatibility/wechat/acceptance-v2.json').exists())
+        self.assertEqual(original, table.read_bytes())
 
     def test_make_record_rejects_forged_verified_dictionary_without_files(self):
         candidate, module, _, _, _ = self.fixture()

@@ -238,23 +238,6 @@ jobs:
             --app-id "$APP_ID" \
             --apk-url "$APK_URL" \
             --directory work/runtime-smoke
-      - name: Run fixed-record static regression
-        run: |
-          python3 -m scripts.ci.static_regression \
-            --app-id "$APP_ID" \
-            --reports work/runtime-smoke/regression
-      - name: Reuse unchanged verified acceptance
-        id: acceptance-reuse
-        if: >-
-          inputs.allow_acceptance_reuse &&
-          github.event_name == 'schedule' && github.ref == 'refs/heads/main' &&
-          github.actor == github.repository_owner &&
-          inputs.apk_url == '' && inputs.module_run_id == '' &&
-          inputs.candidate_artifact == '' && inputs.candidate_mode == 'latest'
-        run: |
-          python3 -m scripts.ci.acceptance_reuse \
-            --directory work/runtime-smoke \
-            --github-output "$GITHUB_OUTPUT" --report "$GITHUB_STEP_SUMMARY"
       - name: Reuse exact module build
         if: inputs.module_run_id != ''
         uses: actions/download-artifact@v8
@@ -278,6 +261,23 @@ jobs:
             --app-id "$APP_ID" \
             --adaptation-report work/runtime-smoke/candidate-report.json \
             --directory work/runtime-smoke
+      - name: Run grouped static regression
+        run: |
+          python3 -m scripts.ci.static_regression \
+            --app-id "$APP_ID" \
+            --reports work/runtime-smoke/regression
+      - name: Reuse unchanged verified acceptance
+        id: acceptance-reuse
+        if: >-
+          inputs.allow_acceptance_reuse &&
+          github.event_name == 'schedule' && github.ref == 'refs/heads/main' &&
+          github.actor == github.repository_owner &&
+          inputs.apk_url == '' && inputs.module_run_id == '' &&
+          inputs.candidate_artifact == '' && inputs.candidate_mode == 'latest'
+        run: |
+          python3 -m scripts.ci.acceptance_reuse \
+            --directory work/runtime-smoke \
+            --github-output "$GITHUB_OUTPUT" --report "$GITHUB_STEP_SUMMARY"
       - name: Capture prepared candidate status
         id: candidate-state
         run: |
@@ -543,7 +543,7 @@ jobs:
               raise SystemExit(0 if expected_handoff else 1)
           evidence_root = directory / 'evidence/runtime-smoke'
           smoke_report = evidence_root / 'evidence/smoke-report.json'
-          acceptance_path = Path(f"compatibility/{os.environ['APP_ID']}/acceptance.json")
+          acceptance_path = Path(f"compatibility/{os.environ['APP_ID']}/acceptance-v2.json")
           if not acceptance_path.is_file():
               raise FileNotFoundError(f'Acceptance table is missing: {acceptance_path}')
           candidate_path = directory / 'candidate-report.json'
@@ -570,7 +570,7 @@ jobs:
                      '--module-apk', str(directory / 'module/app-debug.apk'),
                      '--regression', str(directory / 'regression/results.json'),
                      '--smoke', str(smoke_report), '--evidence-root', str(evidence_root),
-                     '--acceptance', f"compatibility/{os.environ['APP_ID']}/acceptance.json",
+                     '--acceptance', f"compatibility/{os.environ['APP_ID']}/acceptance-v2.json",
                      '--repository', '.', '--conclusion', os.environ['SMOKE_CONCLUSION'],
                      '--output', str(directory / 'runtime-candidate-report.json')]
           subprocess.run(command, check=True)

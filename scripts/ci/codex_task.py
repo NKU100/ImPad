@@ -177,12 +177,9 @@ def candidate_cache_settings(report):
 def candidate_records(app_id, repository=None):
     policy = get_policy(app_id)
     root = Path(repository or Path.cwd()).resolve()
-    from scripts.ci.acceptance import load_rule_catalog, read_acceptance_snapshot
-    path = root / f'compatibility/{policy.app_id}/acceptance.json'
-    snapshot = read_acceptance_snapshot(path, policy.app_id, False,
-                                        catalog=load_rule_catalog(policy.app_id, root),
-                                        repository=root)
-    return snapshot.records
+    from scripts.ci.semantic_regression_baseline import load_verified_regression_pool
+
+    return list(load_verified_regression_pool(root, policy.app_id).cases)
 
 
 def select_candidate_report(current_report_path, checkpoint_directory, expected_key, destination):

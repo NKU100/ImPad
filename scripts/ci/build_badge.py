@@ -9,6 +9,7 @@ import sys
 import time
 import xml.etree.ElementTree as ET
 
+from scripts.ci.grouped_static_regression import badge_regression_rows
 from scripts.ci.static_regression import is_unavailable_regression, regression_status
 
 
@@ -173,7 +174,7 @@ def _read_json(path, limit=REPORT_LIMIT):
 
 
 def _static_outcome(path):
-    rows = _read_json(path, limit=2 * 1024 * 1024)
+    rows = badge_regression_rows(_read_json(path, limit=2 * 1024 * 1024))
     if not isinstance(rows, list) or not rows:
         return 'unknown'
     status = regression_status(rows)

@@ -200,6 +200,9 @@ def runtime_summary(candidate, result, regression):
 def classify_regression(regression):
     from scripts.ci.static_regression import regression_status
 
+    from scripts.ci.grouped_static_regression import badge_regression_rows
+
+    regression = badge_regression_rows(regression)
     rows = [regression] if isinstance(regression, dict) else regression
     if isinstance(rows, list) and rows and all(isinstance(row, dict) for row in rows):
         if any(row.get('status') == 'FAILED' and row.get('failureKind') == 'check_failure'
@@ -212,6 +215,9 @@ def classify_regression(regression):
 
 
 def classify_regression_check(regression):
+    from scripts.ci.grouped_static_regression import badge_regression_rows
+
+    regression = badge_regression_rows(regression)
     rows = [regression] if isinstance(regression, dict) else regression
     if (isinstance(rows, list) and any(
             isinstance(row, dict) and row.get('status') == 'FAILED'

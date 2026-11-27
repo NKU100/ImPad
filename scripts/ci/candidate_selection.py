@@ -407,7 +407,7 @@ def write_local_runtime_assets(candidate, app_id, directory):
 
 
 def _registered_expectations(app_id, repository):
-    """Load v2 registrations, or exact source-linked frozen records during migration."""
+    """Load current registrations for exact signed APK rechecks."""
     repository = Path(repository).resolve()
     table_path = repository / 'compatibility' / app_id / SEMANTIC_ACCEPTANCE_FILENAME
     raw = read_semantic_acceptance_table(table_path, app_id, repository)
@@ -426,37 +426,7 @@ def _registered_expectations(app_id, repository):
             'source': record['source'],
         } for record in latest_by_inputs.values()]
 
-    from scripts.ci.semantic_migration import load_migration_bundle
-
-    bundle = load_migration_bundle(repository)
-    profiles = [profile for profile in bundle.profiles if profile['appId'] == app_id]
-    historical = {record['recordId']: record for record in bundle.historical_records
-                  if record.get('appId') == app_id}
-    if not profiles:
-        return []
-    expectations = []
-    for profile in profiles:
-        record_id = profile['historicalRecordId']
-        record = historical.get(record_id)
-        source = record.get('source') if isinstance(record, dict) else None
-        if (record is None or record.get('identity') != profile['identity']
-                or not isinstance(source, dict) or not isinstance(source.get('apkFiles'), list)):
-            raise ValueError('Pinned migration profile has no source-linked historical record')
-        source_hashes = [item.get('sha256', '').lower() for item in source['apkFiles']
-                         if isinstance(item, dict)]
-        if (len(source_hashes) != len(source['apkFiles'])
-                or source_hashes != [digest.lower() for digest in profile['apkInputSha256']]):
-            raise ValueError('Pinned migration profile APK inputs differ from its historical source')
-        expectations.append({
-            'recordId': record_id,
-            'identity': profile['identity'],
-            'apkFiles': source['apkFiles'],
-            'completePlan': profile['expectedPlan'],
-            'executionSha256': profile['expectedExecutionSha256'],
-            'source': {key: value for key, value in source.items()
-                       if key in {'type', 'url', 'archiveSha256'}},
-        })
-    return expectations
+    return []
 
 
 def _verify_registered_candidate(candidate, expected):

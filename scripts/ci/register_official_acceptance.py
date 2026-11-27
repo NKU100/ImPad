@@ -129,7 +129,7 @@ def main():
         '--module-apk', str(directory / 'inputs/module/app-debug.apk'),
         '--regression', str(directory / 'inputs/regression/results.json'),
         '--smoke', str(smoke_path), '--evidence-root', str(directory / 'evidence/runtime-smoke'),
-        '--acceptance', str(repository / 'compatibility' / args.app_id / 'acceptance.json'),
+        '--acceptance', str(repository / 'compatibility' / args.app_id / 'acceptance-v2.json'),
         '--repository', str(repository), '--conclusion', 'success',
         '--expected-head', args.expected_head, '--output', str(result),
     ])

@@ -4,8 +4,7 @@ import json
 from pathlib import Path
 import re
 
-from scripts.ci.semantic_regression_baseline import (SemanticRegressionBaseline,
-    compare_baseline_report, load_semantic_regression_baseline)
+from scripts.ci.semantic_regression_baseline import VerifiedRegressionPool
 from scripts.ci.semantic_protocol import validate_check_report
 
 _SHA256 = re.compile(r'[0-9a-fA-F]{64}')
@@ -33,8 +32,9 @@ def _reference_path(repository, value):
         raise ValueError('Static evidence path escapes the repository')
 
 
-def validate_semantic_stage_models(candidate, module, static, regression_rows, bundle,
-                                   fixed_reports, repository=Path.cwd(), baseline=None):
+def validate_semantic_stage_models(candidate, module, static, regression_report,
+                                   repository=Path.cwd(), baseline=None,
+                                   grouped_report_path=None):
     """Check model consistency only; this does not establish runtime acceptance."""
     repository = Path(repository).resolve()
     validate_check_report(static)
@@ -79,74 +79,24 @@ def validate_semantic_stage_models(candidate, module, static, regression_rows, b
         _reference_path(repository, candidate.get('staticReport'))
         _digest(candidate.get('staticReportSha256'), 'candidate static report hash')
 
-    baseline = baseline or load_semantic_regression_baseline(repository, static['appId'], bundle)
-    if not isinstance(baseline, SemanticRegressionBaseline):
-        raise ValueError('Expected a semantic regression baseline')
-    baseline.assert_unchanged()
-    cases = list(baseline.cases)
-    expected_ids = [case['recordId'] for case in cases]
-    migration_ids = [case['recordId'] for case in cases if case['kind'] == 'MIGRATION']
-    if (not cases or not isinstance(regression_rows, list)
-            or len(regression_rows) != len(cases) or len({row.get('recordId') for row in regression_rows
-                                                           if isinstance(row, dict)}) != len(cases)):
-        raise ValueError('Regression rows must contain exactly one row per baseline case')
-    from scripts.ci.static_regression import is_unavailable_regression, regression_status
-    status = regression_status(regression_rows)
+    if (not isinstance(baseline, VerifiedRegressionPool) or not isinstance(regression_report, dict)
+            or grouped_report_path is None):
+        raise ValueError('Grouped regression requires its verified v2 pool and full report')
+    from scripts.ci.grouped_static_regression import (badge_regression_rows,
+        regression_baseline_binding, verify_grouped_regression)
+    from scripts.ci.static_regression import regression_status
+    report = verify_grouped_regression(baseline, grouped_report_path, execution)
+    if report != regression_report:
+        raise ValueError('Grouped regression report differs from the verified report file')
+    if report['appId'] != static['appId']:
+        raise ValueError('Grouped regression appId differs from static evidence')
+    rows = badge_regression_rows(report)
+    status = regression_status(rows)
     if status == 'FAILED':
-        raise ValueError('Fixed regression has a failed or invalid row')
-    passed_ids = {row['recordId'] for row in regression_rows if row['status'] == 'PASSED'}
-    if not isinstance(fixed_reports, dict) or set(fixed_reports) != passed_ids:
-        raise ValueError('Fixed regression reports must exactly cover every passed baseline case')
-    rows_by_id = {row['recordId']: row for row in regression_rows}
-    if set(rows_by_id) != set(expected_ids):
-        raise ValueError('Regression rows contain missing or unknown baseline cases')
-    expected_source_cases = []
-    for case in cases:
-        record_id = case['recordId']
-        row = rows_by_id[record_id]
-        source_case = {'kind': case['kind'], 'recordId': record_id,
-                       'profileId': case['profileId'],
-                       'sourceSha256': case['acceptanceSnapshotSha256']}
-        expected_source_cases.append(source_case)
-        if (row.get('appId') != case['appId']
-                or row.get('identity') != case['identity'] or row.get('profileId') != case['profileId']
-                or row.get('recordId') != record_id or row.get('initialMigration') is not False
-                or row.get('acceptanceSnapshotSha256') != case['acceptanceSnapshotSha256']
-                or row.get('migrationHistorySha256') != baseline.migration_bundle.history_sha256
-                or row.get('migrationExpectationsSha256') != baseline.migration_bundle.expectations_sha256
-                or row.get('baselineSha256') != baseline.sha256
-                or row.get('v2SnapshotSha256') != baseline.v2_sha256
-                or row.get('baselineSourceCase') != source_case):
-            raise ValueError('Regression row differs from its pinned baseline source case')
-        if is_unavailable_regression(row):
-            continue
-        evidence = row.get('staticEvidence')
-        if not isinstance(evidence, dict) or set(evidence) != {'path', 'sha256'}:
-            raise ValueError('Regression row must contain a static evidence reference')
-        _reference_path(repository, evidence['path'])
-        _digest(evidence['sha256'], 'regression static evidence hash')
-        report = fixed_reports[record_id]
-        compare_baseline_report(baseline, record_id, report)
-        if report['executionIdentity'] != execution:
-            raise ValueError('Regression execution identity differs from current static evidence')
-
+        raise ValueError('A grouped semantic regression failed')
     baseline.assert_unchanged()
-    baseline_summary = {
-        'sha256': baseline.sha256,
-        'appId': baseline.app_id,
-        'migrationHistorySha256': baseline.migration_bundle.history_sha256,
-        'migrationExpectationsSha256': baseline.migration_bundle.expectations_sha256,
-        'v2Path': baseline.v2_path.relative_to(repository).as_posix(),
-        'v2SnapshotSha256': baseline.v2_sha256,
-        'regressionRecordIds': expected_ids,
-        'sourceCases': expected_source_cases,
-    }
-
+    from scripts.ci.regression_groups import GROUPING_VERSION
     return {'schemaVersion': 2, 'staticStatus': 'PASSED', 'regressionStatus': status,
-            'migrationHistorySha256': baseline.migration_bundle.history_sha256,
-            'migrationExpectationsSha256': baseline.migration_bundle.expectations_sha256,
-            'recordIds': migration_ids,
-            'regressionRecordIds': expected_ids,
-            'baselineSha256': baseline.sha256,
+            'regressionRecordIds': [row['groupId'] for row in report['groups']],
             'v2SnapshotSha256': baseline.v2_sha256,
-            'regressionBaseline': baseline_summary}
+            'regressionBaseline': regression_baseline_binding(baseline)}

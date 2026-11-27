@@ -106,10 +106,10 @@ def fetch_official_page() -> str:
 
 def expected_sha256_for_url(app_id: str, source_url: str,
                             repository: Path | None = None) -> str:
-    from scripts.ci.semantic_regression_baseline import load_semantic_regression_baseline
+    from scripts.ci.semantic_regression_baseline import load_verified_regression_pool
 
     repository = Path(repository or Path.cwd()).resolve()
-    baseline = load_semantic_regression_baseline(repository, app_id)
+    baseline = load_verified_regression_pool(repository, app_id)
     matches = [case for case in baseline.cases
                if case.get("source", {}).get("url") == source_url]
     digests = set()

@@ -8,7 +8,7 @@ The Python verifier independently recomputes source-directory, snapshot, complet
 
 ## Frozen history and registration
 
-The files in [`migration/`](../../compatibility/semantic-migration/) freeze the historical schema-1 acceptance bytes and their migration expectations. The four pinned profiles remain WeChat 3040, WeChat 3200 fixed, QQ 14378, and WeCom 70675. These pins are regression data; they are not new semantic acceptance records and do not relabel old logs as schema-2 evidence.
+At the time of this migration, the files in [`semantic-migration/`](https://github.com/NKU100/ImPad/tree/971264e/compatibility/semantic-migration) froze the historical schema-1 acceptance bytes and their migration expectations. The four pinned profiles remain WeChat 3040, WeChat 3200 fixed, QQ 14378, and WeCom 70675. These pins are regression data; they are not new semantic acceptance records and do not relabel old logs as schema-2 evidence.
 
 Schema-2 registration remains a separate boundary. New records belong in `compatibility/<app>/acceptance-v2.json`. The shared fixed-regression/adaptation oracle and runtime/archive workflow integration for this format are implemented and covered by the final host CI/Python run. No actual acceptance-v2 registration was created and no formal ReDroid gate was completed. Synthetic schema-2 fixtures establish validator behavior only, not business acceptance.
 

@@ -1,0 +1,231 @@
+{
+  "schemaVersion": 1,
+  "recordId": "26bc2927-b3c4-4c5e-a7d2-30d0cad17a89",
+  "files": [
+    {
+      "sourcePath": "/private/tmp/impad-historical-acceptance.YTYRsD/46064029864/inputs/static-check.json",
+      "path": "compatibility/wechat/acceptance-evidence/26bc2927-b3c4-4c5e-a7d2-30d0cad17a89/static-report.json",
+      "sha256": "528cbc6483550f8475adaae21472a5ba6f517952dc2d8cc03b3e8351f9e50543"
+    },
+    {
+      "sourcePath": "/private/tmp/impad-historical-acceptance.YTYRsD/46064029864/inputs/regression/results.json",
+      "path": "compatibility/wechat/acceptance-evidence/26bc2927-b3c4-4c5e-a7d2-30d0cad17a89/regression-report.json",
+      "sha256": "6169ff32a8d042784124e911f0097369c9d265e5551c41fdd5d6db5f8a6c1bd1"
+    },
+    {
+      "sourcePath": "/private/tmp/impad-historical-acceptance.YTYRsD/46064029864/evidence/runtime-smoke/evidence/smoke-report.json",
+      "path": "compatibility/wechat/acceptance-evidence/26bc2927-b3c4-4c5e-a7d2-30d0cad17a89/runtime-report.json",
+      "sha256": "791eca9431dee36543b1f82780dc3b343c5bfc2660a83c70b2ce6cd3ff7e077d"
+    },
+    {
+      "sourcePath": "/private/tmp/impad-historical-acceptance.YTYRsD/46064029864/evidence/runtime-smoke/apps/wechat/app-hook-logs.txt",
+      "path": "compatibility/wechat/acceptance-evidence/26bc2927-b3c4-4c5e-a7d2-30d0cad17a89/raw/raw-0000-app-hook-logs.txt",
+      "sha256": "d1609fd123a74ac060b001cf8b956bcfda0fddc7e70263870fba93429fb8a8fe"
+    },
+    {
+      "sourcePath": "/private/tmp/impad-historical-acceptance.YTYRsD/46064029864/evidence/runtime-smoke/apps/wechat/installed-identities.json",
+      "path": "compatibility/wechat/acceptance-evidence/26bc2927-b3c4-4c5e-a7d2-30d0cad17a89/raw/raw-0001-installed-identities.json",
+      "sha256": "26863453cc3acf54c23c33b1c917bd1c38b5dd22d86f68b1140f7662126136cf"
+    },
+    {
+      "sourcePath": "/private/tmp/impad-historical-acceptance.YTYRsD/46064029864/evidence/runtime-smoke/apps/wechat/logcat.txt",
+      "path": "compatibility/wechat/acceptance-evidence/26bc2927-b3c4-4c5e-a7d2-30d0cad17a89/raw/raw-0002-logcat.txt",
+      "sha256": "8c322f801e1028386d8cb5535aa3373710cc2c604ac83194a786496cd27728c1"
+    },
+    {
+      "sourcePath": "/private/tmp/impad-historical-acceptance.YTYRsD/46064029864/evidence/runtime-smoke/apps/wechat/manager-current-activity.txt",
+      "path": "compatibility/wechat/acceptance-evidence/26bc2927-b3c4-4c5e-a7d2-30d0cad17a89/raw/raw-0003-manager-current-activity.txt",
+      "sha256": "0b5d2f9d2fbc7d3eb0199bcff655f7b114efb23e2a2c914e53008c80a8bfeb66"
+    },
+    {
+      "sourcePath": "/private/tmp/impad-historical-acceptance.YTYRsD/46064029864/evidence/runtime-smoke/apps/wechat/manager-current-dump.txt",
+      "path": "compatibility/wechat/acceptance-evidence/26bc2927-b3c4-4c5e-a7d2-30d0cad17a89/raw/raw-0004-manager-current-dump.txt",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "sourcePath": "/private/tmp/impad-historical-acceptance.YTYRsD/46064029864/evidence/runtime-smoke/apps/wechat/manager-current-ocr.tsv",
+      "path": "compatibility/wechat/acceptance-evidence/26bc2927-b3c4-4c5e-a7d2-30d0cad17a89/raw/raw-0005-manager-current-ocr.tsv",
+      "sha256": "54a0688b4352966803bcbf58fe010399944ebfd696766198d5359fc005180960"
+    },
+    {
+      "sourcePath": "/private/tmp/impad-historical-acceptance.YTYRsD/46064029864/evidence/runtime-smoke/apps/wechat/manager-current.png",
+      "path": "compatibility/wechat/acceptance-evidence/26bc2927-b3c4-4c5e-a7d2-30d0cad17a89/raw/raw-0006-manager-current.png",
+      "sha256": "a0b36c6302f7c20554f4ee798eab1a2084883e1cb996bc9a382c5855b3bbaf45"
+    },
+    {
+      "sourcePath": "/private/tmp/impad-historical-acceptance.YTYRsD/46064029864/evidence/runtime-smoke/apps/wechat/manager-current.xml",
+      "path": "compatibility/wechat/acceptance-evidence/26bc2927-b3c4-4c5e-a7d2-30d0cad17a89/raw/raw-0007-manager-current.xml",
+      "sha256": "4c557e09d44242e6adf37cbd553eb65af809bbc6e1931108bb497474694ac2b3"
+    },
+    {
+      "sourcePath": "/private/tmp/impad-historical-acceptance.YTYRsD/46064029864/evidence/runtime-smoke/apps/wechat/manager-enable-requested-activity.txt",
+      "path": "compatibility/wechat/acceptance-evidence/26bc2927-b3c4-4c5e-a7d2-30d0cad17a89/raw/raw-0008-manager-enable-requested-activity.txt",
+      "sha256": "5c9ea2e10003866dcf99bcea3c4dff4b8391832d8d1604e321448edca4005cbb"
+    },
+    {
+      "sourcePath": "/private/tmp/impad-historical-acceptance.YTYRsD/46064029864/evidence/runtime-smoke/apps/wechat/manager-enable-requested-dump.txt",
+      "path": "compatibility/wechat/acceptance-evidence/26bc2927-b3c4-4c5e-a7d2-30d0cad17a89/raw/raw-0009-manager-enable-requested-dump.txt",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "sourcePath": "/private/tmp/impad-historical-acceptance.YTYRsD/46064029864/evidence/runtime-smoke/apps/wechat/manager-enable-requested.png",
+      "path": "compatibility/wechat/acceptance-evidence/26bc2927-b3c4-4c5e-a7d2-30d0cad17a89/raw/raw-0010-manager-enable-requested.png",
+      "sha256": "78cb0bc2ec6929e71bc0e029bb999b81a5ef5366ee72bce9f61418b2fe17e971"
+    },
+    {
+      "sourcePath": "/private/tmp/impad-historical-acceptance.YTYRsD/46064029864/evidence/runtime-smoke/apps/wechat/manager-enable-requested.xml",
+      "path": "compatibility/wechat/acceptance-evidence/26bc2927-b3c4-4c5e-a7d2-30d0cad17a89/raw/raw-0011-manager-enable-requested.xml",
+      "sha256": "4c557e09d44242e6adf37cbd553eb65af809bbc6e1931108bb497474694ac2b3"
+    },
+    {
+      "sourcePath": "/private/tmp/impad-historical-acceptance.YTYRsD/46064029864/evidence/runtime-smoke/apps/wechat/manager-module-state.json",
+      "path": "compatibility/wechat/acceptance-evidence/26bc2927-b3c4-4c5e-a7d2-30d0cad17a89/raw/raw-0012-manager-module-state.json",
+      "sha256": "501a11c33ad8759cbd2d539b4078deee8e930fff335dec7af5cd14066acf72a5"
+    },
+    {
+      "sourcePath": "/private/tmp/impad-historical-acceptance.YTYRsD/46064029864/evidence/runtime-smoke/apps/wechat/manager-state-disabled.json",
+      "path": "compatibility/wechat/acceptance-evidence/26bc2927-b3c4-4c5e-a7d2-30d0cad17a89/raw/raw-0013-manager-state-disabled.json",
+      "sha256": "52c9aeb4578a08dbc615c40a267d5700eb5dc05fc3e164b2e475ee2f7f672d73"
+    },
+    {
+      "sourcePath": "/private/tmp/impad-historical-acceptance.YTYRsD/46064029864/evidence/runtime-smoke/apps/wechat/manager-state-enabled.json",
+      "path": "compatibility/wechat/acceptance-evidence/26bc2927-b3c4-4c5e-a7d2-30d0cad17a89/raw/raw-0014-manager-state-enabled.json",
+      "sha256": "8a92c2eeb68315b2755735641e6ee149d2a0c8f9996184486ed10167472d61f9"
+    },
+    {
+      "sourcePath": "/private/tmp/impad-historical-acceptance.YTYRsD/46064029864/evidence/runtime-smoke/apps/wechat/manager-state-final.json",
+      "path": "compatibility/wechat/acceptance-evidence/26bc2927-b3c4-4c5e-a7d2-30d0cad17a89/raw/raw-0015-manager-state-final.json",
+      "sha256": "8a92c2eeb68315b2755735641e6ee149d2a0c8f9996184486ed10167472d61f9"
+    },
+    {
+      "sourcePath": "/private/tmp/impad-historical-acceptance.YTYRsD/46064029864/evidence/runtime-smoke/apps/wechat/manager-state-initial.json",
+      "path": "compatibility/wechat/acceptance-evidence/26bc2927-b3c4-4c5e-a7d2-30d0cad17a89/raw/raw-0016-manager-state-initial.json",
+      "sha256": "8a92c2eeb68315b2755735641e6ee149d2a0c8f9996184486ed10167472d61f9"
+    },
+    {
+      "sourcePath": "/private/tmp/impad-historical-acceptance.YTYRsD/46064029864/evidence/runtime-smoke/apps/wechat/module-off-login-activity.txt",
+      "path": "compatibility/wechat/acceptance-evidence/26bc2927-b3c4-4c5e-a7d2-30d0cad17a89/raw/raw-0017-module-off-login-activity.txt",
+      "sha256": "9d05b6781f06da4fd07a626dfd12256ff66c9804b281e216881af397ed031bad"
+    },
+    {
+      "sourcePath": "/private/tmp/impad-historical-acceptance.YTYRsD/46064029864/evidence/runtime-smoke/apps/wechat/module-off-login-current-activity.txt",
+      "path": "compatibility/wechat/acceptance-evidence/26bc2927-b3c4-4c5e-a7d2-30d0cad17a89/raw/raw-0018-module-off-login-current-activity.txt",
+      "sha256": "6f88295779c673a3110489058ec19950b38f8207d0ae29b762663727389f6837"
+    },
+    {
+      "sourcePath": "/private/tmp/impad-historical-acceptance.YTYRsD/46064029864/evidence/runtime-smoke/apps/wechat/module-off-login-current-dump.txt",
+      "path": "compatibility/wechat/acceptance-evidence/26bc2927-b3c4-4c5e-a7d2-30d0cad17a89/raw/raw-0019-module-off-login-current-dump.txt",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "sourcePath": "/private/tmp/impad-historical-acceptance.YTYRsD/46064029864/evidence/runtime-smoke/apps/wechat/module-off-login-current.png",
+      "path": "compatibility/wechat/acceptance-evidence/26bc2927-b3c4-4c5e-a7d2-30d0cad17a89/raw/raw-0020-module-off-login-current.png",
+      "sha256": "a2a1397be68a420b6fabae9de3605754b8f1dea182e89e6748264730c5aa2cc0"
+    },
+    {
+      "sourcePath": "/private/tmp/impad-historical-acceptance.YTYRsD/46064029864/evidence/runtime-smoke/apps/wechat/module-off-login-current.xml",
+      "path": "compatibility/wechat/acceptance-evidence/26bc2927-b3c4-4c5e-a7d2-30d0cad17a89/raw/raw-0021-module-off-login-current.xml",
+      "sha256": "37f3a9c881d6fc975b3da507dd308462f07698a3406f30b1acb3bca1f1aaf0ea"
+    },
+    {
+      "sourcePath": "/private/tmp/impad-historical-acceptance.YTYRsD/46064029864/evidence/runtime-smoke/apps/wechat/module-off-login-dump.txt",
+      "path": "compatibility/wechat/acceptance-evidence/26bc2927-b3c4-4c5e-a7d2-30d0cad17a89/raw/raw-0022-module-off-login-dump.txt",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "sourcePath": "/private/tmp/impad-historical-acceptance.YTYRsD/46064029864/evidence/runtime-smoke/apps/wechat/module-off-login.png",
+      "path": "compatibility/wechat/acceptance-evidence/26bc2927-b3c4-4c5e-a7d2-30d0cad17a89/raw/raw-0023-module-off-login.png",
+      "sha256": "f68074c59123b5e35ea24462a8a187ec955aff9858111904f873e2af3a9e6de2"
+    },
+    {
+      "sourcePath": "/private/tmp/impad-historical-acceptance.YTYRsD/46064029864/evidence/runtime-smoke/apps/wechat/module-off-login.xml",
+      "path": "compatibility/wechat/acceptance-evidence/26bc2927-b3c4-4c5e-a7d2-30d0cad17a89/raw/raw-0024-module-off-login.xml",
+      "sha256": "37f3a9c881d6fc975b3da507dd308462f07698a3406f30b1acb3bca1f1aaf0ea"
+    },
+    {
+      "sourcePath": "/private/tmp/impad-historical-acceptance.YTYRsD/46064029864/evidence/runtime-smoke/apps/wechat/module-on-login-activity.txt",
+      "path": "compatibility/wechat/acceptance-evidence/26bc2927-b3c4-4c5e-a7d2-30d0cad17a89/raw/raw-0025-module-on-login-activity.txt",
+      "sha256": "c1298e475556c0ff00dcb292aafa20c43408079c28e433128968c3be3888695d"
+    },
+    {
+      "sourcePath": "/private/tmp/impad-historical-acceptance.YTYRsD/46064029864/evidence/runtime-smoke/apps/wechat/module-on-login-current-activity.txt",
+      "path": "compatibility/wechat/acceptance-evidence/26bc2927-b3c4-4c5e-a7d2-30d0cad17a89/raw/raw-0026-module-on-login-current-activity.txt",
+      "sha256": "8959e84b92a02f15df3000d70240c5fabbbd804f356eb8890a1fe64630bee66f"
+    },
+    {
+      "sourcePath": "/private/tmp/impad-historical-acceptance.YTYRsD/46064029864/evidence/runtime-smoke/apps/wechat/module-on-login-current-dump.txt",
+      "path": "compatibility/wechat/acceptance-evidence/26bc2927-b3c4-4c5e-a7d2-30d0cad17a89/raw/raw-0027-module-on-login-current-dump.txt",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "sourcePath": "/private/tmp/impad-historical-acceptance.YTYRsD/46064029864/evidence/runtime-smoke/apps/wechat/module-on-login-current.png",
+      "path": "compatibility/wechat/acceptance-evidence/26bc2927-b3c4-4c5e-a7d2-30d0cad17a89/raw/raw-0028-module-on-login-current.png",
+      "sha256": "71d6b7a5f663bfe2a365bb2206957ca914cf97bd02561f4d669bf7761fca8b90"
+    },
+    {
+      "sourcePath": "/private/tmp/impad-historical-acceptance.YTYRsD/46064029864/evidence/runtime-smoke/apps/wechat/module-on-login-current.xml",
+      "path": "compatibility/wechat/acceptance-evidence/26bc2927-b3c4-4c5e-a7d2-30d0cad17a89/raw/raw-0029-module-on-login-current.xml",
+      "sha256": "1f2c34cf900053145283b4ab4e5fcce0bf13116ee01b13c324cff76e117b5727"
+    },
+    {
+      "sourcePath": "/private/tmp/impad-historical-acceptance.YTYRsD/46064029864/evidence/runtime-smoke/apps/wechat/module-on-login-dump.txt",
+      "path": "compatibility/wechat/acceptance-evidence/26bc2927-b3c4-4c5e-a7d2-30d0cad17a89/raw/raw-0030-module-on-login-dump.txt",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "sourcePath": "/private/tmp/impad-historical-acceptance.YTYRsD/46064029864/evidence/runtime-smoke/apps/wechat/module-on-login.png",
+      "path": "compatibility/wechat/acceptance-evidence/26bc2927-b3c4-4c5e-a7d2-30d0cad17a89/raw/raw-0031-module-on-login.png",
+      "sha256": "71d6b7a5f663bfe2a365bb2206957ca914cf97bd02561f4d669bf7761fca8b90"
+    },
+    {
+      "sourcePath": "/private/tmp/impad-historical-acceptance.YTYRsD/46064029864/evidence/runtime-smoke/apps/wechat/module-on-login.xml",
+      "path": "compatibility/wechat/acceptance-evidence/26bc2927-b3c4-4c5e-a7d2-30d0cad17a89/raw/raw-0032-module-on-login.xml",
+      "sha256": "1f2c34cf900053145283b4ab4e5fcce0bf13116ee01b13c324cff76e117b5727"
+    },
+    {
+      "sourcePath": "/private/tmp/impad-historical-acceptance.YTYRsD/46064029864/evidence/runtime-smoke/apps/wechat/processes.txt",
+      "path": "compatibility/wechat/acceptance-evidence/26bc2927-b3c4-4c5e-a7d2-30d0cad17a89/raw/raw-0033-processes.txt",
+      "sha256": "56408592ac2380a7a7468861f1c400e14d388786e55e4631f27b546caa909ebc"
+    },
+    {
+      "sourcePath": "/private/tmp/impad-historical-acceptance.YTYRsD/46064029864/evidence/runtime-smoke/apps/wechat/tablet-qr-confirmed-activity.txt",
+      "path": "compatibility/wechat/acceptance-evidence/26bc2927-b3c4-4c5e-a7d2-30d0cad17a89/raw/raw-0034-tablet-qr-confirmed-activity.txt",
+      "sha256": "2bad976cc6f495341944f01ab7f74eb9ecb35aa27e4cead34d4609a775a62118"
+    },
+    {
+      "sourcePath": "/private/tmp/impad-historical-acceptance.YTYRsD/46064029864/evidence/runtime-smoke/apps/wechat/tablet-qr-confirmed-dump.txt",
+      "path": "compatibility/wechat/acceptance-evidence/26bc2927-b3c4-4c5e-a7d2-30d0cad17a89/raw/raw-0035-tablet-qr-confirmed-dump.txt",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "sourcePath": "/private/tmp/impad-historical-acceptance.YTYRsD/46064029864/evidence/runtime-smoke/apps/wechat/tablet-qr-confirmed.png",
+      "path": "compatibility/wechat/acceptance-evidence/26bc2927-b3c4-4c5e-a7d2-30d0cad17a89/raw/raw-0036-tablet-qr-confirmed.png",
+      "sha256": "d7ed81cca850961c97f10d7a560d6f9e55eae3025168295e63f64cfecb21a1f4"
+    },
+    {
+      "sourcePath": "/private/tmp/impad-historical-acceptance.YTYRsD/46064029864/evidence/runtime-smoke/apps/wechat/tablet-qr-confirmed.xml",
+      "path": "compatibility/wechat/acceptance-evidence/26bc2927-b3c4-4c5e-a7d2-30d0cad17a89/raw/raw-0037-tablet-qr-confirmed.xml",
+      "sha256": "d267399eea68cd18a0a9bb3e9808bbb9b23fd2662b8d17df3a120bffa5753a18"
+    },
+    {
+      "sourcePath": "/private/tmp/impad-historical-acceptance.YTYRsD/46064029864/evidence/runtime-smoke/apps/wechat/tablet-qr-current-activity.txt",
+      "path": "compatibility/wechat/acceptance-evidence/26bc2927-b3c4-4c5e-a7d2-30d0cad17a89/raw/raw-0038-tablet-qr-current-activity.txt",
+      "sha256": "25c7b5927ef0c9d6a9d3799235ee93d08798c1cf05fd09ab551697237dfdecb4"
+    },
+    {
+      "sourcePath": "/private/tmp/impad-historical-acceptance.YTYRsD/46064029864/evidence/runtime-smoke/apps/wechat/tablet-qr-current-dump.txt",
+      "path": "compatibility/wechat/acceptance-evidence/26bc2927-b3c4-4c5e-a7d2-30d0cad17a89/raw/raw-0039-tablet-qr-current-dump.txt",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "sourcePath": "/private/tmp/impad-historical-acceptance.YTYRsD/46064029864/evidence/runtime-smoke/apps/wechat/tablet-qr-current.png",
+      "path": "compatibility/wechat/acceptance-evidence/26bc2927-b3c4-4c5e-a7d2-30d0cad17a89/raw/raw-0040-tablet-qr-current.png",
+      "sha256": "d7ed81cca850961c97f10d7a560d6f9e55eae3025168295e63f64cfecb21a1f4"
+    },
+    {
+      "sourcePath": "/private/tmp/impad-historical-acceptance.YTYRsD/46064029864/evidence/runtime-smoke/apps/wechat/tablet-qr-current.xml",
+      "path": "compatibility/wechat/acceptance-evidence/26bc2927-b3c4-4c5e-a7d2-30d0cad17a89/raw/raw-0041-tablet-qr-current.xml",
+      "sha256": "d267399eea68cd18a0a9bb3e9808bbb9b23fd2662b8d17df3a120bffa5753a18"
+    }
+  ]
+}

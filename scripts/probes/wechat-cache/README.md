@@ -17,10 +17,10 @@ FrozenCacheAudit <APK> <DEX entry> <declaring class descriptor> <field name> <de
 
 审计要求字段唯一、静态、非 final、boxed Boolean；决策必须是一个参数的 static boolean 方法，有匹配的缓存早返回以及同字段的读取和写入。输出三个 tab 分隔整数：字段 access flags、读取数量、写入数量。缺失或不匹配的目标以非零退出。
 
-运行前应核对完整 APK SHA-256 和指定 DEX SHA-256，分别匹配 `compatibility/semantic-migration/expectations.json` 中的输入和 snapshot。然后将输出记录到 `compatibility/wechat/startup-cache-audit.json`。新期待只在旧完整 Hook 计划上增加显式缓存目标，不重新生成旧 Hook 期待。
+运行前应核对完整 APK SHA-256 和指定 DEX SHA-256，分别匹配 [迁移时的 expectations.json](https://github.com/NKU100/ImPad/blob/971264e/compatibility/semantic-migration/expectations.json) 中的输入和 snapshot。然后将输出记录到 `compatibility/wechat/startup-cache-audit.json`。新期待只在旧完整 Hook 计划上增加显式缓存目标，不重新生成旧 Hook 期待。
 
 这份审计只提供静态 DEX 关系证据，不证明实际登录或 ART 方法来源。
 
-当前 `compatibility/wechat/inner-after-audit.json` 保留上述缓存字段、决策方法、来源 DEX 和直接读写数量，供固定历史输入投影到内层 After 合同。两份原 APK 外层都是直接转发，没有原共享锁，修正时使用声明类作为锁；热更缓存包装若有原 monitor，必须从实际指令关系提取并验证声明，不能复用原包的同步方式。
+[迁移时的 inner-after-audit.json](https://github.com/NKU100/ImPad/blob/971264e/compatibility/wechat/inner-after-audit.json) 记录了上述缓存字段、决策方法、来源 DEX 和直接读写数量，供固定历史输入投影到内层 After 合同。两份原 APK 外层都是直接转发，没有原共享锁，修正时使用声明类作为锁；热更缓存包装若有原 monitor，必须从实际指令关系提取并验证声明，不能复用原包的同步方式。
 
-`wechat_inner_expectations.py` 将新的内层角色加入独立期待，不修改冻结历史表或历史计划。三个实际 Hook 和缓存／monitor 描述符一起参与新执行摘要。CI 的固定回归比较新期待；历史原件仍保留。
+三个实际 Hook 和缓存、monitor 描述符一起参与执行摘要。当前 CI 比较各 APK 的 v2 验收预期。迁移时期的冻结原件保存在 [Git 历史](https://github.com/NKU100/ImPad/tree/971264e/compatibility)。

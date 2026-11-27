@@ -1,4 +1,4 @@
-"""Run the shared RULES checker against fixed acceptance representatives."""
+"""Run the shared RULES checker against selected acceptance representatives."""
 import argparse
 from http.client import HTTPException
 import json
@@ -15,10 +15,7 @@ from scripts.ci.fetch_latest_wechat_apk import (ApkDigestMismatch, download_cand
                                                 file_sha256, remote_metadata, TruncatedDownload)
 from scripts.ci.download_url import validate_download_url
 from scripts.ci.apk_inputs import unpack_apk_inputs
-from scripts.ci.semantic_migration import load_migration_bundle
 from scripts.ci.semantic_protocol import validate_check_report
-from scripts.ci.semantic_regression_baseline import (compare_baseline_report,
-    load_semantic_regression_baseline)
 
 
 class SemanticRegressionMismatch(ValueError):
@@ -58,11 +55,41 @@ def record_apk_inputs(record, cache, base):
     return paths
 
 
-def ensure_apk(record, cache, app_id):
-    policy = get_policy(app_id)
+def _validate_record_package(record, policy):
     identity = record.get('identity', {})
     if identity.get('packageName') != policy.package_name:
         raise ValueError('Acceptance record package does not match app policy')
+
+
+def _record_apk_digest(record, policy):
+    _validate_record_package(record, policy)
+    identity = record.get('identity', {})
+    digest = identity.get('apkSha256', '').lower()
+    if not re.fullmatch(r'[a-f0-9]{64}', digest):
+        raise ValueError('Acceptance record APK SHA-256 is invalid')
+    return digest
+
+
+def _cached_apk_path(record, cache, digest):
+    path = Path(cache) / (digest + '.apk')
+    try:
+        record_apk_inputs(record, cache, path)
+        cached = path.is_file() and file_sha256(path) == digest
+    except ValueError:
+        cached = False
+    return path if cached else None
+
+
+def cached_historical_apk(record, cache, app_id):
+    """Return a fully verified cached historical APK without accessing its source URL."""
+    policy = get_policy(app_id)
+    digest = _record_apk_digest(record, policy)
+    return _cached_apk_path(record, cache, digest)
+
+
+def ensure_apk(record, cache, app_id):
+    policy = get_policy(app_id)
+    _validate_record_package(record, policy)
     source = record.get('source', {})
     source_url = source.get('url')
     external = source.get('type') == 'signed-download'
@@ -70,16 +97,9 @@ def ensure_apk(record, cache, app_id):
         validate_download_url(source_url)
     else:
         validate_official_apk_url(source_url, policy.official_apk_prefix)
-    digest = identity.get('apkSha256', '').lower()
-    if not re.fullmatch(r'[a-f0-9]{64}', digest):
-        raise ValueError('Acceptance record APK SHA-256 is invalid')
-    path = cache / (digest + '.apk')
-    try:
-        record_apk_inputs(record, cache, path)
-        cached = path.is_file() and file_sha256(path) == digest
-    except ValueError:
-        cached = False
-    if not cached:
+    digest = _record_apk_digest(record, policy)
+    path = Path(cache) / (digest + '.apk')
+    if _cached_apk_path(record, cache, digest) is None:
         expected_archive = source.get('archiveSha256', digest)
         options = {'allow_external': True} if external else {}
         try:
@@ -95,11 +115,11 @@ def ensure_apk(record, cache, app_id):
                 detail = type(error).__name__
             raise HistoricalApkUnavailable(detail) from error
         if archive_hash != expected_archive or file_sha256(archive) != expected_archive:
-            raise ValueError('Fixed source archive hash differs from the acceptance record')
+            raise HistoricalApkUnavailable('Downloaded archive hash differs from the acceptance record')
         inputs = unpack_apk_inputs(archive, cache / ('unpacked-' + archive_hash), policy.package_name)
         expected = [item['sha256'].lower() for item in source.get('apkFiles', [])] or [digest]
         if [file_sha256(item) for item in inputs] != expected:
-            raise ValueError('Fixed base/split APK hashes differ from the acceptance record')
+            raise HistoricalApkUnavailable('Downloaded base/split APK hashes differ from the acceptance record')
         for item, item_hash in zip(inputs, expected):
             destination = cache / (item_hash + '.apk')
             if item.resolve() != destination.resolve():
@@ -159,88 +179,34 @@ def classify_regression_failure(stage, error):
     return 'execution_failure'
 
 
-def run_regression(app_id, reports, cache=None, repository=None):
-    policy = get_policy(app_id)
-    repository = Path(repository or Path.cwd()).resolve()
-    cache = Path(cache or Path('.cache') / f'{policy.app_id}-apks')
-    reports.mkdir(parents=True, exist_ok=True)
-    summary = []
-    try:
-        bundle = load_migration_bundle(repository)
-        baseline = load_semantic_regression_baseline(repository, policy.app_id, bundle)
-        if not baseline.cases:
-            raise ValueError('Fixed semantic regression requires at least one frozen representative')
-        baseline.assert_unchanged()
-    except (OSError, ValueError) as error:
-        summary.append({'appId': policy.app_id, 'status': 'FAILED',
-                        'failureKind': classify_regression_failure('baseline', error), 'error': str(error)})
-        (reports / 'results.json').write_text(json.dumps(summary, indent=2) + '\n')
-        return summary
+def run_grouped_cli(app_ids, reports, cache):
+    from scripts.ci.grouped_static_regression import (REPORT_SCHEMA_VERSION,
+        badge_regression_rows, group_report, run_grouped_regression)
+    from scripts.ci.regression_groups import GROUPING_VERSION
+    from scripts.ci.semantic_regression_baseline import load_verified_regression_pool
 
-    for case in baseline.cases:
-        record_id = case['recordId']
-        identity = case['identity']
-        source = dict(case['source'])
-        source['apkFiles'] = case['apkFiles']
-        record = {'identity': identity, 'source': source}
-        key = (f"{policy.app_id}-{identity['packageName']}-{identity['abi']}-"
-               f"{identity['versionCode']}-{identity['apkSha256']}")
-        source_case = {'kind': case['kind'], 'recordId': record_id,
-                       'profileId': case['profileId'],
-                       'sourceSha256': case['acceptanceSnapshotSha256']}
-        row_binding = {
-            'appId': policy.app_id,
-            'recordId': record_id,
-            'identity': identity,
-            'acceptanceSnapshotSha256': case['acceptanceSnapshotSha256'],
-            'migrationHistorySha256': baseline.migration_bundle.history_sha256,
-            'migrationExpectationsSha256': baseline.migration_bundle.expectations_sha256,
-            'profileId': case['profileId'],
-            'initialMigration': False,
-            'baselineSha256': baseline.sha256,
-            'v2SnapshotSha256': baseline.v2_sha256,
-            'baselineSourceCase': source_case,
-        }
-        stage = 'download'
+    repository = Path.cwd()
+    applications = []
+    for app_id in app_ids:
+        destination = reports / app_id if len(app_ids) > 1 else reports
         try:
-            apk = ensure_apk(record, cache, policy.app_id)
-            inputs = record_apk_inputs(record, cache, apk)
-            log = reports / (key + '.log')
-            options = {'abi_splits': inputs[1:]} if len(inputs) > 1 else {}
-            stage = 'checker_execution'
-            checked = check_apk(repository, apk, identity['apkSha256'], log,
-                                app_id=policy.app_id, **options)
-            stage = 'comparison'
-            compare_baseline_report(baseline, record_id, checked)
-            report_path = log.with_suffix('.json')
-            summary.append({
-                **row_binding,
-                'staticEvidence': {'path': report_path.name, 'sha256': file_sha256(report_path)},
-                'status': 'PASSED',
-            })
-        except (OSError, ValueError, HTTPException, subprocess.SubprocessError) as error:
-            if stage == 'download' and isinstance(error, HistoricalApkUnavailable):
-                summary.append({**row_binding, 'status': 'SKIPPED',
-                                'skipReason': 'APK_UNAVAILABLE', 'error': str(error)})
-                continue
-            if isinstance(error, SemanticRegressionMismatch):
-                stage = 'checker_report'
-            summary.append({
-                **row_binding,
-                'status': 'FAILED',
-                'failureKind': classify_regression_failure(stage, error),
+            baseline = load_verified_regression_pool(repository, app_id)
+            result = run_grouped_regression(baseline, destination,
+                                            cache or Path('.cache') / f'{app_id}-apks', repository)
+        except (OSError, ValueError) as error:
+            result = group_report(app_id, None, {'version': GROUPING_VERSION, 'excludedGroups': []}, [{
+                'groupId': 'baseline', 'status': 'FAILED', 'failureKind': classify_regression_failure('baseline', error),
                 'error': str(error),
-            })
-    try:
-        baseline.assert_unchanged()
-    except (OSError, ValueError) as error:
-        summary.append({'appId': policy.app_id, 'status': 'FAILED',
-                        'baselineSha256': baseline.sha256,
-                        'v2SnapshotSha256': baseline.v2_sha256,
-                        'failureKind': classify_regression_failure('baseline', error),
-                        'error': str(error)})
-    (reports / 'results.json').write_text(json.dumps(summary, indent=2) + '\n')
-    return summary
+            }])
+            destination.mkdir(parents=True, exist_ok=True)
+            (destination / 'results.json').write_text(json.dumps(result, indent=2) + '\n')
+        applications.append(result)
+    output = applications[0] if len(app_ids) == 1 else {
+        'schemaVersion': REPORT_SCHEMA_VERSION, 'applications': applications,
+    }
+    reports.mkdir(parents=True, exist_ok=True)
+    (reports / 'results.json').write_text(json.dumps(output, indent=2) + '\n')
+    return regression_status(badge_regression_rows(output))
 
 
 def main():
@@ -254,14 +220,8 @@ def main():
     if args.all_apps and args.cache is not None:
         parser.error('--all-apps uses each application policy and its own APK cache')
     app_ids = ['wechat', 'qq', 'wecom'] if args.all_apps else [args.app_id]
-    summary = []
-    for app_id in app_ids:
-        reports = args.reports / app_id if args.all_apps else args.reports
-        summary.extend(run_regression(app_id, reports, args.cache))
-    args.reports.mkdir(parents=True, exist_ok=True)
-    (args.reports / 'results.json').write_text(json.dumps(summary, indent=2) + '\n')
-    if regression_status(summary) == 'FAILED':
-        raise SystemExit('Static regression failed; see per-build logs and results.json')
+    if run_grouped_cli(app_ids, args.reports, args.cache) == 'FAILED':
+        raise SystemExit('Static regression failed; see results.json')
 
 
 if __name__ == '__main__':

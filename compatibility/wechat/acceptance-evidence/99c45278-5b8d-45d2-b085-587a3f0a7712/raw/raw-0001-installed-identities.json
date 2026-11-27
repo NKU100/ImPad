@@ -1,0 +1,13 @@
+{
+  "schemaVersion": 1,
+  "app": {
+    "packageName": "com.tencent.mm",
+    "baseApkPath": "/data/app/~~0qcU0T4rvvSh-ISkt3V_zA==/com.tencent.mm-dtnKgl9Y4CMvCjhwaoHI_w==/base.apk",
+    "baseApkSha256": "e4da5809f2b3305e375db38897a4082085adc6b51182fa807813c4dda1c3a948"
+  },
+  "module": {
+    "packageName": "io.github.nku100.impad",
+    "baseApkPath": "/data/app/~~Kw1htZR9PPlMqCsaCittsQ==/io.github.nku100.impad-MZW3M8_lsR32d_ynRceaSg==/base.apk",
+    "baseApkSha256": "f0cfbbc08a6cd365034b5faceea7e24e6f2bf299277c3c20fdcbaa0f7669d5f4"
+  }
+}

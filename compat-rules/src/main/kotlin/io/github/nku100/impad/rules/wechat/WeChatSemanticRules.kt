@@ -39,7 +39,8 @@ object WeChatSemanticRules : SemanticRuleQuery {
         val emit: (WeChatLoginPath) -> Unit = emit@ { path ->
             if (!context.isVisibleFromReady(path.login)) return@emit
             if (context.catalog.contractRevision == 1) {
-                plans += context.plan(STRATEGY, mapOf("tablet" to path.wrapper, "login" to path.login), listOf(path.variant))
+                plans += context.plan(STRATEGY, mapOf("tablet" to path.wrapper, "login" to path.login),
+                    listOf(path.variant), behaviorFeatures = mapOf("wrapperMode" to path.variant))
                 return@emit
             }
             val cache = WeChatTabletCacheField.resolve(context.session, path.decision) ?: return@emit
@@ -48,7 +49,8 @@ object WeChatSemanticRules : SemanticRuleQuery {
             } ?: return@emit
             plans += context.plan(STRATEGY, mapOf("inner" to path.decision, "tablet" to path.wrapper, "login" to path.login),
                 listOf("${path.variant}: ${path.decision.descriptor} -> ${path.wrapper.descriptor} -> ${path.login.descriptor}"),
-                mapOf("inner" to mapOf("policy" to "cache_true_after", "cacheField" to cache.descriptor, "monitorField" to monitor)))
+                mapOf("inner" to mapOf("policy" to "cache_true_after", "cacheField" to cache.descriptor, "monitorField" to monitor)),
+                mapOf("wrapperMode" to path.variant))
         }
         try {
             context.snapshot.metadata.resolutionOrder().forEach { namespace ->

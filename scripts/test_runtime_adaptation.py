@@ -10,8 +10,7 @@ from contextlib import ExitStack
 from scripts.ci import runtime_adaptation as runtime
 from scripts.ci.codex_adaptation import sha256
 from scripts.ci.app_policy import get_policy
-from scripts.ci.semantic_migration import load_migration_bundle
-from scripts.test_semantic_migration import ROOT as SEMANTIC_ROOT, SemanticMigrationTest
+from scripts.testdata.acceptance_examples import accepted_example
 
 
 class RuntimeAdaptationTest(unittest.TestCase):
@@ -52,29 +51,21 @@ class RuntimeAdaptationTest(unittest.TestCase):
         (directory / 'candidate-report.json').write_text(json.dumps(candidate))
         return candidate
 
-    @staticmethod
-    def passed_regression(app_id, reports, **kwargs):
-        rows = [{'status': 'PASSED'}]
-        reports.mkdir(parents=True, exist_ok=True)
-        (reports / 'results.json').write_text(json.dumps(rows))
-        return rows
-
     def test_accepts_a_schema2_candidate_bound_to_the_selected_complete_plan(self):
-        bundle = load_migration_bundle(SEMANTIC_ROOT)
-        report_factory = SemanticMigrationTest('runTest')
-        for profile in bundle.profiles:
-            with self.subTest(app_id=profile['appId']):
-                static = report_factory.report(profile)
+        for app_id in ('wechat', 'qq', 'wecom'):
+            with self.subTest(app_id=app_id):
+                profile = accepted_example(app_id)
+                static = profile['staticReport']
                 candidate = {
                     'schemaVersion': 2, 'appId': profile['appId'], 'status': 'PREPARED',
-                    'identity': profile['identity'], 'ruleCatalog': profile['ruleCatalog'],
-                    'ruleCatalogSha256': profile['ruleCatalog']['ruleCatalogSha256'],
-                    'snapshot': profile['snapshot'], 'expectedPlan': profile['expectedPlan'],
-                    'expectedExecutionSha256': profile['expectedExecutionSha256'],
+                    'identity': profile['identity'], 'ruleCatalog': static['ruleCatalog'],
+                    'ruleCatalogSha256': static['ruleCatalog']['ruleCatalogSha256'],
+                    'snapshot': static['snapshot'], 'expectedPlan': profile['completePlan'],
+                    'expectedExecutionSha256': profile['executionSha256'],
                 }
                 runtime.validate_prepared_candidate(candidate, static, profile['appId'], profile['identity'])
                 self.assertNotIn('routeCandidates', static)
-                self.assertEqual(profile['expectedPlan'], candidate['expectedPlan'])
+                self.assertEqual(profile['completePlan'], candidate['expectedPlan'])
 
                 for mutation in (
                         lambda c, s: c.update(expectedPlan={}),
@@ -87,23 +78,14 @@ class RuntimeAdaptationTest(unittest.TestCase):
                         runtime.validate_prepared_candidate(changed_candidate, changed_static,
                                                             profile['appId'], profile['identity'])
 
-    def mock_static_runtime_helpers(self, apk):
-        return (
-            patch.object(runtime, 'prepare_module', return_value={'sha256': sha256(apk)}),
-            patch.object(runtime, 'verify_module_identity'),
-            patch.object(runtime, 'run_regression', side_effect=self.passed_regression),
-            patch.object(runtime, 'evaluate_validation', return_value={'outcome': 'VERIFIED'}),
-        )
-
     def test_runtime_passes_full_reports_to_the_real_validation_gate(self):
-        bundle = load_migration_bundle(SEMANTIC_ROOT)
-        profile = next(row for row in bundle.profiles if row['appId'] == 'wechat')
-        static = SemanticMigrationTest('runTest').report(profile)
+        profile = accepted_example('wechat')
+        static = profile['staticReport']
         candidate = {'schemaVersion': 2, 'appId': profile['appId'], 'status': 'PREPARED',
-                     'identity': profile['identity'], 'ruleCatalog': profile['ruleCatalog'],
-                     'ruleCatalogSha256': profile['ruleCatalog']['ruleCatalogSha256'],
-                     'snapshot': profile['snapshot'], 'expectedPlan': profile['expectedPlan'],
-                     'expectedExecutionSha256': profile['expectedExecutionSha256']}
+                     'identity': profile['identity'], 'ruleCatalog': static['ruleCatalog'],
+                     'ruleCatalogSha256': static['ruleCatalog']['ruleCatalogSha256'],
+                     'snapshot': static['snapshot'], 'expectedPlan': profile['completePlan'],
+                     'expectedExecutionSha256': profile['executionSha256']}
         runtime.validate_prepared_candidate(candidate, static, profile['appId'], profile['identity'])
         for invalid in ('CONFLICT', 'INCOMPLETE'):
             report = json.loads(json.dumps(static))
@@ -214,16 +196,15 @@ class RuntimeAdaptationTest(unittest.TestCase):
             adb.assert_not_called()
 
     def test_all_apps_use_complete_schema2_plan_reports_without_numbered_routes(self):
-        bundle = load_migration_bundle(SEMANTIC_ROOT)
-        factory = SemanticMigrationTest('runTest')
-        for profile in bundle.profiles:
-            with self.subTest(app_id=profile['appId']):
-                static = factory.report(profile)
+        for app_id in ('wechat', 'qq', 'wecom'):
+            with self.subTest(app_id=app_id):
+                profile = accepted_example(app_id)
+                static = profile['staticReport']
                 candidate = {'schemaVersion': 2, 'appId': profile['appId'], 'status': 'PREPARED',
-                             'identity': profile['identity'], 'ruleCatalog': profile['ruleCatalog'],
-                             'ruleCatalogSha256': profile['ruleCatalog']['ruleCatalogSha256'],
-                             'snapshot': profile['snapshot'], 'expectedPlan': profile['expectedPlan'],
-                             'expectedExecutionSha256': profile['expectedExecutionSha256']}
+                             'identity': profile['identity'], 'ruleCatalog': static['ruleCatalog'],
+                             'ruleCatalogSha256': static['ruleCatalog']['ruleCatalogSha256'],
+                             'snapshot': static['snapshot'], 'expectedPlan': profile['completePlan'],
+                             'expectedExecutionSha256': profile['executionSha256']}
                 runtime.validate_prepared_candidate(candidate, static, profile['appId'], profile['identity'])
                 self.assertTrue(candidate['expectedPlan']['hooks'])
                 self.assertNotIn('routeCandidates', static)
@@ -248,14 +229,13 @@ class RuntimeAdaptationTest(unittest.TestCase):
             adb.assert_not_called()
 
     def test_runtime_candidate_identity_must_match_refreshed_checker_report(self):
-        bundle = load_migration_bundle(SEMANTIC_ROOT)
-        profile = next(row for row in bundle.profiles if row['appId'] == 'wechat')
-        static = SemanticMigrationTest('runTest').report(profile)
+        profile = accepted_example('wechat')
+        static = profile['staticReport']
         candidate = {'schemaVersion': 2, 'appId': profile['appId'], 'status': 'PREPARED',
-                     'identity': profile['identity'], 'ruleCatalog': profile['ruleCatalog'],
-                     'ruleCatalogSha256': profile['ruleCatalog']['ruleCatalogSha256'],
-                     'snapshot': profile['snapshot'], 'expectedPlan': profile['expectedPlan'],
-                     'expectedExecutionSha256': profile['expectedExecutionSha256']}
+                     'identity': profile['identity'], 'ruleCatalog': static['ruleCatalog'],
+                     'ruleCatalogSha256': static['ruleCatalog']['ruleCatalogSha256'],
+                     'snapshot': static['snapshot'], 'expectedPlan': profile['completePlan'],
+                     'expectedExecutionSha256': profile['executionSha256']}
         runtime.validate_prepared_candidate(candidate, static, profile['appId'], profile['identity'])
         stale = dict(profile['identity'], versionCode=profile['identity']['versionCode'] + 1)
         with self.assertRaisesRegex(ValueError, 'exact shared-checker candidate'):

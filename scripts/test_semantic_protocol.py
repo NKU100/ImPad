@@ -149,6 +149,26 @@ class SemanticReportTest(unittest.TestCase):
         from scripts.ci.semantic_protocol import validate_check_report
         validate_check_report(value, expected_app_id='qq')
 
+    def test_additive_wechat_behavior_features_and_legacy_report_compatibility(self):
+        import json
+        from pathlib import Path
+        from scripts.ci.semantic_protocol import validate_check_report
+        root = Path(__file__).resolve().parents[1]
+        report = json.loads((root / 'compatibility/wechat/acceptance-v2.json').read_text())['records'][0]['staticReport']
+        validate_check_report(report, expected_app_id='wechat')
+        report['selection']['behaviorFeatures'] = {'wrapperMode': 'aggregate'}
+        validate_check_report(report, expected_app_id='wechat')
+        report['selection']['behaviorFeatures'] = {'wrapperMode': 'diagnostic-text-derived'}
+        with self.assertRaises(ValueError):
+            validate_check_report(report, expected_app_id='wechat')
+        report['selection']['behaviorFeatures'] = {'wrapperMode': []}
+        with self.assertRaises(ValueError):
+            validate_check_report(report, expected_app_id='wechat')
+        qq_report = check_report()
+        qq_report['selection']['behaviorFeatures'] = {'wrapperMode': 'aggregate'}
+        with self.assertRaises(ValueError):
+            validate_check_report(qq_report, expected_app_id='qq')
+
     def test_report_selection_is_recomputed_from_all_recognizer_results(self):
         value = check_report(); self.validate(value)
         for mutate in (

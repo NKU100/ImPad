@@ -439,7 +439,7 @@ jobs:
         uses: actions/cache@v6
         with:
           path: .cache/${{ needs.prepare.outputs.app_id }}-apks
-          key: impad-${{ needs.prepare.outputs.app_id }}-regression-${{ hashFiles(format('compatibility/{0}/acceptance.json', needs.prepare.outputs.app_id), 'compat-rules/src/main/**') }}
+          key: impad-${{ needs.prepare.outputs.app_id }}-regression-${{ hashFiles(format('compatibility/{0}/acceptance-v2.json', needs.prepare.outputs.app_id), 'compat-rules/src/main/**') }}
           restore-keys: impad-${{ needs.prepare.outputs.app_id }}-regression-
 
       - name: Revalidate candidate cache and prepare isolated checkout
@@ -825,12 +825,10 @@ jobs:
             exit 0
           fi
           runtime_smoke=runtime-result/evidence/runtime-smoke/evidence/smoke-report.json
-          acceptance="${GITHUB_WORKSPACE}/tested/compatibility/${APP_ID}/acceptance.json"
-          test -f "$acceptance"
-          historical_acceptance="compatibility/${APP_ID}/acceptance.json"
           expected_acceptance_path="compatibility/${APP_ID}/acceptance-v2.json"
-          git -C tested diff --quiet HEAD -- "$historical_acceptance"
-          history_sha256_before="$(sha256sum "$acceptance" | cut -d' ' -f1)"
+          acceptance="${GITHUB_WORKSPACE}/tested/${expected_acceptance_path}"
+          test -f "$acceptance"
+          git -C tested diff --quiet HEAD -- compatibility/
           python3 -m scripts.ci.runtime_task register \
             --app-id "$APP_ID" \
             --candidate runtime-result/inputs/candidate-report.json \
@@ -843,8 +841,7 @@ jobs:
             --conclusion "$RUNTIME_CONCLUSION" \
             --expected-head "$TESTED_HEAD" \
             --output runtime-result/registered.json
-          test "$(sha256sum "$acceptance" | cut -d' ' -f1)" = "$history_sha256_before"
-          git -C tested diff --quiet HEAD -- "$historical_acceptance"
+          git -C tested diff --quiet HEAD -- compatibility/ ":(exclude)$expected_acceptance_path"
           pr_state="$(gh pr view "$ADAPTATION_PR" --repo "$GITHUB_REPOSITORY" --json headRefOid,headRefName,baseRefName,state)"
           test "$(jq -r .headRefOid <<< "$pr_state")" = "$TESTED_HEAD"
           test "$(jq -r .baseRefName <<< "$pr_state")" = main
@@ -1008,8 +1005,7 @@ jobs:
             --app-id "$APP_ID" --acceptance-path "$expected_acceptance_path" \
             --registered runtime-result/registered.json \
             --stage-manifest "$stage_manifest" --paths-nul "$evidence_paths_nul"
-          test "$(sha256sum "$acceptance" | cut -d' ' -f1)" = "$history_sha256_before"
-          git -C tested diff --quiet HEAD -- "$historical_acceptance"
+          git -C tested diff --quiet HEAD -- compatibility/ ":(exclude)$expected_acceptance_path"
           stage_paths=("$registered_acceptance_path")
           while IFS= read -r -d '' evidence_path; do
             stage_paths+=("$evidence_path")
@@ -1025,8 +1021,6 @@ jobs:
             --registered runtime-result/registered.json \
             --stage-manifest "$stage_manifest" --paths-nul "$evidence_paths_nul" \
             --verify-index --staged-nul "$staged_paths_nul"
-          test "$(sha256sum "$acceptance" | cut -d' ' -f1)" = "$history_sha256_before"
-          git -C tested diff --cached --quiet HEAD -- "$historical_acceptance"
           git -C tested config user.name 'github-actions[bot]'
           git -C tested config user.email '41898282+github-actions[bot]@users.noreply.github.com'
           git -C tested commit -m "Record ${APP_ID} runtime acceptance"

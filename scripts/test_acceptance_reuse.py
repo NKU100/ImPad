@@ -15,6 +15,7 @@ class AcceptanceReuseTest(unittest.TestCase):
         self.addCleanup(fixture.doCleanups)
         self.root = fixture.root
         self.record = copy.deepcopy(fixture.record)
+        self.regression_archive = (self.root / self.record['rawStageEvidence']['regression']['path']).read_bytes()
         script = self.root / 'scripts/ci/probe.py'
         script.parent.mkdir(parents=True)
         script.write_text('runtime implementation')
@@ -35,9 +36,12 @@ class AcceptanceReuseTest(unittest.TestCase):
         for index, item in enumerate(archive['files']):
             path = self.root / item['path']
             path.parent.mkdir(parents=True, exist_ok=True)
-            value = ({'status': 'RUNTIME_SMOKE_VERIFIED',
-                      'runtimeValidationSha256': self.runtime_sha} if index == 2 else {'raw': index})
-            path.write_text(json.dumps(value))
+            if index == 1:
+                path.write_bytes(self.regression_archive)
+            else:
+                value = ({'status': 'RUNTIME_SMOKE_VERIFIED',
+                          'runtimeValidationSha256': self.runtime_sha} if index == 2 else {'raw': index})
+                path.write_text(json.dumps(value))
             item['sha256'] = hashlib.sha256(path.read_bytes()).hexdigest()
         refs = self.record['rawStageEvidence']
         for key, item in zip(('static', 'regression', 'runtime'), archive['files']):

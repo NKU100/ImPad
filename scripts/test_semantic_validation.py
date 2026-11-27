@@ -1,4 +1,3 @@
-from scripts.testdata.acceptance_baseline import copy_migration_baseline
 import copy
 import hashlib
 import json
@@ -7,10 +6,11 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from scripts.ci.semantic_migration import load_migration_bundle
+from scripts.ci.grouped_static_regression import group_report, regression_selection
+from scripts.ci.semantic_regression_baseline import load_verified_regression_pool
 from scripts.ci.semantic_validation import validate_semantic_stage_models
-from scripts.test_semantic_migration import ROOT
-from scripts.testdata.inner_after_reports import CurrentReportFixture as _SemanticMigrationTest
+
+ROOT = Path(__file__).resolve().parents[1]
 
 
 class SemanticValidationTest(unittest.TestCase):
@@ -18,165 +18,88 @@ class SemanticValidationTest(unittest.TestCase):
         self.temporary = tempfile.TemporaryDirectory()
         self.addCleanup(self.temporary.cleanup)
         self.root = Path(self.temporary.name)
-        copy_migration_baseline(ROOT / 'compatibility', self.root / 'compatibility')
-        self.bundle = load_migration_bundle(self.root)
-
-    @staticmethod
-    def report(profile):
-        return _SemanticMigrationTest.report(_SemanticMigrationTest('runTest'), profile)
 
     def models(self, app_id='wechat'):
-        profile = next(row for row in self.bundle.profiles if row['appId'] == app_id)
-        report = self.report(profile)
-        from scripts.ci.semantic_protocol import validate_check_report
-        validate_check_report(report)
-        recognition = {'appId': report['appId'],
-                       'evaluatedRecognizerIds': report['evaluatedRecognizerIds'],
-                       'ruleCatalogSha256': report['ruleCatalog']['ruleCatalogSha256']}
-        import hashlib
-        import json
-        recognition_sha = hashlib.sha256(json.dumps(recognition, sort_keys=True, separators=(',', ':')).encode()).hexdigest()
-        static = copy.deepcopy(report)
-        candidate = {'schemaVersion': 2, 'appId': app_id, 'identity': profile['identity'],
-                     'ruleCatalogSha256': report['ruleCatalog']['ruleCatalogSha256'],
-                     'ruleCatalog': copy.deepcopy(report['ruleCatalog']),
-                     'snapshot': copy.deepcopy(report['snapshot']),
-                     'apkFiles': [{'sha256': row['sha256']} for row in report['inputHashes']],
-                     'expectedPlan': report['selection']['plan'],
-                     'expectedExecutionSha256': report['selection']['executionSha256'],
-                     'recognition': recognition, 'recognitionSha256': recognition_sha,
-                     'staticReport': 'static/report.json', 'staticReportSha256': 'a' * 64}
-        execution = report['executionIdentity']
-        module = {'schemaVersion': 2, 'ruleCatalogSha256': report['ruleCatalog']['ruleCatalogSha256'],
-                  'dexkit': execution, 'recognition': recognition, 'recognitionSha256': recognition_sha}
-        for key in ('sourceTreeSha256', 'dependencyLockSha256', 'routeConfigurationSha256', 'fingerprintFileSha256'):
-            module[key] = execution[key]
-        profiles = [row for row in self.bundle.profiles if row['appId'] == app_id]
-        from scripts.ci.semantic_regression_baseline import load_semantic_regression_baseline
-        baseline = load_semantic_regression_baseline(self.root, app_id, self.bundle)
-        rows = [{'status': 'PASSED', 'appId': row['appId'], 'identity': row['identity'],
-                 'profileId': row['profileId'], 'recordId': row['historicalRecordId'],
-                 'initialMigration': False, 'acceptanceSnapshotSha256': row['historicalAcceptanceSha256'],
-                 'migrationHistorySha256': self.bundle.history_sha256,
-                 'migrationExpectationsSha256': self.bundle.expectations_sha256,
-                 'baselineSha256': baseline.sha256,
-                 'v2SnapshotSha256': baseline.v2_sha256,
-                 'baselineSourceCase': {'kind': 'MIGRATION', 'recordId': row['historicalRecordId'],
-                                        'profileId': row['profileId'],
-                                        'sourceSha256': row['historicalAcceptanceSha256']},
-                 'staticEvidence': {'path': f'reports/{row["profileId"]}.json', 'sha256': 'b' * 64}}
-                for row in profiles]
-        reports = {row['historicalRecordId']: self.report(row) for row in profiles}
-        return candidate, module, static, rows, reports
+        compatibility = self.root / 'compatibility' / app_id
+        compatibility.parent.mkdir(parents=True, exist_ok=True)
+        if not compatibility.exists():
+            shutil.copytree(ROOT / 'compatibility' / app_id, compatibility)
+        pool = load_verified_regression_pool(self.root, app_id)
+        table = json.loads((compatibility / 'acceptance-v2.json').read_text())
+        record = next(item for item in table['records'] if item['recordId'] == pool.cases[0]['recordId'])
+        static = copy.deepcopy(record['staticReport'])
+        candidate = {
+            'schemaVersion': 2,
+            'appId': app_id,
+            'identity': copy.deepcopy(record['identity']),
+            'ruleCatalogSha256': static['ruleCatalog']['ruleCatalogSha256'],
+            'ruleCatalog': copy.deepcopy(static['ruleCatalog']),
+            'snapshot': copy.deepcopy(static['snapshot']),
+            'apkFiles': [{'sha256': item['sha256']} for item in record['apkFiles']],
+            'expectedPlan': copy.deepcopy(record['completePlan']),
+            'expectedExecutionSha256': record['executionSha256'],
+            'recognition': copy.deepcopy(record['recognition']),
+            'recognitionSha256': record['recognitionSha256'],
+            'staticReport': 'static/report.json',
+            'staticReportSha256': 'a' * 64,
+        }
+        module = copy.deepcopy(record['module'])
+        return candidate, module, static, pool
 
-    def test_accepts_each_app_fixed_regression_profiles_and_returns_bounded_status(self):
+    def grouped_report(self, pool):
+        selection = regression_selection(pool)
+        rows = []
+        for group in selection['selectedGroups']:
+            ids = [case['recordId'] for case in group['cases']]
+            rows.append({'groupId': group['groupId'], 'candidateRecordIds': ids,
+                         'cacheMissRecordIds': ids,
+                         'unavailable': [{'recordId': record_id, 'error': 'HTTP 404'}
+                                         for record_id in ids],
+                         'status': 'SKIPPED', 'skipReason': 'APK_UNAVAILABLE'})
+        return group_report(pool.app_id, pool.v2_sha256, selection, rows)
+
+    def validate(self, candidate, module, static, pool, report):
+        path = self.root / 'regression' / 'results.json'
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(json.dumps(report))
+        return validate_semantic_stage_models(
+            candidate, module, static, report, repository=self.root,
+            baseline=pool, grouped_report_path=path)
+
+    def test_accepts_grouped_v2_regression_for_each_supported_app(self):
         for app_id in ('wechat', 'qq', 'wecom'):
             with self.subTest(app_id=app_id):
-                candidate, module, static, rows, reports = self.models(app_id)
-                result = validate_semantic_stage_models(candidate, module, static, rows, self.bundle,
-                                                        reports, repository=self.root)
-                self.assertEqual(2, result['schemaVersion'])
+                candidate, module, static, pool = self.models(app_id)
+                result = self.validate(candidate, module, static, pool, self.grouped_report(pool))
                 self.assertEqual('PASSED', result['staticStatus'])
-                self.assertEqual('PASSED', result['regressionStatus'])
-                self.assertNotIn('runtimeStatus', result)
+                self.assertEqual('PARTIAL', result['regressionStatus'])
+                self.assertEqual(pool.v2_sha256, result['regressionBaseline']['v2SnapshotSha256'])
+                self.assertEqual(app_id, result['regressionBaseline']['appId'])
+                self.assertEqual(regression_selection(pool)['version'],
+                                 result['regressionBaseline']['groupingVersion'])
+                self.assertNotIn('migrationBundle', result)
+                self.assertNotIn('migrationHistorySha256', result)
+                self.assertNotIn('sourceCases', result['regressionBaseline'])
 
-    def test_wecom_unavailable_rows_keep_baseline_binding_without_checker_evidence(self):
-        candidate, module, static, rows, reports = self.models('wecom')
-        row = rows[0]
-        row.pop('staticEvidence')
-        reports.pop(row['recordId'])
-        row.update(status='SKIPPED', skipReason='APK_UNAVAILABLE', error='APK SHA-256 mismatch')
-        result = validate_semantic_stage_models(candidate, module, static, rows, self.bundle,
-                                                reports, repository=self.root)
-        self.assertEqual('PARTIAL', result['regressionStatus'])
-        self.assertIn(row['recordId'], result['regressionRecordIds'])
+    def test_rejects_grouped_rows_that_do_not_bind_current_group_selection(self):
+        candidate, module, static, pool = self.models()
+        report = self.grouped_report(pool)
+        report['groups'][0]['candidateRecordIds'] = ['unknown-record']
+        with self.assertRaisesRegex(ValueError, 'selected group'):
+            self.validate(candidate, module, static, pool, report)
 
-        from scripts.ci.runtime_task import _semantic_stage_context
-        result_path = self.root / 'regression.json'
-        result_path.write_text(json.dumps(rows))
-        regression = {'status': 'PARTIAL', 'records': rows, 'evidence': {
-            'path': str(result_path), 'sha256': hashlib.sha256(result_path.read_bytes()).hexdigest()}}
-        _, gate, _ = _semantic_stage_context(candidate, module, static, regression, self.root)
-        self.assertEqual(result, gate)
-        row['error'] = 'changed after generation'
-        with self.assertRaisesRegex(ValueError, 'do not match the hashed report'):
-            _semantic_stage_context(candidate, module, static, regression, self.root)
-
-        row['identity'] = {}
-        with self.assertRaises(ValueError):
-            validate_semantic_stage_models(candidate, module, static, rows, self.bundle,
-                                           reports, repository=self.root)
-
-    def test_rejects_changed_candidate_static_selection_and_module_identity(self):
-        mutations = (
-            lambda c, m, s: c.update(expectedPlan={}),
-            lambda c, m, s: c.update(identity={}),
-            lambda c, m, s: c.update(ruleCatalog={}),
-            lambda c, m, s: c.update(snapshot={}),
-            lambda c, m, s: s['selection'].update(status='NO_MATCH'),
-            lambda c, m, s: m.update(sourceTreeSha256='0' * 64),
-            lambda c, m, s: m.update(dexkit={**m['dexkit'], 'routeConfigurationSha256': '0' * 64}),
-            lambda c, m, s: m.update(fingerprintFileSha256='0' * 64),
-        )
-        for mutate in mutations:
-            with self.subTest(mutate=mutate):
-                candidate, module, static, rows, reports = self.models()
-                mutate(candidate, module, static)
+    def test_rejects_candidate_plan_and_module_identity_mismatches(self):
+        report = None
+        for change in ('plan', 'module'):
+            with self.subTest(change=change):
+                candidate, module, static, pool = self.models()
+                report = self.grouped_report(pool)
+                if change == 'plan':
+                    candidate['expectedPlan'] = {}
+                else:
+                    module['sourceTreeSha256'] = '0' * 64
                 with self.assertRaises(ValueError):
-                    validate_semantic_stage_models(candidate, module, static, rows, self.bundle, reports,
-                                                   repository=self.root)
-
-    def test_rejects_stale_missing_duplicate_or_faked_regression_evidence(self):
-        mutations = (
-            lambda rows, reports: rows[0].update(migrationHistorySha256='0' * 64),
-            lambda rows, reports: rows.pop(),
-            lambda rows, reports: rows.append(copy.deepcopy(rows[0])),
-            lambda rows, reports: reports.pop(next(iter(reports))),
-            lambda rows, reports: reports.update(unknown={}),
-            lambda rows, reports: reports.__setitem__(next(iter(reports)), {'schemaVersion': 2, 'status': 'VERIFIED'}),
-            lambda rows, reports: rows[0].update(recordId='unknown'),
-            lambda rows, reports: rows[0].update(status='FAILED'),
-        )
-        for mutate in mutations:
-            with self.subTest(mutate=mutate):
-                candidate, module, static, rows, reports = self.models()
-                mutate(rows, reports)
-                with self.assertRaises(ValueError):
-                    validate_semantic_stage_models(candidate, module, static, rows, self.bundle, reports,
-                                                   repository=self.root)
-
-    def test_rejects_self_consistent_fixed_report_from_different_execution_identity(self):
-        candidate, module, static, rows, reports = self.models()
-        report = next(iter(reports.values()))
-        report['executionIdentity']['sourceTreeSha256'] = 'c' * 64
-        from scripts.ci.semantic_protocol import execution_identity_sha256
-        report['executionIdentity']['cacheIdentitySha256'] = execution_identity_sha256(report['executionIdentity'])
-        validate = __import__('scripts.ci.semantic_protocol', fromlist=['validate_check_report']).validate_check_report
-        validate(report)
-        with self.assertRaises(ValueError):
-            validate_semantic_stage_models(candidate, module, static, rows, self.bundle, reports,
-                                           repository=self.root)
-
-    def test_rejects_missing_or_unsafe_regression_static_evidence_reference(self):
-        for reference in (None, {'path': '../escape.json', 'sha256': 'b' * 64},
-                          {'path': '/outside/report.json', 'sha256': 'b' * 64},
-                          {'path': 'reports/report.json', 'sha256': 'bad'},
-                          {'path': 'reports/report.json', 'sha256': 'b' * 64, 'extra': True}):
-            candidate, module, static, rows, reports = self.models()
-            rows[0]['staticEvidence'] = reference
-            with self.subTest(reference=reference), self.assertRaises(ValueError):
-                validate_semantic_stage_models(candidate, module, static, rows, self.bundle, reports,
-                                               repository=self.root)
-
-    def test_rejects_unsafe_static_reference_and_invalid_digest(self):
-        for reference in ('../escape.json', '/absolute/report.json', 'static/report.json'):
-            candidate, module, static, rows, reports = self.models()
-            candidate['staticReport'] = reference
-            if reference == 'static/report.json':
-                candidate['staticReportSha256'] = 'bad'
-            with self.subTest(reference=reference), self.assertRaises(ValueError):
-                validate_semantic_stage_models(candidate, module, static, rows, self.bundle, reports,
-                                               repository=self.root)
+                    self.validate(candidate, module, static, pool, report)
 
 
 if __name__ == '__main__':

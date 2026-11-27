@@ -10,8 +10,7 @@ from scripts.ci import redroid_prepare_apps as prepare
 from scripts.ci.runtime_task import runtime_result
 from scripts.ci.codex_adaptation import sha256
 from scripts.ci.candidate_selection import recognition_identity
-from scripts.ci.semantic_migration import load_migration_bundle
-from scripts.test_semantic_migration import ROOT as SEMANTIC_ROOT, SemanticMigrationTest
+from scripts.testdata.acceptance_examples import accepted_example
 
 
 class CandidateRuntimeTest(unittest.TestCase):
@@ -146,9 +145,7 @@ class CandidateRuntimeTest(unittest.TestCase):
 class SemanticCandidatePreparationTest(unittest.TestCase):
     @staticmethod
     def fixture(root):
-        profile = next(row for row in load_migration_bundle(SEMANTIC_ROOT).profiles
-                       if row['appId'] == 'wechat')
-        static = SemanticMigrationTest('runTest').report(profile)
+        static = accepted_example('wechat')['staticReport']
         apk = root / 'wechat.apk'
         apk.write_bytes(b'independent schema2 candidate input')
         digest = sha256(apk)

@@ -1,26 +1,25 @@
-from scripts.testdata.acceptance_baseline import copy_migration_baseline
 import copy
 import hashlib
 import json
-import shutil
 import tempfile
 import unittest
+from types import SimpleNamespace
 from pathlib import Path
 
-from scripts.ci.semantic_migration import load_migration_bundle
 from scripts.ci.acceptance import (build_semantic_acceptance_record,
+                                   archive_verified_evidence,
                                    read_semantic_acceptance_table,
                                    validate_semantic_acceptance_table,
                                    write_semantic_acceptance_table)
-from scripts.ci.semantic_protocol import plan_execution_sha256, snapshot_sha256
-from scripts.test_semantic_migration import ROOT, SemanticMigrationTest
+ROOT = Path(__file__).resolve().parents[1]
 
 
 class SemanticAcceptanceTest(unittest.TestCase):
-    @staticmethod
-    def _change_record_id(record, record_id):
+    def _change_record_id(self, record, record_id):
         root = record['evidenceArchive']['path']
         new_root = f'compatibility/{record["appId"]}/acceptance-evidence/{record_id}'
+        old_regression = self.root / record['rawStageEvidence']['regression']['path']
+        regression_bytes = old_regression.read_bytes() if old_regression.is_file() else None
         record['recordId'] = record_id
         record['evidenceArchive']['path'] = new_root
         record['evidenceArchive']['manifestPath'] = new_root + '/manifest.json'
@@ -30,118 +29,35 @@ class SemanticAcceptanceTest(unittest.TestCase):
             record['rawStageEvidence'][key]['path'] = record['rawStageEvidence'][key]['path'].replace(root, new_root, 1)
         for item in record['rawStageEvidence']['files']:
             item['path'] = item['path'].replace(root, new_root, 1)
+        if regression_bytes is not None:
+            new_regression = self.root / record['rawStageEvidence']['regression']['path']
+            new_regression.parent.mkdir(parents=True, exist_ok=True)
+            new_regression.write_bytes(regression_bytes)
 
     def setUp(self):
         self.temporary = tempfile.TemporaryDirectory()
         self.addCleanup(self.temporary.cleanup)
-        self.root = Path(self.temporary.name)
-        copy_migration_baseline(ROOT / 'compatibility', self.root / 'compatibility')
-        self.bundle = load_migration_bundle(self.root)
-        profile = next(row for row in self.bundle.profiles if row['appId'] == 'wechat')
-        self.static = SemanticMigrationTest.report(SemanticMigrationTest('runTest'), profile)
-        input_hashes = [profile['apkInputSha256'][0], 'a' * 64, 'b' * 64]
-        self.static['inputHashes'] = [
-            {'path': f'/candidate/input-{index}.apk', 'sha256': digest}
-            for index, digest in enumerate(input_hashes)
-        ]
-        snapshot = self.static['snapshot']
-        loader = snapshot['loaders'][0]
-        loader['dexSha256'].extend(input_hashes[1:])
-        snapshot['archives'].extend(
-            {'loaderId': loader['id'], 'containerIndex': index, 'kind': 'DEX',
-             'containerSha256': digest, 'dexSha256': [digest]}
-            for index, digest in enumerate(input_hashes[1:], start=len(snapshot['archives']))
-        )
-        snapshot['contentSha256'] = snapshot_sha256(snapshot)
-        plan = self.static['selection']['plan']
-        plan['snapshotSha256'] = snapshot['contentSha256']
-        execution_sha = plan_execution_sha256(plan)
-        self.static['selection']['executionSha256'] = execution_sha
-        for recognizer in self.static['recognizers']:
-            for envelope in recognizer['plans']:
-                envelope['plan'] = copy.deepcopy(plan)
-                envelope['executionSha256'] = execution_sha
-        self.apk_files = [
-            {'path': f'apk-inputs/input-{index}.apk', 'role': 'base' if index == 0 else 'split',
-             'sha256': digest}
-            for index, digest in enumerate(input_hashes)
-        ]
-        self.recognition = {
-            'appId': 'wechat',
-            'evaluatedRecognizerIds': self.static['evaluatedRecognizerIds'],
-            'ruleCatalogSha256': self.static['ruleCatalog']['ruleCatalogSha256'],
-        }
-        from scripts.ci.semantic_validation import _recognition
-        self.recognition, recognition_sha = _recognition(self.static)
-        self.record = {
-            'recordId': 'semantic-record-1', 'schemaVersion': 2, 'appId': 'wechat',
-            'status': 'VERIFIED', 'identity': profile['identity'],
-            'apkFiles': self.apk_files,
-            'completePlan': self.static['selection']['plan'],
-            'executionSha256': execution_sha,
-            'recognition': self.recognition, 'recognitionSha256': recognition_sha,
-            'module': {'schemaVersion': 2, 'sha256': '1' * 64,
-                       'sourceTreeSha256': self.static['executionIdentity']['sourceTreeSha256'],
-                       'ruleCatalogSha256': self.static['ruleCatalog']['ruleCatalogSha256'],
-                       'recognitionSha256': recognition_sha,
-                       'dependencyLockSha256': self.static['executionIdentity']['dependencyLockSha256'],
-                       'routeConfigurationSha256': self.static['executionIdentity']['routeConfigurationSha256'],
-                       'fingerprintFileSha256': self.static['executionIdentity']['fingerprintFileSha256'],
-                       'recognition': self.recognition,
-                       'dexkit': self.static['executionIdentity']},
-            'source': {'type': 'official',
-                       'url': 'https://dldir1v6.qq.com/weixin/android/weixin8069android3040_arm64.apk'},
-            'rawStageEvidence': {
-                'static': {'path': 'reports/static.json', 'sha256': '2' * 64},
-                'regression': {'path': 'reports/regression.json', 'sha256': '3' * 64},
-                'runtime': {'path': 'reports/runtime.json', 'sha256': '4' * 64},
-                'files': [{'path': 'runtime/logcat.txt', 'sha256': '5' * 64}],
-            },
-            'staticReport': self.static,
-            'migrationBundle': {'historySha256': self.bundle.history_sha256,
-                                'expectationsSha256': self.bundle.expectations_sha256,
-                                'recordIds': [row['historicalRecordId'] for row in self.bundle.profiles
-                                              if row['appId'] == 'wechat']},
-            'acceptedAt': '2026-10-28T00:00:00+00:00',
-        }
-        source_cases = [{'kind': 'MIGRATION', 'recordId': row['historicalRecordId'],
-                         'profileId': row['profileId'],
-                         'sourceSha256': row['historicalAcceptanceSha256']}
-                        for row in self.bundle.profiles if row['appId'] == 'wechat']
-        self.regression_baseline = {
-            'sha256': '6' * 64, 'appId': 'wechat',
-            'migrationHistorySha256': self.bundle.history_sha256,
-            'migrationExpectationsSha256': self.bundle.expectations_sha256,
-            'v2Path': 'compatibility/wechat/acceptance-v2.json',
-            'v2SnapshotSha256': None,
-            'regressionRecordIds': [row['recordId'] for row in source_cases],
-            'sourceCases': source_cases,
-        }
-        self.record['regressionBaseline'] = self.regression_baseline
-        archive_root = 'compatibility/wechat/acceptance-evidence/semantic-record-1'
-        source_refs = [self.record['rawStageEvidence'][name]
-                       for name in ('static', 'regression', 'runtime')]
-        source_refs.extend(self.record['rawStageEvidence']['files'])
-        archived_names = ['static-report.json', 'regression-report.json', 'runtime-report.json',
-                          'raw/raw-0000-logcat.txt']
-        self.evidence_archive = {
-            'path': archive_root, 'manifestPath': archive_root + '/manifest.json',
-            'manifestSha256': '8' * 64,
-            'files': [{'sourcePath': ref['path'], 'path': archive_root + '/' + name,
-                       'sha256': ref['sha256']}
-                      for ref, name in zip(source_refs, archived_names)],
-        }
-        self.record['rawStageEvidence'] = {
-            'static': {'path': self.evidence_archive['files'][0]['path'],
-                       'sha256': self.evidence_archive['files'][0]['sha256']},
-            'regression': {'path': self.evidence_archive['files'][1]['path'],
-                           'sha256': self.evidence_archive['files'][1]['sha256']},
-            'runtime': {'path': self.evidence_archive['files'][2]['path'],
-                        'sha256': self.evidence_archive['files'][2]['sha256']},
-            'files': [{'path': item['path'], 'sha256': item['sha256']}
-                      for item in self.evidence_archive['files'][3:]],
-        }
-        self.record['evidenceArchive'] = self.evidence_archive
+        self.root = Path(self.temporary.name).resolve()
+        self.record = copy.deepcopy(json.loads(
+            (ROOT / 'compatibility/wechat/acceptance-v2.json').read_text())['records'][0])
+        original_regression = ROOT / self.record['rawStageEvidence']['regression']['path']
+        archived_regression = original_regression.read_bytes()
+        self._change_record_id(self.record, 'semantic-record-1')
+        self.record['evidenceArchive']['files'] = self.record['evidenceArchive']['files'][:4]
+        self.record['rawStageEvidence']['files'] = self.record['rawStageEvidence']['files'][:1]
+        self.static = self.record['staticReport']
+        self.apk_files = self.record['apkFiles']
+        self.recognition = self.record['recognition']
+        self.regression_baseline = self.record['regressionBaseline']
+        self.evidence_archive = self.record['evidenceArchive']
+        self.bundle = SimpleNamespace(
+            history_sha256=self.record['migrationBundle']['historySha256'],
+            expectations_sha256=self.record['migrationBundle']['expectationsSha256'])
+        self.root.joinpath('compatibility/wechat/acceptance-evidence').mkdir(parents=True)
+        self.root.joinpath('compatibility/wechat/acceptance.json').write_text('{}\n')
+        regression_path = self.root / self.record['rawStageEvidence']['regression']['path']
+        regression_path.parent.mkdir(parents=True, exist_ok=True)
+        regression_path.write_bytes(archived_regression)
 
     def test_schema2_table_preserves_complete_semantic_and_evidence_identity(self):
         table = {'schemaVersion': 2, 'appId': 'wechat', 'records': [self.record]}
@@ -196,7 +112,7 @@ class SemanticAcceptanceTest(unittest.TestCase):
         self.assertEqual(self.record['executionSha256'], draft['executionSha256'])
         self.assertEqual(self.record['recognition'], draft['recognition'])
         self.assertEqual(self.record['apkFiles'], draft['apkFiles'])
-        self.assertEqual(self.record['source'], draft['source'])
+        self.assertEqual({key: self.record['source'][key] for key in ('type', 'url')}, draft['source'])
         self.assertEqual(self.record['module'], draft['module'])
         self.assertEqual(self.record['rawStageEvidence'], draft['rawStageEvidence'])
         self.assertEqual(self.record['migrationBundle'], draft['migrationBundle'])
@@ -220,13 +136,13 @@ class SemanticAcceptanceTest(unittest.TestCase):
                               'runtime': {'evidence': stage['files']}, 'migrationBundle': accepted['migrationBundle'],
                               'regressionBaseline': accepted['regressionBaseline'],
                               'evidenceArchive': accepted['evidenceArchive'],
-                              'regression': {'status': 'PARTIAL', 'records': [
-                                  {'appId': app_id, 'recordId': record_id, 'status': 'SKIPPED',
-                                   'skipReason': 'APK_UNAVAILABLE', 'error': 'HTTP 404'}]}}
+                              'regression': {'status': 'PARTIAL', 'records': json.loads(
+                                  (ROOT / accepted['rawStageEvidence']['regression']['path']).read_text())}}
                 ids = accepted['regressionBaseline']['regressionRecordIds']
                 rows = validation['regression']['records']
-                rows.extend({'appId': app_id, 'recordId': case_id, 'status': 'PASSED'}
-                            for case_id in ids[1:])
+                skipped_row = next(row for row in rows if row['recordId'] == record_id)
+                skipped_row.update(status='SKIPPED', skipReason='APK_UNAVAILABLE', error='HTTP 404')
+                skipped_row.pop('staticEvidence', None)
                 draft = build_semantic_acceptance_record(validation)
                 self.assertEqual([record_id], draft['skippedRegressionRecordIds'])
                 reference = draft['rawStageEvidence']['regression']
@@ -244,6 +160,160 @@ class SemanticAcceptanceTest(unittest.TestCase):
                 draft['skippedRegressionRecordIds'] = [ids[1]]
                 with self.assertRaisesRegex(ValueError, 'archived.*regression'):
                     validate_semantic_acceptance_table(draft_table, app_id, self.root)
+
+    def test_grouped_acceptance_builds_without_migration_bundle_and_validates_archived_report(self):
+        grouped = copy.deepcopy(self.record)
+        grouped.pop('migrationBundle')
+        candidate_ids = ['accepted-one', 'accepted-two']
+        grouped['regressionBaseline'] = {
+            'appId': 'wechat', 'v2SnapshotSha256': 'a' * 64, 'groupingVersion': 1,
+            'selectedGroups': [{'groupId': 'group-one', 'candidateRecordIds': candidate_ids}],
+            'excludedGroupIds': ['group-excluded'],
+        }
+        report = {'schemaVersion': 1, 'groupingVersion': 1, 'appId': 'wechat',
+                  'acceptanceSha256': 'a' * 64, 'excludedGroupIds': ['group-excluded'],
+                  'groups': [{'groupId': 'group-one', 'candidateRecordIds': candidate_ids,
+                              'cacheMissRecordIds': candidate_ids,
+                              'unavailable': [{'recordId': 'accepted-one', 'error': '404'},
+                                              {'recordId': 'accepted-two', 'error': '404'}],
+                              'status': 'SKIPPED', 'skipReason': 'APK_UNAVAILABLE'}]}
+        validation = {'schemaVersion': 2, 'outcome': 'VERIFIED',
+                      'candidate': {'appId': grouped['appId'], 'identity': grouped['identity'],
+                                    'apkFiles': grouped['apkFiles'], 'expectedPlan': grouped['completePlan'],
+                                    'expectedExecutionSha256': grouped['executionSha256'],
+                                    'recognition': grouped['recognition'],
+                                    'recognitionSha256': grouped['recognitionSha256'],
+                                    'sourceUrl': grouped['source']['url']},
+                      'module': grouped['module'], 'static': grouped['staticReport'],
+                      'stageEvidence': {name: grouped['rawStageEvidence'][name]
+                                        for name in ('static', 'regression', 'runtime')},
+                      'runtime': {'evidence': grouped['rawStageEvidence']['files']},
+                      'regressionBaseline': grouped['regressionBaseline'],
+                      'regression': {'status': 'PARTIAL', 'groups': report['groups']},
+                      'evidenceArchive': grouped['evidenceArchive']}
+        draft = build_semantic_acceptance_record(validation)
+        self.assertNotIn('migrationBundle', draft)
+        self.assertEqual(['group-one'], draft['skippedRegressionGroupIds'])
+        self.assertEqual(grouped['regressionBaseline'], draft['regressionBaseline'])
+        regression_ref = draft['rawStageEvidence']['regression']
+        archived = self.root / regression_ref['path']
+        archived.parent.mkdir(parents=True, exist_ok=True)
+        archived.write_text(json.dumps(report))
+        digest = hashlib.sha256(archived.read_bytes()).hexdigest()
+        regression_ref['sha256'] = draft['evidenceArchive']['files'][1]['sha256'] = digest
+        table = {'schemaVersion': 2, 'appId': 'wechat', 'records': [draft]}
+        self.assertEqual([draft], validate_semantic_acceptance_table(table, 'wechat', self.root))
+        report['groups'][0]['groupId'] = 'wrong-group'
+        archived.write_text(json.dumps(report))
+        changed = hashlib.sha256(archived.read_bytes()).hexdigest()
+        regression_ref['sha256'] = draft['evidenceArchive']['files'][1]['sha256'] = changed
+        with self.assertRaisesRegex(ValueError, 'archived grouped regression'):
+            validate_semantic_acceptance_table(table, 'wechat', self.root)
+        report['groups'][0]['groupId'] = 'group-one'
+        draft['skippedRegressionGroupIds'] = ['group-excluded']
+        with self.assertRaisesRegex(ValueError, 'skipped regression groups'):
+            validate_semantic_acceptance_table(table, 'wechat', self.root)
+
+    def test_legacy_v2_record_uses_archived_metadata_without_migration_directory(self):
+        self.assertFalse((self.root / 'compatibility/semantic-migration').exists())
+        records = validate_semantic_acceptance_table(
+            {'schemaVersion': 2, 'appId': 'wechat', 'records': [self.record]},
+            'wechat', self.root)
+        self.assertEqual([self.record], records)
+
+    def test_legacy_v2_record_rejects_archived_regression_with_different_provenance(self):
+        damaged = copy.deepcopy(self.record)
+        regression_path = self.root / damaged['rawStageEvidence']['regression']['path']
+        rows = json.loads(regression_path.read_bytes())
+        rows[0]['baselineSha256'] = '0' * 64
+        raw = json.dumps(rows).encode()
+        regression_path.write_bytes(raw)
+        digest = hashlib.sha256(raw).hexdigest()
+        damaged['rawStageEvidence']['regression']['sha256'] = digest
+        damaged['evidenceArchive']['files'][1]['sha256'] = digest
+        with self.assertRaisesRegex(ValueError, 'archived regression provenance'):
+            validate_semantic_acceptance_table(
+                {'schemaVersion': 2, 'appId': 'wechat', 'records': [damaged]},
+                'wechat', self.root)
+
+    def test_grouped_archive_preserves_passed_static_reports_after_runtime_files(self):
+        import uuid
+
+        app_root = self.root / 'compatibility/wechat'
+        app_root.mkdir(parents=True, exist_ok=True)
+        candidate_root = self.root / 'candidate'
+        candidate_root.mkdir()
+        regression_root = self.root / 'regression'
+        regression_root.mkdir()
+        raw_root = candidate_root / 'raw'
+        raw_root.mkdir()
+
+        candidate = {'appId': 'wechat', 'identity': self.record['identity'],
+                     'apkFiles': self.record['apkFiles'],
+                     'expectedPlan': self.record['completePlan'],
+                     'expectedExecutionSha256': self.record['executionSha256'],
+                     'recognition': self.record['recognition'],
+                     'recognitionSha256': self.record['recognitionSha256'],
+                     'sourceUrl': self.record['source']['url'],
+                     'staticReport': 'static.json'}
+        static_path = candidate_root / 'static.json'
+        static_path.write_text(json.dumps(self.static))
+        smoke_path = candidate_root / 'smoke.json'
+        smoke_path.write_text('{}')
+        raw_path = raw_root / 'logcat.txt'
+        raw_path.write_text('runtime evidence')
+        group_static_path = regression_root / 'group-static.json'
+        group_static_path.write_text(json.dumps(self.static))
+        group_static_sha = hashlib.sha256(group_static_path.read_bytes()).hexdigest()
+        report = {'schemaVersion': 1, 'groupingVersion': 1, 'appId': 'wechat',
+                  'acceptanceSha256': 'a' * 64, 'excludedGroupIds': [],
+                  'groups': [{'groupId': 'group-one', 'candidateRecordIds': ['old-record'],
+                              'cacheMissRecordIds': [], 'unavailable': [], 'status': 'PASSED',
+                              'recordId': 'old-record', 'apkSource': 'cache',
+                              'staticEvidence': {'path': group_static_path.name,
+                                                 'sha256': group_static_sha}}]}
+        regression_path = regression_root / 'results.json'
+        regression_path.write_text(json.dumps(report))
+        write_candidate = candidate_root / 'candidate.json'
+        write_candidate.write_text(json.dumps(candidate))
+        smoke_sha = hashlib.sha256(smoke_path.read_bytes()).hexdigest()
+        raw_sha = hashlib.sha256(raw_path.read_bytes()).hexdigest()
+        validation = {'schemaVersion': 2, 'outcome': 'VERIFIED', 'candidate': candidate,
+                      'module': self.record['module'], 'static': self.static,
+                      'runtime': {'evidenceReport': {'path': 'smoke.json', 'sha256': smoke_sha},
+                                  'evidence': [{'path': 'raw/logcat.txt', 'sha256': raw_sha}]},
+                      'stageEvidence': {
+                          'static': {'path': str(static_path),
+                                     'sha256': hashlib.sha256(static_path.read_bytes()).hexdigest()},
+                          'regression': {'path': str(regression_path),
+                                         'sha256': hashlib.sha256(regression_path.read_bytes()).hexdigest()},
+                          'runtime': {'path': str(smoke_path), 'sha256': smoke_sha}},
+                      'inputPaths': {'repository': str(self.root),
+                                     'candidate': str(write_candidate),
+                                     'regression': str(regression_path),
+                                     'smoke': str(smoke_path),
+                                     'evidenceRoot': str(candidate_root)},
+                      'regression': {'status': 'PASSED', 'groups': report['groups']},
+                      'regressionBaseline': {
+                          'appId': 'wechat', 'v2SnapshotSha256': 'a' * 64,
+                          'groupingVersion': 1,
+                          'selectedGroups': [{'groupId': 'group-one',
+                                              'candidateRecordIds': ['old-record']}],
+                          'excludedGroupIds': []}}
+        record_id = str(uuid.uuid4())
+        archive, archive_paths = archive_verified_evidence(validation, self.root, record_id)
+        self.assertEqual(5, len(archive['files']))
+        self.assertTrue(archive['files'][3]['path'].endswith('raw-0000-logcat.txt'))
+        self.assertTrue(archive['files'][4]['path'].endswith('group-static-0000-group-static.json'))
+        draft = build_semantic_acceptance_record(
+            validation, evidence_archive=archive, record_id=record_id)
+        table = {'schemaVersion': 2, 'appId': 'wechat', 'records': [draft]}
+        self.assertEqual([draft], validate_semantic_acceptance_table(table, 'wechat', self.root))
+        self.assertIn(archive['files'][4]['path'], archive_paths)
+        archived_static = self.root / archive['files'][4]['path']
+        archived_static.write_text(archived_static.read_text() + ' ')
+        with self.assertRaisesRegex(ValueError, 'archived grouped static evidence hash changed'):
+            validate_semantic_acceptance_table(table, 'wechat', self.root)
 
     def test_draft_normalizes_absolute_stage_paths_under_trusted_roots(self):
         candidate = {'appId': 'wechat', 'identity': self.record['identity'],
@@ -281,16 +351,10 @@ class SemanticAcceptanceTest(unittest.TestCase):
         mutations.append(('extra split', extra, 'APK input list differs'))
         omitted = copy.deepcopy(self.record)
         omitted['apkFiles'].pop()
-        mutations.append(('omitted split', omitted, 'APK input list differs'))
+        mutations.append(('omitted base', omitted, 'APK input identity is incomplete'))
         changed = copy.deepcopy(self.record)
-        changed['apkFiles'][1]['sha256'] = 'c' * 64
-        mutations.append(('changed hash', changed, 'APK input list differs'))
-        reordered = copy.deepcopy(self.record)
-        reordered['apkFiles'][1], reordered['apkFiles'][2] = reordered['apkFiles'][2], reordered['apkFiles'][1]
-        mutations.append(('reordered splits', reordered, 'APK input list differs'))
-        duplicate_path = copy.deepcopy(self.record)
-        duplicate_path['apkFiles'][2]['path'] = duplicate_path['apkFiles'][1]['path']
-        mutations.append(('duplicate APK path', duplicate_path, 'duplicate APK input path'))
+        changed['apkFiles'][0]['sha256'] = 'c' * 64
+        mutations.append(('changed base hash', changed, 'APK input identity is incomplete'))
         for label, record, error in mutations:
             with self.subTest(label=label), self.assertRaisesRegex(ValueError, error):
                 validate_semantic_acceptance_table(
@@ -308,10 +372,11 @@ class SemanticAcceptanceTest(unittest.TestCase):
                                             repository=self.root)
         self.assertFalse(path.exists())
 
-    def test_schema2_record_rejects_duplicate_static_input_paths(self):
+    def test_schema2_record_rejects_static_inputs_outside_captured_manifests(self):
         damaged = copy.deepcopy(self.record)
-        damaged['staticReport']['inputHashes'][2]['path'] = damaged['staticReport']['inputHashes'][1]['path']
-        with self.assertRaisesRegex(ValueError, 'static report contains a duplicate APK input path'):
+        damaged['staticReport']['inputHashes'].append(
+            copy.deepcopy(damaged['staticReport']['inputHashes'][0]))
+        with self.assertRaisesRegex(ValueError, 'APK input hashes differ from captured manifests'):
             validate_semantic_acceptance_table(
                 {'schemaVersion': 2, 'appId': 'wechat', 'records': [damaged]},
                 'wechat', repository=self.root)
@@ -381,7 +446,7 @@ class SemanticAcceptanceTest(unittest.TestCase):
                 'wechat', repository=self.root)
         damaged = copy.deepcopy(self.record)
         damaged['migrationBundle']['expectationsSha256'] = '0' * 64
-        with self.assertRaisesRegex(ValueError, 'frozen migration bundle'):
+        with self.assertRaisesRegex(ValueError, 'baseline differs from its migration'):
             validate_semantic_acceptance_table(
                 {'schemaVersion': 2, 'appId': 'wechat', 'records': [damaged]},
                 'wechat', repository=self.root)

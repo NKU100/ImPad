@@ -446,7 +446,21 @@ def validate_check_report(report, expected_app_id=None, expected_identity=None, 
         for entry in row['plans']:
             _validate_plan_envelope(entry, catalog, snapshot, 'evidence')
     selection = report['selection']
-    _fields(selection, 'status plan executionSha256 evidenceByRecognizer alternatives diagnostics incompleteReasons', 'Complete selection')
+    selection_keys = 'status plan executionSha256 evidenceByRecognizer alternatives diagnostics incompleteReasons'
+    if 'behaviorFeatures' in selection:
+        _fields(selection, selection_keys + ' behaviorFeatures', 'Complete selection')
+    else:
+        _fields(selection, selection_keys, 'Complete selection')
+    if 'behaviorFeatures' in selection:
+        features = selection['behaviorFeatures']
+        if not isinstance(features, dict):
+            raise ValueError('Invalid structured behavior features')
+        if features:
+            if (report['appId'] != 'wechat' or selection['status'] != 'SELECTED'
+                    or set(features) != {'wrapperMode'}
+                    or not isinstance(features['wrapperMode'], str)
+                    or features['wrapperMode'] not in {'inline', 'aggregate'}):
+                raise ValueError('Invalid structured WeChat behavior features')
     _evidence_map(selection['evidenceByRecognizer']); _diagnostics_map(selection['diagnostics'])
     if not isinstance(selection['incompleteReasons'], dict) or not isinstance(selection['alternatives'], list):
         raise ValueError('Invalid complete selection evidence')

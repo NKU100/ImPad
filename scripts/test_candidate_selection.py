@@ -19,11 +19,8 @@ from scripts.ci.candidate_selection import (
 class CandidateSelectionTest(unittest.TestCase):
     @staticmethod
     def _semantic_report(app_id, apk, status='SELECTED'):
-        from scripts.ci.semantic_migration import load_migration_bundle
-        from scripts.test_semantic_migration import SemanticMigrationTest
-        root = Path(__file__).resolve().parents[1]
-        profile = next(row for row in load_migration_bundle(root).profiles if row['appId'] == app_id)
-        report = SemanticMigrationTest().report(profile)
+        from scripts.testdata.acceptance_examples import accepted_example
+        report = accepted_example(app_id)['staticReport']
         digest = hashlib.sha256(Path(apk).read_bytes()).hexdigest()
         report['identity']['apkSha256'] = digest
         report['inputHashes'][0].update(path=str(Path(apk).resolve()), sha256=digest)
@@ -35,7 +32,7 @@ class CandidateSelectionTest(unittest.TestCase):
                                        evidenceByRecognizer={}, alternatives=[])
         elif status == 'CONFLICT':
             import copy
-            from scripts.ci.semantic_protocol import plan_execution_sha256
+            from scripts.ci.semantic_protocol import _expected_selection, plan_execution_sha256
             recognizer = report['recognizers'][0]
             original = recognizer['plans'][0]
             alternate = copy.deepcopy(original)
@@ -44,11 +41,7 @@ class CandidateSelectionTest(unittest.TestCase):
             alternate['executionSha256'] = plan_execution_sha256(alternate['plan'])
             alternate['evidence'] = ['alternate structural match']
             recognizer['plans'].append(alternate)
-            alternatives = [{'plan': row['plan'], 'executionSha256': row['executionSha256'],
-                'evidenceByRecognizer': {recognizer['recognizerId']: row['evidence']}}
-                for row in recognizer['plans']]
-            report['selection'].update(status='CONFLICT', plan=None, executionSha256=None,
-                evidenceByRecognizer={}, alternatives=sorted(alternatives, key=lambda row: row['executionSha256']))
+            report['selection'] = _expected_selection(report['recognizers'])
         elif status in {'INCOMPLETE', 'EVALUATION_ERROR', 'UNSUPPORTED_INPUT'}:
             query = report['recognizers'][0]
             query.update(status=status, plans=[], reason='bounded diagnostic' if status == 'INCOMPLETE' else None,
@@ -144,23 +137,11 @@ class CandidateSelectionTest(unittest.TestCase):
                 main()
         prepare.assert_not_called()
 
-    def test_registered_migration_fallback_uses_source_linked_pinned_profiles(self):
+    def test_registered_candidates_require_a_v2_table(self):
         from scripts.ci.candidate_selection import _registered_expectations
-        from scripts.test_semantic_acceptance import SemanticAcceptanceTest
-        fixture = SemanticAcceptanceTest()
-        fixture.setUp()
-        self.addCleanup(fixture.doCleanups)
 
-        expectations = _registered_expectations('wechat', fixture.root)
-        self.assertTrue(expectations)
-        history = {row['recordId']: row for row in fixture.bundle.historical_records}
-        for expected in expectations:
-            with self.subTest(record_id=expected['recordId']):
-                self.assertEqual(history[expected['recordId']]['source']['url'], expected['source']['url'])
-                self.assertEqual(history[expected['recordId']]['source']['apkFiles'], expected['apkFiles'])
-                self.assertEqual(expected['identity']['versionCode'],
-                                 next(profile['identity']['versionCode'] for profile in fixture.bundle.profiles
-                                      if profile['historicalRecordId'] == expected['recordId']))
+        with tempfile.TemporaryDirectory() as temporary:
+            self.assertEqual([], _registered_expectations('wechat', Path(temporary)))
 
     def test_registered_recheck_rejects_split_hash_mismatch_and_order_change(self):
         from scripts.ci.candidate_selection import _verify_registered_candidate
@@ -298,7 +279,6 @@ class CandidateSelectionTest(unittest.TestCase):
 
     def test_checker_nonzero_returns_fresh_valid_nonselected_semantic_report(self):
         from scripts.ci.candidate_selection import _run_rules_checker
-        from scripts.test_semantic_migration import SemanticMigrationTest
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
             apk = root / 'candidate.apk'; apk.write_bytes(b'candidate')

@@ -1,6 +1,7 @@
 Adapt the exact incompatible WeChat APK described in
-`work/analysis/candidate-report.json`. The candidate APK and each accepted APK
-are staged under `work/apks/` with their SHA-256 identities.
+`work/analysis/candidate-report.json`. The candidate APK and one available
+accepted-v2 sample per selected historical behavior group are staged under
+`work/apks/` with their SHA-256 identities.
 
 Use the managed JADX launcher and DexSQL for focused APK inspection. Do not
 bypass its resource limits, run parallel decompilation, or treat APK strings,
@@ -25,8 +26,11 @@ acceptance records. Do not recreate deprecated profile or `targets.json` files;
 they are absent from the current tree. Do not edit acceptance tables or
 registration code during adaptation.
 
-Call only the no-argument `impad-build` entry point. The controller runs the
-shared checker and fixed acceptance regression, then the fixed Gradle gate:
+Call only the no-argument `impad-build` entry point. The controller checks the
+candidate against the complete accepted-v2 corpus, stages at most one sample
+for each of up to three selected historical behavior groups using verified
+cache entries or the existing download path, and reruns the grouped regression
+before the fixed Gradle gate:
 `:app:testDebugUnitTest`, `:app:testReleaseUnitTest`, `:compat-core:test`,
 `:compat-rules:test`, `:compat-checker:test`, `:app:verifyModuleMetadata`, and
 `:app:assembleDebug`. Do not invoke Gradle directly or pass tasks or flags to

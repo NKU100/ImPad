@@ -256,7 +256,7 @@ class WeComPortableRuntimeReplayTest(unittest.TestCase):
         smoke_path.write_text(json.dumps(pipeline, indent=2) + '\n')
         return candidate_path, module_apk, regression_path, smoke_path, output, acceptance_path, pipeline
 
-    def test_failed_synthetic_probe_is_rejected_and_cannot_bypass_migration_gate(self):
+    def test_failed_synthetic_probe_is_rejected_and_cannot_bypass_grouped_regression_gate(self):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
             candidate_path, module_apk, regression_path, smoke_path, output, acceptance_path, pipeline = \
@@ -264,7 +264,7 @@ class WeComPortableRuntimeReplayTest(unittest.TestCase):
             self.assertEqual('RUNTIME_REJECTED', pipeline['status'])
             with self.assertRaisesRegex(ValueError, 'WeCom runtime UI summary differs'):
                 runtime_task._validate_wecom_raw_evidence(pipeline, output, self.candidate, self.module)
-            with self.assertRaisesRegex(ValueError, 'pinned historical migration bundle'):
+            with self.assertRaisesRegex(ValueError, 'grouped v2 regression evidence only'):
                 runtime_task.verify_validation_files(
                     candidate_path, module_apk, regression_path, smoke_path, output,
                     'failure', ROOT, acceptance_path, initial_migration=True)
@@ -290,7 +290,7 @@ class WeComPortableRuntimeReplayTest(unittest.TestCase):
             provenance = json.loads((candidate_root / 'synthetic-fixture-provenance.json').read_text())
             self.assertEqual('SYNTHETIC_TEST_ONLY', provenance['kind'])
             self.assertFalse(provenance['deviceBusinessValidation'])
-            with self.assertRaisesRegex(ValueError, 'pinned historical migration bundle'):
+            with self.assertRaisesRegex(ValueError, 'grouped v2 regression evidence only'):
                 runtime_task.verify_validation_files(
                     candidate_path, module_apk, regression_path, smoke_path, output,
                     'success', ROOT, acceptance_path, initial_migration=True)

@@ -97,10 +97,12 @@ def _validate_semantic_record(record: dict, app_id: str,
 
     required = {'recordId', 'schemaVersion', 'appId', 'status', 'identity', 'apkFiles',
                 'completePlan', 'executionSha256', 'recognition', 'recognitionSha256',
-                'module', 'source', 'rawStageEvidence', 'staticReport', 'migrationBundle',
+                'module', 'source', 'rawStageEvidence', 'staticReport',
                 'regressionBaseline', 'evidenceArchive', 'acceptedAt'}
-    if not isinstance(record, dict) or set(record) not in (
-            required, required | {'skippedRegressionRecordIds'}):
+    optional = {'migrationBundle', 'skippedRegressionRecordIds', 'skippedRegressionGroupIds'}
+    if (not isinstance(record, dict) or not required.issubset(record)
+            or set(record) - required - optional
+            or ('skippedRegressionRecordIds' in record and 'skippedRegressionGroupIds' in record)):
         raise ValueError('Semantic acceptance record has an invalid schema')
     if (type(record['schemaVersion']) is not int or record['schemaVersion'] != SEMANTIC_SCHEMA_VERSION
             or record['appId'] != app_id or record['status'] != 'VERIFIED'
@@ -238,24 +240,99 @@ def _validate_semantic_record(record: dict, app_id: str,
             != [item['sha256'] for item in evidence['files']]):
         raise ValueError('Semantic acceptance evidence archive does not bind every stage reference in order')
 
-    bundle = record['migrationBundle']
-    if (not isinstance(bundle, dict) or set(bundle) != {'historySha256', 'expectationsSha256', 'recordIds'}
+    bundle = record.get('migrationBundle')
+    grouped_baseline = isinstance(record.get('regressionBaseline'), dict) and \
+        'groupingVersion' in record['regressionBaseline']
+    if bundle is None and not grouped_baseline:
+        raise ValueError('Legacy semantic acceptance requires its migration bundle')
+    if not grouped_baseline and 'skippedRegressionGroupIds' in record:
+        raise ValueError('Semantic acceptance skipped regression field does not match its baseline')
+    if bundle is not None and (not isinstance(bundle, dict) or set(bundle) != {'historySha256', 'expectationsSha256', 'recordIds'}
             or any(not isinstance(bundle[key], str) or not _DIGEST.fullmatch(bundle[key])
                    for key in ('historySha256', 'expectationsSha256'))
             or not isinstance(bundle['recordIds'], list) or not bundle['recordIds']
             or any(not isinstance(value, str) or not value for value in bundle['recordIds'])
             or len(set(bundle['recordIds'])) != len(bundle['recordIds'])):
         raise ValueError('Semantic acceptance migration bundle binding is malformed')
-    if repository is not None:
-        from scripts.ci.semantic_migration import load_migration_bundle
-        frozen = load_migration_bundle(repository)
-        expected_ids = [profile['historicalRecordId'] for profile in frozen.profiles
-                        if profile['appId'] == app_id]
-        if (bundle['historySha256'] != frozen.history_sha256
-                or bundle['expectationsSha256'] != frozen.expectations_sha256
-                or bundle['recordIds'] != expected_ids):
-            raise ValueError('Semantic acceptance record differs from the frozen migration bundle')
     baseline = record['regressionBaseline']
+    if grouped_baseline:
+        group_fields = {'appId', 'v2SnapshotSha256', 'groupingVersion',
+                        'selectedGroups', 'excludedGroupIds'}
+        selected = baseline.get('selectedGroups') if isinstance(baseline, dict) else None
+        excluded = baseline.get('excludedGroupIds') if isinstance(baseline, dict) else None
+        if (set(baseline) != group_fields or baseline.get('appId') != app_id
+                or not isinstance(baseline.get('v2SnapshotSha256'), str)
+                or not _DIGEST.fullmatch(baseline['v2SnapshotSha256'])
+                or type(baseline.get('groupingVersion')) is not int or baseline['groupingVersion'] <= 0
+                or not isinstance(selected, list) or not selected
+                or not isinstance(excluded, list)
+                or any(not isinstance(value, str) or not value for value in excluded)
+                or len(set(excluded)) != len(excluded)):
+            raise ValueError('Semantic acceptance grouped regression baseline binding is malformed')
+        group_ids, all_candidates = [], []
+        for group in selected:
+            if (not isinstance(group, dict) or set(group) != {'groupId', 'candidateRecordIds'}
+                    or not isinstance(group['groupId'], str) or not group['groupId']
+                    or not isinstance(group['candidateRecordIds'], list) or not group['candidateRecordIds']
+                    or any(not isinstance(value, str) or not value for value in group['candidateRecordIds'])
+                    or len(set(group['candidateRecordIds'])) != len(group['candidateRecordIds'])):
+                raise ValueError('Semantic acceptance grouped regression selection is malformed')
+            group_ids.append(group['groupId'])
+            all_candidates.extend(group['candidateRecordIds'])
+        if (len(set(group_ids)) != len(group_ids) or set(group_ids) & set(excluded)
+                or len(set(all_candidates)) != len(all_candidates)):
+            raise ValueError('Semantic acceptance grouped regression selection has duplicate or overlapping IDs')
+        if record.get('skippedRegressionGroupIds') is not None:
+            skipped = record['skippedRegressionGroupIds']
+            if (not isinstance(skipped, list) or not skipped
+                    or skipped != [group_id for group_id in group_ids if group_id in skipped]):
+                raise ValueError('Semantic acceptance skipped regression groups differ from the baseline')
+        if repository is not None:
+            root = Path(repository).resolve()
+            regression_ref = evidence['regression']
+            raw = _verified_source(root / regression_ref['path'], root=root).read_bytes()
+            if hashlib.sha256(raw).hexdigest() != regression_ref['sha256']:
+                raise ValueError('Semantic acceptance archived grouped regression hash changed')
+            try:
+                report = json.loads(raw)
+            except json.JSONDecodeError as error:
+                raise ValueError('Semantic acceptance archived grouped regression is unreadable') from error
+            if (not isinstance(report, dict) or set(report) != {'schemaVersion', 'groupingVersion', 'appId', 'acceptanceSha256', 'excludedGroupIds', 'groups'}
+                    or report.get('schemaVersion') != 1 or report.get('groupingVersion') != baseline['groupingVersion']
+                    or report.get('appId') != app_id or report.get('acceptanceSha256') != baseline['v2SnapshotSha256']
+                    or report.get('excludedGroupIds') != excluded or not isinstance(report.get('groups'), list)
+                    or len(report['groups']) != len(selected)):
+                raise ValueError('Semantic acceptance archived grouped regression differs from its baseline')
+            from scripts.ci.grouped_static_regression import validate_group_results
+            fake_groups = [{'groupId': group['groupId'],
+                            'cases': [{'recordId': value} for value in group['candidateRecordIds']]}
+                           for group in selected]
+            try:
+                validate_group_results(fake_groups, report['groups'])
+            except ValueError as error:
+                raise ValueError('Semantic acceptance archived grouped regression rows are invalid') from error
+            skipped_groups = [row['groupId'] for row in report['groups'] if row['status'] == 'SKIPPED']
+            if record.get('skippedRegressionGroupIds', []) != skipped_groups:
+                raise ValueError('Semantic acceptance skipped regression groups differ from archived regression')
+            regression_archive = archive['files'][1]
+            regression_source = Path(regression_archive['sourcePath'])
+            for row in report['groups']:
+                if row['status'] != 'PASSED':
+                    continue
+                reference = row['staticEvidence']
+                name = reference.get('path') if isinstance(reference, dict) else None
+                if (not isinstance(name, str) or not name or Path(name).name != name
+                        or set(reference) != {'path', 'sha256'}
+                        or not _DIGEST.fullmatch(reference.get('sha256', ''))):
+                    raise ValueError('Semantic acceptance grouped static evidence reference is malformed')
+                source_path = str(regression_source.parent / name)
+                matches = [item for item in archive['files'] if item['sourcePath'] == source_path]
+                if (len(matches) != 1 or matches[0]['sha256'] != reference['sha256']):
+                    raise ValueError('Semantic acceptance grouped static evidence is missing from its archive')
+                archived_static = _verified_source(root / matches[0]['path'], root=root).read_bytes()
+                if hashlib.sha256(archived_static).hexdigest() != reference['sha256']:
+                    raise ValueError('Semantic acceptance archived grouped static evidence hash changed')
+        return (hashes[0], *sorted(hashes[1:])), record['recordId']
     baseline_fields = {'sha256', 'appId', 'migrationHistorySha256',
                        'migrationExpectationsSha256', 'v2Path', 'v2SnapshotSha256',
                        'regressionRecordIds', 'sourceCases'}
@@ -294,25 +371,40 @@ def _validate_semantic_record(record: dict, app_id: str,
             or baseline['migrationHistorySha256'] != bundle['historySha256']
             or baseline['migrationExpectationsSha256'] != bundle['expectationsSha256']):
         raise ValueError('Semantic acceptance regression baseline differs from its migration or case bindings')
-    if 'skippedRegressionRecordIds' in record:
-        skipped_ids = record['skippedRegressionRecordIds']
-        if (not isinstance(skipped_ids, list) or not skipped_ids
-                or skipped_ids != [record_id for record_id in case_ids if record_id in skipped_ids]):
-            raise ValueError('Semantic acceptance skipped regression IDs differ from the baseline')
-        if repository is not None:
-            from scripts.ci.static_regression import is_unavailable_regression, regression_status
+    skipped_ids = record.get('skippedRegressionRecordIds', [])
+    if 'skippedRegressionRecordIds' in record and (
+            not isinstance(skipped_ids, list) or not skipped_ids
+            or skipped_ids != [record_id for record_id in case_ids if record_id in skipped_ids]):
+        raise ValueError('Semantic acceptance skipped regression IDs differ from the baseline')
+    if repository is not None:
+        from scripts.ci.static_regression import is_unavailable_regression, regression_status
 
-            root = Path(repository).resolve()
-            regression_ref = evidence['regression']
-            raw = _verified_source(root / regression_ref['path'], root=root).read_bytes()
-            if hashlib.sha256(raw).hexdigest() != regression_ref['sha256']:
-                raise ValueError('Semantic acceptance archived regression hash changed')
+        root = Path(repository).resolve()
+        regression_ref = evidence['regression']
+        raw = _verified_source(root / regression_ref['path'], root=root).read_bytes()
+        if hashlib.sha256(raw).hexdigest() != regression_ref['sha256']:
+            raise ValueError('Semantic acceptance archived regression hash changed')
+        try:
             rows = json.loads(raw)
-            if (regression_status(rows) != 'PARTIAL'
-                    or any(row.get('appId') != app_id for row in rows)
-                    or [row.get('recordId') for row in rows] != case_ids
-                    or [row['recordId'] for row in rows if is_unavailable_regression(row)] != skipped_ids):
-                raise ValueError('Semantic acceptance archived regression differs from its skipped cases')
+        except json.JSONDecodeError as error:
+            raise ValueError('Semantic acceptance archived regression is unreadable') from error
+        if not isinstance(rows, list) or len(rows) != len(source_cases):
+            raise ValueError('Semantic acceptance archived regression provenance is incomplete')
+        for row, case in zip(rows, source_cases):
+            if (not isinstance(row, dict) or row.get('appId') != app_id
+                    or row.get('recordId') != case['recordId']
+                    or row.get('baselineSourceCase') != case
+                    or row.get('baselineSha256') != baseline['sha256']
+                    or row.get('migrationHistorySha256') != baseline['migrationHistorySha256']
+                    or row.get('migrationExpectationsSha256') != baseline['migrationExpectationsSha256']
+                    or row.get('v2SnapshotSha256') != baseline['v2SnapshotSha256']):
+                raise ValueError('Semantic acceptance archived regression provenance differs from its baseline')
+        unavailable_ids = [row['recordId'] for row in rows if is_unavailable_regression(row)]
+        expected_status = 'PARTIAL' if skipped_ids else 'PASSED'
+        if (regression_status(rows) != expected_status
+                or [row['recordId'] for row in rows if row.get('status') == 'SKIPPED'] != skipped_ids
+                or unavailable_ids != skipped_ids):
+            raise ValueError('Semantic acceptance archived regression differs from its skipped cases')
     return (hashes[0], *sorted(hashes[1:])), record['recordId']
 
 
@@ -412,6 +504,28 @@ def archive_verified_evidence(validation: dict, repository: Path,
         source = _verified_source(evidence_root / reference['path'], root=evidence_root)
         sources.append((f'raw-{index:04d}', source, reference))
 
+    try:
+        regression_report = json.loads(regression_source.read_bytes())
+    except (OSError, json.JSONDecodeError) as error:
+        raise ValueError('Verified regression report is unreadable') from error
+    if isinstance(regression_report, dict) and 'groupingVersion' in regression_report:
+        groups = regression_report.get('groups')
+        if not isinstance(groups, list):
+            raise ValueError('Verified grouped regression results are malformed')
+        for index, row in enumerate(groups):
+            if not isinstance(row, dict) or row.get('status') != 'PASSED':
+                continue
+            reference = row.get('staticEvidence')
+            name = reference.get('path') if isinstance(reference, dict) else None
+            if (not isinstance(name, str) or not name or Path(name).name != name
+                    or set(reference) != {'path', 'sha256'}
+                    or not isinstance(reference['sha256'], str)
+                    or not _DIGEST.fullmatch(reference['sha256'])):
+                raise ValueError('Grouped static evidence reference is malformed')
+            source = _verified_source(regression_source.parent / name,
+                                      root=regression_source.parent)
+            sources.append((f'group-static-{index:04d}', source, reference))
+
     checked = []
     for label, source, reference in sources:
         if (not isinstance(reference, dict) or set(reference) != {'path', 'sha256'}
@@ -498,6 +612,8 @@ def build_semantic_acceptance_record(validation: dict, *, evidence_archive: dict
     static = validation.get('static')
     runtime = validation.get('runtime')
     bundle = validation.get('migrationBundle')
+    regression_baseline = validation.get('regressionBaseline')
+    grouped = isinstance(regression_baseline, dict) and 'groupingVersion' in regression_baseline
     stage_evidence = validation.get('stageEvidence')
     evidence_archive = evidence_archive or validation.get('evidenceArchive')
     if not isinstance(evidence_archive, dict):
@@ -509,7 +625,7 @@ def build_semantic_acceptance_record(validation: dict, *, evidence_archive: dict
         record_id = Path(evidence_archive.get('path', '')).name
     if (not isinstance(candidate, dict) or not isinstance(module, dict)
             or not isinstance(static, dict) or not isinstance(runtime, dict)
-            or not isinstance(bundle, dict) or not isinstance(stage_evidence, dict)):
+            or (not isinstance(bundle, dict) and not grouped) or not isinstance(stage_evidence, dict)):
         raise ValueError('Verified semantic report is missing acceptance inputs')
     normalized_stage = {name: {'path': archived[index]['path'], 'sha256': archived[index]['sha256']}
                         for index, name in enumerate(('static', 'regression', 'runtime'))}
@@ -548,25 +664,46 @@ def build_semantic_acceptance_record(validation: dict, *, evidence_archive: dict
             'files': normalized_files,
         },
         'staticReport': copy.deepcopy(static),
-        'migrationBundle': copy.deepcopy(bundle),
-        'regressionBaseline': copy.deepcopy(validation.get('regressionBaseline')),
+        'regressionBaseline': copy.deepcopy(regression_baseline),
         'evidenceArchive': copy.deepcopy(evidence_archive),
         'acceptedAt': datetime.now(timezone.utc).isoformat(),
     }
+    if bundle is not None:
+        record['migrationBundle'] = copy.deepcopy(bundle)
     regression = validation.get('regression', {})
-    if isinstance(regression, dict) and regression.get('status') == 'PARTIAL':
-        from scripts.ci.static_regression import is_unavailable_regression, regression_status
+    if grouped and isinstance(regression, dict):
+        from scripts.ci.grouped_static_regression import validate_group_results
 
+        rows = regression.get('groups')
+        selected = regression_baseline['selectedGroups']
+        fake_groups = [{'groupId': group['groupId'],
+                        'cases': [{'recordId': value} for value in group['candidateRecordIds']]}
+                       for group in selected]
+        validate_group_results(fake_groups, rows)
+    if isinstance(regression, dict) and regression.get('status') == 'PARTIAL':
         rows = regression.get('records')
-        if regression_status(rows) != 'PARTIAL':
-            raise ValueError('Partial acceptance requires recorded skipped regression rows')
-        skipped_ids = {row['recordId'] for row in rows if is_unavailable_regression(row)}
-        record['skippedRegressionRecordIds'] = [
-            record_id for record_id in record['regressionBaseline']['regressionRecordIds']
-            if record_id in skipped_ids
-        ]
-        if set(record['skippedRegressionRecordIds']) != skipped_ids:
-            raise ValueError('Skipped regression rows differ from the accepted baseline')
+        if grouped:
+            selected = regression_baseline['selectedGroups']
+            skipped = [row.get('groupId') for row in regression.get('groups', [])
+                       if isinstance(row, dict) and row.get('status') == 'SKIPPED']
+            expected = [group['groupId'] for group in selected]
+            if ([row.get('groupId') for row in regression['groups']] != expected
+                    or any(row.get('status') not in {'PASSED', 'SKIPPED'} for row in regression['groups'])):
+                raise ValueError('Partial grouped acceptance differs from the selected regression groups')
+            if skipped:
+                record['skippedRegressionGroupIds'] = skipped
+        else:
+            from scripts.ci.static_regression import is_unavailable_regression, regression_status
+
+            if regression_status(rows) != 'PARTIAL':
+                raise ValueError('Partial acceptance requires recorded skipped regression rows')
+            skipped_ids = {row['recordId'] for row in rows if is_unavailable_regression(row)}
+            record['skippedRegressionRecordIds'] = [
+                record_id for record_id in record['regressionBaseline']['regressionRecordIds']
+                if record_id in skipped_ids
+            ]
+            if set(record['skippedRegressionRecordIds']) != skipped_ids:
+                raise ValueError('Skipped regression rows differ from the accepted baseline')
     _validate_semantic_record(record, str(record['appId']))
     return record
 

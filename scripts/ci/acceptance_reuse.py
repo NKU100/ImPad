@@ -83,22 +83,22 @@ def main():
             if record:
                 from scripts.ci.runtime_task import _semantic_stage_context
                 regression_path = (args.directory / 'regression/results.json').resolve()
-                _semantic_stage_context(candidate, record['module'], static, {
-                    'records': regression, 'evidence': {'path': str(regression_path),
-                        'sha256': hashlib.sha256(regression_path.read_bytes()).hexdigest()},
-                }, args.repository)
+                report = dict(regression) if isinstance(regression, dict) else {'records': regression}
+                report['evidence'] = {'path': str(regression_path),
+                                      'sha256': hashlib.sha256(regression_path.read_bytes()).hexdigest()}
+                _semantic_stage_context(candidate, record['module'], static, report, args.repository)
         except (OSError, ValueError, KeyError, TypeError) as error:
             record = None
             reason = f'Acceptance evidence cannot be reused: {error}'
     else:
-        reason = 'Current fixed-record regression contains failed or unusable results.'
+        reason = 'Current grouped regression contains failed or unusable results.'
     outputs = {'acceptance_reused': 'true' if record else 'false'}
     if record:
         outputs.update(outcome='VERIFIED', record_id=record['recordId'],
                        version_name=str(candidate['identity']['versionName']),
                        version_code=str(candidate['identity']['versionCode']),
                        candidate_sha256=candidate['identity']['apkSha256'])
-        reason = f"Reused verified acceptance `{record['recordId']}`. Current static checks and fixed regression passed; module build and ReDroid were skipped."
+        reason = f"Reused verified acceptance `{record['recordId']}`. Current static checks and grouped regression passed; module build and ReDroid were skipped."
     append_github_output(args.github_output, outputs)
     with args.report.open('a') as report:
         report.write(f'\n## Acceptance reuse\n\n{reason}\n')

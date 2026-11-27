@@ -1,0 +1,231 @@
+{
+  "schemaVersion": 1,
+  "recordId": "5c5639dc-34ee-44cd-8b6e-83f9e90206e4",
+  "files": [
+    {
+      "sourcePath": "/private/tmp/impad-historical-acceptance.YTYRsD/46064040169/inputs/static-check.json",
+      "path": "compatibility/wecom/acceptance-evidence/5c5639dc-34ee-44cd-8b6e-83f9e90206e4/static-report.json",
+      "sha256": "5c629a4e60519d14970d697a1c9523ba36bb379de41eb30fe46e0678f9853c5f"
+    },
+    {
+      "sourcePath": "/private/tmp/impad-historical-acceptance.YTYRsD/46064040169/inputs/regression/results.json",
+      "path": "compatibility/wecom/acceptance-evidence/5c5639dc-34ee-44cd-8b6e-83f9e90206e4/regression-report.json",
+      "sha256": "99c9b5f08551641d68f1aabf2ccf97be84edbb8a65dc6b1b1c0b5fb2ac83bbaf"
+    },
+    {
+      "sourcePath": "/private/tmp/impad-historical-acceptance.YTYRsD/46064040169/evidence/runtime-smoke/evidence/smoke-report.json",
+      "path": "compatibility/wecom/acceptance-evidence/5c5639dc-34ee-44cd-8b6e-83f9e90206e4/runtime-report.json",
+      "sha256": "cbd241ba977f7f3e03e852c49ec18c5f3156e2dcaf091faf1e8c8a72c7c94413"
+    },
+    {
+      "sourcePath": "/private/tmp/impad-historical-acceptance.YTYRsD/46064040169/evidence/runtime-smoke/apps/wecom/app-hook-logs.txt",
+      "path": "compatibility/wecom/acceptance-evidence/5c5639dc-34ee-44cd-8b6e-83f9e90206e4/raw/raw-0000-app-hook-logs.txt",
+      "sha256": "732c9cc1e4f559766b52650ed80141447487a5253a420dd8cfa0844285e41fa5"
+    },
+    {
+      "sourcePath": "/private/tmp/impad-historical-acceptance.YTYRsD/46064040169/evidence/runtime-smoke/apps/wecom/installed-identities.json",
+      "path": "compatibility/wecom/acceptance-evidence/5c5639dc-34ee-44cd-8b6e-83f9e90206e4/raw/raw-0001-installed-identities.json",
+      "sha256": "32bca6cea5aba211cbeef2e14c9b696c50e05fb8defcd280b347557e2d4c2f4a"
+    },
+    {
+      "sourcePath": "/private/tmp/impad-historical-acceptance.YTYRsD/46064040169/evidence/runtime-smoke/apps/wecom/logcat.txt",
+      "path": "compatibility/wecom/acceptance-evidence/5c5639dc-34ee-44cd-8b6e-83f9e90206e4/raw/raw-0002-logcat.txt",
+      "sha256": "ec8f90ebf8dea830232a904577beda7f7668b3c824cab197ffbb9f2e02bef628"
+    },
+    {
+      "sourcePath": "/private/tmp/impad-historical-acceptance.YTYRsD/46064040169/evidence/runtime-smoke/apps/wecom/manager-current-activity.txt",
+      "path": "compatibility/wecom/acceptance-evidence/5c5639dc-34ee-44cd-8b6e-83f9e90206e4/raw/raw-0003-manager-current-activity.txt",
+      "sha256": "f03574f790845d553e7dd3033d1299fa0a70080f277cf73c803425798c15d0d1"
+    },
+    {
+      "sourcePath": "/private/tmp/impad-historical-acceptance.YTYRsD/46064040169/evidence/runtime-smoke/apps/wecom/manager-current-dump.txt",
+      "path": "compatibility/wecom/acceptance-evidence/5c5639dc-34ee-44cd-8b6e-83f9e90206e4/raw/raw-0004-manager-current-dump.txt",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "sourcePath": "/private/tmp/impad-historical-acceptance.YTYRsD/46064040169/evidence/runtime-smoke/apps/wecom/manager-current-ocr.tsv",
+      "path": "compatibility/wecom/acceptance-evidence/5c5639dc-34ee-44cd-8b6e-83f9e90206e4/raw/raw-0005-manager-current-ocr.tsv",
+      "sha256": "a85fef83f39a0dded7c2bf21e35973e61806da2bdd85b04e8ba914a81682c5f7"
+    },
+    {
+      "sourcePath": "/private/tmp/impad-historical-acceptance.YTYRsD/46064040169/evidence/runtime-smoke/apps/wecom/manager-current.png",
+      "path": "compatibility/wecom/acceptance-evidence/5c5639dc-34ee-44cd-8b6e-83f9e90206e4/raw/raw-0006-manager-current.png",
+      "sha256": "ea6854ea48e13497ca23e3c082a6216e441e193e1a4e8c61fd49d416b0ca437f"
+    },
+    {
+      "sourcePath": "/private/tmp/impad-historical-acceptance.YTYRsD/46064040169/evidence/runtime-smoke/apps/wecom/manager-current.xml",
+      "path": "compatibility/wecom/acceptance-evidence/5c5639dc-34ee-44cd-8b6e-83f9e90206e4/raw/raw-0007-manager-current.xml",
+      "sha256": "4c557e09d44242e6adf37cbd553eb65af809bbc6e1931108bb497474694ac2b3"
+    },
+    {
+      "sourcePath": "/private/tmp/impad-historical-acceptance.YTYRsD/46064040169/evidence/runtime-smoke/apps/wecom/manager-enable-requested-activity.txt",
+      "path": "compatibility/wecom/acceptance-evidence/5c5639dc-34ee-44cd-8b6e-83f9e90206e4/raw/raw-0008-manager-enable-requested-activity.txt",
+      "sha256": "e624c9f3c37f8945bf3029b530f42554cf8582eddd4971e8b31c637161be69e6"
+    },
+    {
+      "sourcePath": "/private/tmp/impad-historical-acceptance.YTYRsD/46064040169/evidence/runtime-smoke/apps/wecom/manager-enable-requested-dump.txt",
+      "path": "compatibility/wecom/acceptance-evidence/5c5639dc-34ee-44cd-8b6e-83f9e90206e4/raw/raw-0009-manager-enable-requested-dump.txt",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "sourcePath": "/private/tmp/impad-historical-acceptance.YTYRsD/46064040169/evidence/runtime-smoke/apps/wecom/manager-enable-requested.png",
+      "path": "compatibility/wecom/acceptance-evidence/5c5639dc-34ee-44cd-8b6e-83f9e90206e4/raw/raw-0010-manager-enable-requested.png",
+      "sha256": "2ca5820247631e674eb6837b5097e93af5919cf401d51dc2e82eac9392b5a210"
+    },
+    {
+      "sourcePath": "/private/tmp/impad-historical-acceptance.YTYRsD/46064040169/evidence/runtime-smoke/apps/wecom/manager-enable-requested.xml",
+      "path": "compatibility/wecom/acceptance-evidence/5c5639dc-34ee-44cd-8b6e-83f9e90206e4/raw/raw-0011-manager-enable-requested.xml",
+      "sha256": "4c557e09d44242e6adf37cbd553eb65af809bbc6e1931108bb497474694ac2b3"
+    },
+    {
+      "sourcePath": "/private/tmp/impad-historical-acceptance.YTYRsD/46064040169/evidence/runtime-smoke/apps/wecom/manager-module-state.json",
+      "path": "compatibility/wecom/acceptance-evidence/5c5639dc-34ee-44cd-8b6e-83f9e90206e4/raw/raw-0012-manager-module-state.json",
+      "sha256": "501a11c33ad8759cbd2d539b4078deee8e930fff335dec7af5cd14066acf72a5"
+    },
+    {
+      "sourcePath": "/private/tmp/impad-historical-acceptance.YTYRsD/46064040169/evidence/runtime-smoke/apps/wecom/manager-state-disabled.json",
+      "path": "compatibility/wecom/acceptance-evidence/5c5639dc-34ee-44cd-8b6e-83f9e90206e4/raw/raw-0013-manager-state-disabled.json",
+      "sha256": "71a4f40c15a450c84c24bf0133ea184e142367122e4501927303c01e666aee49"
+    },
+    {
+      "sourcePath": "/private/tmp/impad-historical-acceptance.YTYRsD/46064040169/evidence/runtime-smoke/apps/wecom/manager-state-enabled.json",
+      "path": "compatibility/wecom/acceptance-evidence/5c5639dc-34ee-44cd-8b6e-83f9e90206e4/raw/raw-0014-manager-state-enabled.json",
+      "sha256": "82773df5e358052edaa201ce2e3e3b35e30c7580fbd412b6cbf6c5d5e3756534"
+    },
+    {
+      "sourcePath": "/private/tmp/impad-historical-acceptance.YTYRsD/46064040169/evidence/runtime-smoke/apps/wecom/manager-state-final.json",
+      "path": "compatibility/wecom/acceptance-evidence/5c5639dc-34ee-44cd-8b6e-83f9e90206e4/raw/raw-0015-manager-state-final.json",
+      "sha256": "82773df5e358052edaa201ce2e3e3b35e30c7580fbd412b6cbf6c5d5e3756534"
+    },
+    {
+      "sourcePath": "/private/tmp/impad-historical-acceptance.YTYRsD/46064040169/evidence/runtime-smoke/apps/wecom/manager-state-initial.json",
+      "path": "compatibility/wecom/acceptance-evidence/5c5639dc-34ee-44cd-8b6e-83f9e90206e4/raw/raw-0016-manager-state-initial.json",
+      "sha256": "82773df5e358052edaa201ce2e3e3b35e30c7580fbd412b6cbf6c5d5e3756534"
+    },
+    {
+      "sourcePath": "/private/tmp/impad-historical-acceptance.YTYRsD/46064040169/evidence/runtime-smoke/apps/wecom/module-off-login-activity.txt",
+      "path": "compatibility/wecom/acceptance-evidence/5c5639dc-34ee-44cd-8b6e-83f9e90206e4/raw/raw-0017-module-off-login-activity.txt",
+      "sha256": "98ddd5eaa7a4454e6ab07dfa54822b82a0f0f3241401ba9321df8ff394669587"
+    },
+    {
+      "sourcePath": "/private/tmp/impad-historical-acceptance.YTYRsD/46064040169/evidence/runtime-smoke/apps/wecom/module-off-login-current-activity.txt",
+      "path": "compatibility/wecom/acceptance-evidence/5c5639dc-34ee-44cd-8b6e-83f9e90206e4/raw/raw-0018-module-off-login-current-activity.txt",
+      "sha256": "56e3b50d2ef56042672e1a6cdef6ed9ccff8ac00a655fea7973e1fb764c58f53"
+    },
+    {
+      "sourcePath": "/private/tmp/impad-historical-acceptance.YTYRsD/46064040169/evidence/runtime-smoke/apps/wecom/module-off-login-current-dump.txt",
+      "path": "compatibility/wecom/acceptance-evidence/5c5639dc-34ee-44cd-8b6e-83f9e90206e4/raw/raw-0019-module-off-login-current-dump.txt",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "sourcePath": "/private/tmp/impad-historical-acceptance.YTYRsD/46064040169/evidence/runtime-smoke/apps/wecom/module-off-login-current.png",
+      "path": "compatibility/wecom/acceptance-evidence/5c5639dc-34ee-44cd-8b6e-83f9e90206e4/raw/raw-0020-module-off-login-current.png",
+      "sha256": "a2137b4570c786748e8dad48c2a97505f92dbcb024186d6fc1864283c74e30d7"
+    },
+    {
+      "sourcePath": "/private/tmp/impad-historical-acceptance.YTYRsD/46064040169/evidence/runtime-smoke/apps/wecom/module-off-login-current.xml",
+      "path": "compatibility/wecom/acceptance-evidence/5c5639dc-34ee-44cd-8b6e-83f9e90206e4/raw/raw-0021-module-off-login-current.xml",
+      "sha256": "bd01744ef0cdfbccf81192a150773c0b369d103d5dd63ddac8b345f7bdf538e3"
+    },
+    {
+      "sourcePath": "/private/tmp/impad-historical-acceptance.YTYRsD/46064040169/evidence/runtime-smoke/apps/wecom/module-off-login-dump.txt",
+      "path": "compatibility/wecom/acceptance-evidence/5c5639dc-34ee-44cd-8b6e-83f9e90206e4/raw/raw-0022-module-off-login-dump.txt",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "sourcePath": "/private/tmp/impad-historical-acceptance.YTYRsD/46064040169/evidence/runtime-smoke/apps/wecom/module-off-login.png",
+      "path": "compatibility/wecom/acceptance-evidence/5c5639dc-34ee-44cd-8b6e-83f9e90206e4/raw/raw-0023-module-off-login.png",
+      "sha256": "a2137b4570c786748e8dad48c2a97505f92dbcb024186d6fc1864283c74e30d7"
+    },
+    {
+      "sourcePath": "/private/tmp/impad-historical-acceptance.YTYRsD/46064040169/evidence/runtime-smoke/apps/wecom/module-off-login.xml",
+      "path": "compatibility/wecom/acceptance-evidence/5c5639dc-34ee-44cd-8b6e-83f9e90206e4/raw/raw-0024-module-off-login.xml",
+      "sha256": "bd01744ef0cdfbccf81192a150773c0b369d103d5dd63ddac8b345f7bdf538e3"
+    },
+    {
+      "sourcePath": "/private/tmp/impad-historical-acceptance.YTYRsD/46064040169/evidence/runtime-smoke/apps/wecom/module-on-login-activity.txt",
+      "path": "compatibility/wecom/acceptance-evidence/5c5639dc-34ee-44cd-8b6e-83f9e90206e4/raw/raw-0025-module-on-login-activity.txt",
+      "sha256": "3978017188aada2ce6866e99132d0be4388d844a61c94b03219d7c9be51d6ba9"
+    },
+    {
+      "sourcePath": "/private/tmp/impad-historical-acceptance.YTYRsD/46064040169/evidence/runtime-smoke/apps/wecom/module-on-login-current-activity.txt",
+      "path": "compatibility/wecom/acceptance-evidence/5c5639dc-34ee-44cd-8b6e-83f9e90206e4/raw/raw-0026-module-on-login-current-activity.txt",
+      "sha256": "7e6a2ebe88071ac6ba49be8a03b2ffedfa517e68313e59a3619bfee1615cc025"
+    },
+    {
+      "sourcePath": "/private/tmp/impad-historical-acceptance.YTYRsD/46064040169/evidence/runtime-smoke/apps/wecom/module-on-login-current-dump.txt",
+      "path": "compatibility/wecom/acceptance-evidence/5c5639dc-34ee-44cd-8b6e-83f9e90206e4/raw/raw-0027-module-on-login-current-dump.txt",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "sourcePath": "/private/tmp/impad-historical-acceptance.YTYRsD/46064040169/evidence/runtime-smoke/apps/wecom/module-on-login-current.png",
+      "path": "compatibility/wecom/acceptance-evidence/5c5639dc-34ee-44cd-8b6e-83f9e90206e4/raw/raw-0028-module-on-login-current.png",
+      "sha256": "1a54d4da425052ac0b36e01990d172051e0e7c05c0b7bd0298797c32afc372dc"
+    },
+    {
+      "sourcePath": "/private/tmp/impad-historical-acceptance.YTYRsD/46064040169/evidence/runtime-smoke/apps/wecom/module-on-login-current.xml",
+      "path": "compatibility/wecom/acceptance-evidence/5c5639dc-34ee-44cd-8b6e-83f9e90206e4/raw/raw-0029-module-on-login-current.xml",
+      "sha256": "8899a26d79a6d20510cb24daf924170ccbf12d4fd63e15c0d341d49d1b530303"
+    },
+    {
+      "sourcePath": "/private/tmp/impad-historical-acceptance.YTYRsD/46064040169/evidence/runtime-smoke/apps/wecom/module-on-login-dump.txt",
+      "path": "compatibility/wecom/acceptance-evidence/5c5639dc-34ee-44cd-8b6e-83f9e90206e4/raw/raw-0030-module-on-login-dump.txt",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "sourcePath": "/private/tmp/impad-historical-acceptance.YTYRsD/46064040169/evidence/runtime-smoke/apps/wecom/module-on-login.png",
+      "path": "compatibility/wecom/acceptance-evidence/5c5639dc-34ee-44cd-8b6e-83f9e90206e4/raw/raw-0031-module-on-login.png",
+      "sha256": "1a54d4da425052ac0b36e01990d172051e0e7c05c0b7bd0298797c32afc372dc"
+    },
+    {
+      "sourcePath": "/private/tmp/impad-historical-acceptance.YTYRsD/46064040169/evidence/runtime-smoke/apps/wecom/module-on-login.xml",
+      "path": "compatibility/wecom/acceptance-evidence/5c5639dc-34ee-44cd-8b6e-83f9e90206e4/raw/raw-0032-module-on-login.xml",
+      "sha256": "8899a26d79a6d20510cb24daf924170ccbf12d4fd63e15c0d341d49d1b530303"
+    },
+    {
+      "sourcePath": "/private/tmp/impad-historical-acceptance.YTYRsD/46064040169/evidence/runtime-smoke/apps/wecom/processes.txt",
+      "path": "compatibility/wecom/acceptance-evidence/5c5639dc-34ee-44cd-8b6e-83f9e90206e4/raw/raw-0033-processes.txt",
+      "sha256": "1cf6d83b99763b799c45925a7cbb78457577330c1ee6f24b762074aac77f8421"
+    },
+    {
+      "sourcePath": "/private/tmp/impad-historical-acceptance.YTYRsD/46064040169/evidence/runtime-smoke/apps/wecom/tablet-qr-confirmed-activity.txt",
+      "path": "compatibility/wecom/acceptance-evidence/5c5639dc-34ee-44cd-8b6e-83f9e90206e4/raw/raw-0034-tablet-qr-confirmed-activity.txt",
+      "sha256": "b2d570c67659a3634b740b2b93d812ac6e83946f519095e2cf94a0f94f13463c"
+    },
+    {
+      "sourcePath": "/private/tmp/impad-historical-acceptance.YTYRsD/46064040169/evidence/runtime-smoke/apps/wecom/tablet-qr-confirmed-dump.txt",
+      "path": "compatibility/wecom/acceptance-evidence/5c5639dc-34ee-44cd-8b6e-83f9e90206e4/raw/raw-0035-tablet-qr-confirmed-dump.txt",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "sourcePath": "/private/tmp/impad-historical-acceptance.YTYRsD/46064040169/evidence/runtime-smoke/apps/wecom/tablet-qr-confirmed.png",
+      "path": "compatibility/wecom/acceptance-evidence/5c5639dc-34ee-44cd-8b6e-83f9e90206e4/raw/raw-0036-tablet-qr-confirmed.png",
+      "sha256": "350a9383768747ea2b138c05c00627ae5e6cc1df35f6ed62ed38662028b0ecdc"
+    },
+    {
+      "sourcePath": "/private/tmp/impad-historical-acceptance.YTYRsD/46064040169/evidence/runtime-smoke/apps/wecom/tablet-qr-confirmed.xml",
+      "path": "compatibility/wecom/acceptance-evidence/5c5639dc-34ee-44cd-8b6e-83f9e90206e4/raw/raw-0037-tablet-qr-confirmed.xml",
+      "sha256": "3535914c225cd7edb2c78e4f9ab08696b7f99533ccd024815e4aba285c313db2"
+    },
+    {
+      "sourcePath": "/private/tmp/impad-historical-acceptance.YTYRsD/46064040169/evidence/runtime-smoke/apps/wecom/tablet-qr-current-activity.txt",
+      "path": "compatibility/wecom/acceptance-evidence/5c5639dc-34ee-44cd-8b6e-83f9e90206e4/raw/raw-0038-tablet-qr-current-activity.txt",
+      "sha256": "6d49a588c25e1d4252dcd71adc3961895e2c9535e7c784023129da80e3da2f9c"
+    },
+    {
+      "sourcePath": "/private/tmp/impad-historical-acceptance.YTYRsD/46064040169/evidence/runtime-smoke/apps/wecom/tablet-qr-current-dump.txt",
+      "path": "compatibility/wecom/acceptance-evidence/5c5639dc-34ee-44cd-8b6e-83f9e90206e4/raw/raw-0039-tablet-qr-current-dump.txt",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "sourcePath": "/private/tmp/impad-historical-acceptance.YTYRsD/46064040169/evidence/runtime-smoke/apps/wecom/tablet-qr-current.png",
+      "path": "compatibility/wecom/acceptance-evidence/5c5639dc-34ee-44cd-8b6e-83f9e90206e4/raw/raw-0040-tablet-qr-current.png",
+      "sha256": "a04352b8657fec6ee970bf831827ace8119ff21817072060168bb08dc467a51d"
+    },
+    {
+      "sourcePath": "/private/tmp/impad-historical-acceptance.YTYRsD/46064040169/evidence/runtime-smoke/apps/wecom/tablet-qr-current.xml",
+      "path": "compatibility/wecom/acceptance-evidence/5c5639dc-34ee-44cd-8b6e-83f9e90206e4/raw/raw-0041-tablet-qr-current.xml",
+      "sha256": "3535914c225cd7edb2c78e4f9ab08696b7f99533ccd024815e4aba285c313db2"
+    }
+  ]
+}

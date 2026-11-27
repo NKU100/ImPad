@@ -76,7 +76,7 @@ class SemanticRuleCheck(
                     snapshot = capture.toReport(),
                     evaluatedRecognizerIds = run.evaluatedRecognizerIds,
                     recognizers = catalog.queries.map { query -> recognizerReport(query.id, run.results.getValue(query.id)) },
-                    selection = selectionReport(run.outcome),
+                    selection = selectionReport(run.outcome, run.results),
                 )
             } finally {
                 session.close()
@@ -155,6 +155,7 @@ data class SemanticSelectionReport(
     val alternatives: List<SemanticPlanAlternativeReport> = emptyList(),
     val diagnostics: Map<String, List<String>> = emptyMap(),
     val incompleteReasons: Map<String, String> = emptyMap(),
+    val behaviorFeatures: Map<String, String> = emptyMap(),
 )
 @Serializable
 data class SemanticPlanAlternativeReport(val plan: CompletePlan, val executionSha256: String, val evidenceByRecognizer: Map<String, List<String>>)
@@ -206,9 +207,16 @@ private fun recognizerReport(id: String, result: RecognitionResult): SemanticRec
     }
 }
 
-private fun selectionReport(selection: CompletePlanSelection): SemanticSelectionReport = when (selection) {
-    is CompletePlanSelection.Selected -> SemanticSelectionReport("SELECTED", selection.match.plan,
-        selection.match.plan.executionSha256(), selection.match.evidenceByRecognizer)
+private fun selectionReport(selection: CompletePlanSelection, results: Map<String, RecognitionResult>): SemanticSelectionReport = when (selection) {
+    is CompletePlanSelection.Selected -> {
+        val features = results.values.flatMap { result -> when (result) {
+            is RecognitionResult.Plans -> result.plans
+            is RecognitionResult.Incomplete -> result.discoveredPlans
+            else -> emptyList()
+        } }.filter { it.plan == selection.match.plan }.map { it.behaviorFeatures }.distinct().singleOrNull().orEmpty()
+        SemanticSelectionReport("SELECTED", selection.match.plan, selection.match.plan.executionSha256(),
+            selection.match.evidenceByRecognizer, behaviorFeatures = features)
+    }
     CompletePlanSelection.NoMatch -> SemanticSelectionReport("NO_MATCH")
     is CompletePlanSelection.Conflict -> SemanticSelectionReport("CONFLICT", alternatives = selection.plans.map(::alternative))
     is CompletePlanSelection.Incomplete -> SemanticSelectionReport("INCOMPLETE",

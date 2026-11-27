@@ -1,4 +1,3 @@
-from scripts.testdata.acceptance_baseline import copy_migration_baseline
 import os
 import json
 import ast
@@ -16,9 +15,8 @@ import unittest
 import zipfile
 from unittest.mock import patch
 
-from scripts.ci.runtime_task import _verify_regression_snapshot, register_cli, verify_cli
+from scripts.ci.runtime_task import register_cli, verify_cli
 from scripts.ci.app_policy import get_policy
-from scripts.ci.acceptance import AcceptanceSnapshot, read_acceptance_snapshot
 from scripts.ci.candidate_selection import (
     dependency_lock_sha256, module_source_hashes, prepare_module,
     route_configuration_sha256, source_tree_sha256, write_local_runtime_assets,
@@ -431,12 +429,12 @@ class RuntimeValidationWorkflowTest(unittest.TestCase):
 
 
 
-    def test_workflow_keeps_pinned_history_separate_from_schema2_candidate_verification(self):
+    def test_workflow_uses_v2_acceptance_for_grouped_candidate_verification(self):
         workflows = parsed_workflows()
         runtime = workflows['runtime-validation.yml']
         prepare_steps = runtime['jobs']['prepare']['steps']
         regression_step = next(step for step in prepare_steps
-                               if step.get('name') == 'Run fixed-record static regression')
+                               if step.get('name') == 'Run grouped static regression')
         self.assertNotIn('--initial-migration', regression_step['run'])
         self.assertNotIn('migration_args', regression_step['run'])
         result_step = next(step for step in runtime['jobs']['result']['steps']
@@ -445,7 +443,7 @@ class RuntimeValidationWorkflowTest(unittest.TestCase):
         self.assertIn('requires a prepared schema2 candidate', result_step['run'])
         self.assertIn('requires a schema2 APK file snapshot report', result_step['run'])
         self.assertIn('selected schema2 complete plan', result_step['run'])
-        self.assertIn("compatibility/{os.environ['APP_ID']}/acceptance.json", result_step['run'])
+        self.assertIn("compatibility/{os.environ['APP_ID']}/acceptance-v2.json", result_step['run'])
         registration_step = next(step for step in workflows['compatibility-app.yml']['jobs']['runtime-result']['steps']
                                  if step.get('name') == 'Record verified acceptance or rejection')
         self.assertNotIn('--initial-migration', registration_step['run'])
@@ -456,23 +454,12 @@ class RuntimeValidationWorkflowTest(unittest.TestCase):
         self.assertIn('assert_evidence_archive_unchanged', registration_step['run'])
         self.assertIn('evidencePaths differ from the ordered v2 archive mapping',
                       registration_step['run'])
-        self.assertIn('history_sha256_before', registration_step['run'])
+        self.assertIn('git -C tested diff --quiet HEAD -- compatibility/', registration_step['run'])
         self.assertIn('git -C tested add -- "${stage_paths[@]}"', registration_step['run'])
         self.assertIn('git -C tested diff --cached --name-only -z', registration_step['run'])
         self.assertIn('--verify-index', registration_step['run'])
         self.assertNotIn('git -C tested add "compatibility/${APP_ID}/acceptance.json"',
                          registration_step['run'])
-
-        with tempfile.TemporaryDirectory() as temporary:
-            root = Path(temporary)
-            copy_migration_baseline(Path.cwd() / 'compatibility', root / 'compatibility')
-            from scripts.ci.semantic_migration import load_migration_bundle
-            bundle = load_migration_bundle(root)
-            self.assertEqual(4, len(bundle.profiles))
-            for app_id in ('wechat', 'qq', 'wecom'):
-                historical = root / f'compatibility/{app_id}/acceptance.json'
-                self.assertEqual((Path.cwd() / f'compatibility/{app_id}/acceptance.json').read_bytes(),
-                                 historical.read_bytes())
 
     def test_registration_shell_stages_the_registered_table_and_exact_archived_evidence(self):
         """Catch registration staging only acceptance-v2 while leaving sibling evidence uncommitted."""
@@ -483,7 +470,11 @@ class RuntimeValidationWorkflowTest(unittest.TestCase):
             workspace = Path(temporary)
             tested = workspace / 'tested'
             tested.mkdir()
-            copy_migration_baseline(Path.cwd() / 'compatibility', tested / 'compatibility')
+            preserved = tested / 'compatibility/wechat/protected-fixture.json'
+            preserved.parent.mkdir(parents=True)
+            preserved.write_bytes(b'{"protected":true}\n')
+            (tested / 'compatibility/wechat/acceptance-v2.json').write_text(
+                json.dumps({'schemaVersion': 2, 'appId': 'wechat', 'records': []}))
             init = subprocess.run(['/usr/bin/git', 'init', '-b', 'main', str(tested)],
                                   capture_output=True, text=True)
             self.assertEqual(0, init.returncode, init.stderr)
@@ -502,13 +493,14 @@ class RuntimeValidationWorkflowTest(unittest.TestCase):
             self.addCleanup(semantic_fixture.doCleanups)
             record_id = '6dc4c347-4f7d-4bb8-9c05-6e8ef712bf11'
             archive = Path('compatibility/wechat/acceptance-evidence') / record_id
+            record = semantic_fixture.record.copy()
+            saved_regression = semantic_fixture.root / record['rawStageEvidence']['regression']['path']
             refs = [
-                ('static', archive / 'reports/static.json', b'{"kind":"static"}\n'),
-                ('regression', archive / 'reports/regression.json', b'{"kind":"regression"}\n'),
+                ('static', archive / 'reports/static.json', json.dumps(record['staticReport']).encode()),
+                ('regression', archive / 'reports/regression.json', saved_regression.read_bytes()),
                 ('runtime', archive / 'reports/runtime.json', b'{"kind":"runtime"}\n'),
                 ('file', archive / 'runtime/logcat.txt', b'captured runtime evidence\n'),
             ]
-            record = semantic_fixture.record.copy()
             record['recordId'] = record_id
             record['rawStageEvidence'] = {
                 'static': {'path': refs[0][1].as_posix(),
@@ -539,7 +531,7 @@ class RuntimeValidationWorkflowTest(unittest.TestCase):
             record['evidenceArchive']['manifestSha256'] = hashlib.sha256(manifest_bytes).hexdigest()
             (tested / manifest_path).write_bytes(manifest_bytes)
             table = {'schemaVersion': 2, 'appId': 'wechat', 'records': [record]}
-            validate_semantic_acceptance_table(table, 'wechat', repository=semantic_fixture.root)
+            validate_semantic_acceptance_table(table, 'wechat', repository=tested)
             table_fixture = workspace / 'acceptance-v2.json'
             table_fixture.write_text(json.dumps(table, indent=2) + '\n')
             table_path = Path('compatibility/wechat/acceptance-v2.json')
@@ -574,7 +566,7 @@ class RuntimeValidationWorkflowTest(unittest.TestCase):
                         import subprocess
                         subprocess.run(['/usr/bin/git', '-C', 'tested', 'add', str(extra.name)], check=True)
                     if os.environ.get('MUTATE_HISTORICAL'):
-                        pathlib.Path('tested/compatibility/wechat/acceptance.json').write_bytes(b'tampered\\n')
+                        pathlib.Path('tested/compatibility/wechat/protected-fixture.json').write_bytes(b'tampered\\n')
                     raise SystemExit(0)
                 os.execv({sys.executable!r}, [{sys.executable!r}, *args])
             '''))
@@ -628,16 +620,14 @@ class RuntimeValidationWorkflowTest(unittest.TestCase):
                                      '--name-only'], check=True, capture_output=True,
                                     text=True).stdout.splitlines()
             self.assertEqual(sorted([table_path.as_posix(), *evidence_paths]), sorted(staged))
-            self.assertEqual((Path.cwd() / 'compatibility/wechat/acceptance.json').read_bytes(),
-                             (tested / 'compatibility/wechat/acceptance.json').read_bytes())
+            self.assertEqual(b'{"protected":true}\n', preserved.read_bytes())
             commands = [json.loads(line) for line in commands_log.read_text().splitlines()]
             self.assertEqual(['commit', 'push'], [args[2] for args in commands])
             current_head = subprocess.run(['/usr/bin/git', '-C', str(tested), 'rev-parse', 'HEAD'],
                                           check=True, capture_output=True, text=True).stdout.strip()
             self.assertEqual(tested_head, current_head)
 
-            v1 = tested / 'compatibility/wechat/acceptance.json'
-            v1_bytes = v1.read_bytes()
+            preserved_bytes = preserved.read_bytes()
             recorded_commands = len(commands)
             archive_files = [(tested / relative, payload) for _, relative, payload in refs]
             manifest_file = tested / manifest_path
@@ -646,7 +636,9 @@ class RuntimeValidationWorkflowTest(unittest.TestCase):
                 subprocess.run(['/usr/bin/git', '-C', str(tested), 'reset', '--quiet', 'HEAD'],
                                check=True, capture_output=True, text=True)
                 (tested / 'unexpected-staged.json').unlink(missing_ok=True)
-                v1.write_bytes(v1_bytes)
+                subprocess.run(['/usr/bin/git', '-C', str(tested), 'restore', '--source=HEAD',
+                                'compatibility/wechat/acceptance-v2.json'], check=True, capture_output=True)
+                preserved.write_bytes(preserved_bytes)
                 for target, payload in archive_files:
                     if target.is_symlink():
                         target.unlink()
@@ -752,15 +744,15 @@ class RuntimeValidationWorkflowTest(unittest.TestCase):
                                                   'FIXTURE_PR_STATE': 'OPEN',
                                                   'FIXTURE_PR_HEAD': 'f' * 40})
             assert_registration_rejected(
-                'frozen v1 bytes changed during registration',
+                'other compatibility evidence changed during registration',
                 extra_env={'MUTATE_HISTORICAL': '1'})
 
             for staged_change in (False, True):
                 clean_index_and_restore_fixture()
-                v1.write_bytes(b'changed frozen v1 bytes\n')
+                preserved.write_bytes(b'changed unrelated evidence\n')
                 if staged_change:
                     subprocess.run(['/usr/bin/git', '-C', str(tested), 'add',
-                                    'compatibility/wechat/acceptance.json'], check=True,
+                                    'compatibility/wechat/protected-fixture.json'], check=True,
                                    capture_output=True, text=True)
                 result = subprocess.run(['bash', '-e', '-c', step['run']], cwd=workspace,
                                         env=env, capture_output=True, text=True)
@@ -889,9 +881,6 @@ class RuntimeValidationWorkflowTest(unittest.TestCase):
             root = Path(temporary)
             acceptance_path = root / 'compatibility/wecom/acceptance.json'
             output_path = root / 'registered.json'
-            snapshot = AcceptanceSnapshot(acceptance_path, None, None, b'[]', True)
-            report = {'outcome': 'VERIFIED', 'candidate': {'appId': 'wecom'}, 'module': {},
-                      'static': {'ruleCatalog': {}}, '_acceptanceSnapshotObject': snapshot}
             arguments = [
                 '--app-id', 'wecom', '--candidate', str(root / 'candidate.json'),
                 '--module-apk', str(root / 'module.apk'), '--regression', str(root / 'regression.json'),
@@ -901,9 +890,7 @@ class RuntimeValidationWorkflowTest(unittest.TestCase):
                 '--initial-migration', '--output', str(output_path),
             ]
             with patch.dict(os.environ, {'GITHUB_ACTOR': 'owner', 'GITHUB_REPOSITORY_OWNER': 'owner'}), \
-                 patch('scripts.ci.runtime_task.verify_validation_files', return_value=report) as verifier, \
-                 patch('scripts.ci.acceptance.make_record', return_value={'recordId': 'new-record'}), \
-                 patch('scripts.ci.acceptance.validate_acceptance_snapshot', return_value=[]), \
+                 patch('scripts.ci.runtime_task.verify_validation_files') as verifier, \
                  patch('scripts.ci.runtime_task.subprocess.check_output', return_value='a' * 40), \
                  redirect_stderr(StringIO()), self.assertRaises(SystemExit):
                 register_cli(arguments)
@@ -912,13 +899,13 @@ class RuntimeValidationWorkflowTest(unittest.TestCase):
             self.assertFalse(output_path.exists())
 
     def test_production_verifier_cli_writes_a_versioned_unavailable_result(self):
-        report = {'schemaVersion': 1, 'candidate': {'appId': 'qq'},
+        report = {'schemaVersion': 2, 'candidate': {'appId': 'qq'},
                   'outcome': 'UNAVAILABLE', 'failedStage': 'runtime', 'diagnostics': ['missing runtime']}
         with tempfile.TemporaryDirectory() as temporary:
             output = Path(temporary) / 'result.json'
             args = ['--app-id', 'qq', '--candidate', 'candidate.json', '--module-apk', 'module.apk',
                     '--regression', 'regression.json', '--smoke', 'smoke.json',
-                    '--evidence-root', temporary, '--acceptance', 'acceptance.json',
+                    '--evidence-root', temporary, '--acceptance', 'compatibility/qq/acceptance-v2.json',
                     '--repository', '.', '--conclusion', 'failure', '--output', str(output)]
             stdout = StringIO()
             with patch('scripts.ci.runtime_task.verify_validation_files', return_value=report) as verifier, \
@@ -926,38 +913,35 @@ class RuntimeValidationWorkflowTest(unittest.TestCase):
                 verify_cli(args)
             payload = json.loads(output.read_text())
             self.assertEqual('UNAVAILABLE', payload['outcome'])
-            self.assertEqual(1, payload['schemaVersion'])
+            self.assertEqual(2, payload['schemaVersion'])
             self.assertNotIn('recordDraft', payload)
             self.assertNotIn('recordDraft', stdout.getvalue())
-            self.assertEqual(Path('acceptance.json'), verifier.call_args.args[-2])
-            self.assertFalse(verifier.call_args.args[-1])
+            self.assertEqual(Path('compatibility/qq/acceptance-v2.json'), verifier.call_args.args[-1])
 
     def test_production_verifier_cli_is_pure_even_when_file_validation_is_verified(self):
-        report = {'schemaVersion': 1, 'candidate': {'appId': 'qq'}, 'module': {},
+        report = {'schemaVersion': 2, 'candidate': {'appId': 'qq'}, 'module': {},
                   'outcome': 'VERIFIED', 'failedStage': None, 'stageEvidence': {},
-                  'acceptanceSnapshot': {'path': 'acceptance.json', 'sha256': None,
-                                         'recordIds': ['existing-record'], 'initialMigration': False}}
+                  'regressionBaseline': {'groupingVersion': 1, 'appId': 'qq'}}
         with tempfile.TemporaryDirectory() as temporary:
             output = Path(temporary) / 'result.json'
             args = ['--app-id', 'qq', '--candidate', 'candidate.json', '--module-apk', 'module.apk',
                     '--regression', 'regression.json', '--smoke', 'smoke.json',
-                    '--evidence-root', temporary, '--acceptance', 'acceptance.json',
+                    '--evidence-root', temporary, '--acceptance', 'compatibility/qq/acceptance-v2.json',
                     '--repository', '.', '--conclusion', 'success',
                     '--output', str(output)]
             stdout = StringIO()
             with patch('scripts.ci.runtime_task.verify_validation_files', return_value=report) as verifier, \
-                 patch('scripts.ci.acceptance.make_record', side_effect=AssertionError('verify must not register')) as make_record, \
+                 patch('scripts.ci.acceptance.build_semantic_acceptance_record', side_effect=AssertionError('verify must not register')) as make_record, \
                  redirect_stdout(stdout):
                 verify_cli(args)
             payload = json.loads(output.read_text())
             self.assertNotIn('recordDraft', payload)
-            self.assertEqual(report['acceptanceSnapshot'], payload['acceptanceSnapshot'])
-            self.assertEqual(1, payload['schemaVersion'])
-            self.assertEqual({'schemaVersion': 1, 'outcome': 'VERIFIED',
+            self.assertEqual(report['regressionBaseline'], payload['regressionBaseline'])
+            self.assertEqual(2, payload['schemaVersion'])
+            self.assertEqual({'schemaVersion': 2, 'outcome': 'VERIFIED',
                               'failedStage': None},
                              json.loads(stdout.getvalue()))
-            self.assertEqual(Path('acceptance.json'), verifier.call_args.args[-2])
-            self.assertFalse(verifier.call_args.args[-1])
+            self.assertEqual(Path('compatibility/qq/acceptance-v2.json'), verifier.call_args.args[-1])
             make_record.assert_not_called()
 
     def test_registration_refuses_untrusted_actor_or_source_head_before_revalidation(self):
@@ -1232,156 +1216,6 @@ class AdaptationArtifactHandoffTest(unittest.TestCase):
             self.assertEqual(candidate['expectedPlan'], static['selection']['plan'])
             self.assertEqual(candidate['staticReportSha256'],
                              hashlib.sha256((consumer_root / candidate['staticReport']).read_bytes()).hexdigest())
-
-
-class RegressionSnapshotBindingTest(unittest.TestCase):
-    def setUp(self):
-        self.record = {
-            'appId': 'qq', 'recordId': 'record-1',
-            'identity': {'apkSha256': 'a' * 64, 'versionCode': 14378},
-            'expectedPlan': {'selection': 'UNIQUE', 'ruleId': 'qq_rule',
-                            'strategyId': 'qq_strategy', 'targets': {'target': {'descriptor': 'x', 'shape': {}}}},
-        }
-
-    def _row(self, status, snapshot_hash):
-        return {'appId': 'qq', 'recordId': self.record['recordId'],
-                'identity': self.record['identity'], 'expectedPlan': self.record['expectedPlan'],
-                'status': status, 'acceptanceSnapshotSha256': snapshot_hash,
-                'initialMigration': False}
-
-    def _snapshot(self, records, initial_migration=False):
-        raw = b'{"snapshot":1}\n'
-        return AcceptanceSnapshot(Path('/tmp/acceptance.json'), raw,
-                                  hashlib.sha256(raw).hexdigest(),
-                                  json.dumps(records, separators=(',', ':')).encode(),
-                                  initial_migration)
-
-    def test_passthrough_requires_exact_fixed_representative_rows_and_snapshot_hash(self):
-        with tempfile.TemporaryDirectory() as temporary:
-            snapshot = self._snapshot([self.record])
-            digest = snapshot.sha256
-            with patch('scripts.ci.acceptance.validate_acceptance_snapshot', return_value=[self.record]), \
-                 patch('scripts.ci.acceptance.select_representatives', return_value=[self.record]):
-                status, binding = _verify_regression_snapshot(
-                    [self._row('PASSED', digest)], snapshot, 'qq', False, {}, Path.cwd())
-            self.assertEqual('PASSED', status)
-            self.assertEqual(digest, binding['sha256'])
-            self.assertEqual(['record-1'], binding['recordIds'])
-
-    def test_historical_snapshot_rejects_no_history_missing_extra_duplicate_and_stale_rows(self):
-        with tempfile.TemporaryDirectory() as temporary:
-            snapshot = self._snapshot([self.record])
-            digest = snapshot.sha256
-            cases = [
-                [dict(self._row('NO_HISTORICAL_SAMPLES', digest), recordId=None)],
-                [],
-                [self._row('PASSED', digest), dict(self._row('PASSED', digest), recordId='extra')],
-                [self._row('PASSED', digest), self._row('PASSED', digest)],
-                [self._row('PASSED', '0' * 64)],
-            ]
-            for rows in cases:
-                with self.subTest(rows=rows), \
-                     patch('scripts.ci.acceptance.validate_acceptance_snapshot', return_value=[self.record]), \
-                     patch('scripts.ci.acceptance.select_representatives', return_value=[self.record]):
-                    with self.assertRaises(ValueError):
-                        _verify_regression_snapshot(rows, snapshot, 'qq', False, {}, Path.cwd())
-
-    def test_empty_history_requires_explicit_initial_migration_and_one_no_history_row(self):
-        with tempfile.TemporaryDirectory() as temporary:
-            snapshot = AcceptanceSnapshot(Path(temporary) / 'missing-acceptance.json', None, None,
-                                          b'[]', True)
-            non_migration_snapshot = AcceptanceSnapshot(snapshot.path, None, None, b'[]', False)
-            row = {'appId': 'qq', 'status': 'NO_HISTORICAL_SAMPLES',
-                   'acceptanceSnapshotSha256': None, 'initialMigration': True,
-                   'note': 'Initial migration has no historical regression samples'}
-            with patch('scripts.ci.acceptance.validate_acceptance_snapshot', return_value=[]), \
-                 patch('scripts.ci.acceptance.select_representatives', return_value=[]):
-                status, binding = _verify_regression_snapshot([row], snapshot, 'qq', True, {}, Path.cwd())
-            self.assertEqual('NO_HISTORICAL_SAMPLES', status)
-            self.assertIsNone(binding['sha256'])
-            self.assertTrue(binding['initialMigration'])
-            with patch('scripts.ci.acceptance.validate_acceptance_snapshot', return_value=[]), \
-                 patch('scripts.ci.acceptance.select_representatives', return_value=[]):
-                with self.assertRaisesRegex(ValueError, 'explicit initial migration'):
-                    _verify_regression_snapshot([row], non_migration_snapshot, 'qq', False, {}, Path.cwd())
-            with patch('scripts.ci.acceptance.validate_acceptance_snapshot', return_value=[]), \
-                 patch('scripts.ci.acceptance.select_representatives', return_value=[]):
-                with self.assertRaises(ValueError):
-                    _verify_regression_snapshot([row, row], snapshot, 'qq', True, {}, Path.cwd())
-
-
-class AcceptanceSnapshotAbaTest(unittest.TestCase):
-    def _record(self, apk_sha, descriptor):
-        identity = {'packageName': 'com.tencent.mobileqq', 'versionName': '9.3.1',
-                    'versionCode': 14378, 'abi': 'arm64-v8a', 'apkSha256': apk_sha,
-                    'signerSha256': get_policy('qq').signer_sha256}
-        plan = {'selection': 'UNIQUE', 'ruleId': 'qq_device_type_001',
-                'strategyId': 'qq_tablet_001', 'targets': {'device_type': {
-                    'descriptor': descriptor, 'shape': {'parameters': [],
-                    'returnType': 'void', 'isStatic': True}}}}
-        route = {'appId': 'qq', 'candidates': ['qq_device_type_001']}
-        route_sha = hashlib.sha256(json.dumps(route, sort_keys=True, separators=(',', ':')).encode()).hexdigest()
-        return {
-            'recordId': 'stable-record-id', 'schemaVersion': 1, 'appId': 'qq', 'status': 'VERIFIED',
-            'identity': identity,
-            'source': {'type': 'official', 'url': 'https://downv6.qq.com/qqweb/QQ_1/android_apk/9.3.1.apk',
-                       'apkFiles': [{'path': f'apk-inputs/{apk_sha}.apk', 'role': 'base', 'sha256': apk_sha}]},
-            'expectedPlan': plan, 'ruleOrder': 1, 'firstForRule': True,
-            'firstRecordId': 'stable-record-id', 'ruleCatalogSha256': 'd' * 64,
-            'route': route,
-            'module': {'sha256': 'b' * 64, 'sourceTreeSha256': 'c' * 64,
-                       'ruleCatalogSha256': 'd' * 64, 'routeSha256': route_sha,
-                       'routeConfigurationSha256': '7' * 64, 'dependencyLockSha256': 'f' * 64,
-                       'fingerprintFileSha256': '8' * 64,
-                       'fingerprint': {'schemaVersion': 1, 'sourceTreeSha256': 'c' * 64,
-                                       'routeConfigurationSha256': '7' * 64,
-                                       'dependencyLockSha256': 'f' * 64},
-                       'route': route},
-            'stageEvidence': {name: {'path': f'{name}.json', 'sha256': str(index) * 64}
-                              for index, name in enumerate(('static', 'regression', 'runtime'), start=1)},
-        }
-
-    def test_aba_snapshot_with_same_record_id_cannot_supply_different_valid_plan(self):
-        record_a = self._record('a' * 64, 'Lx/Y;->a()V')
-        record_b = self._record('e' * 64, 'Lx/Z;->b()V')
-        catalog = {'schemaVersion': 1, 'appId': 'qq', 'ruleCatalogSha256': 'd' * 64,
-                   'definitions': [{'ruleId': 'qq_device_type_001', 'strategyId': 'qq_tablet_001',
-                                    'requiredTargetIds': ['device_type']}],
-                   'bindings': [{'ruleId': 'qq_device_type_001', 'min': 14378, 'max': None}],
-                   'strategyIds': ['qq_tablet_001']}
-        raw_a = (json.dumps({'schemaVersion': 1, 'appId': 'qq', 'records': [record_a]},
-                            separators=(',', ':')) + '\n').encode()
-        raw_b = (json.dumps({'schemaVersion': 1, 'appId': 'qq', 'records': [record_b]},
-                            separators=(',', ':')) + '\n').encode()
-        snapshot_digest = hashlib.sha256(raw_a).hexdigest()
-        regression_row = {'appId': 'qq', 'recordId': record_b['recordId'],
-                          'identity': record_b['identity'], 'expectedPlan': record_b['expectedPlan'],
-                          'status': 'PASSED', 'acceptanceSnapshotSha256': snapshot_digest,
-                          'initialMigration': False}
-
-        with tempfile.TemporaryDirectory() as temporary:
-            snapshot = Path(temporary) / 'acceptance.json'
-            snapshot.write_bytes(raw_a)
-            original_read_bytes = Path.read_bytes
-            calls = 0
-
-            def aba_read_bytes(path, *args, **kwargs):
-                nonlocal calls
-                if Path(path).resolve() == snapshot.resolve():
-                    calls += 1
-                    captured = original_read_bytes(path, *args, **kwargs)
-                    snapshot.write_bytes(raw_b)
-                    snapshot.write_bytes(raw_a)
-                    return captured
-                return original_read_bytes(path, *args, **kwargs)
-
-            with patch.object(Path, 'read_bytes', aba_read_bytes):
-                verified_snapshot = read_acceptance_snapshot(snapshot, 'qq', False, catalog, Path.cwd())
-                with self.assertRaisesRegex(ValueError, 'representative|fixed acceptance'):
-                    _verify_regression_snapshot([regression_row], verified_snapshot, 'qq', False,
-                                                catalog, Path.cwd())
-            self.assertEqual(1, calls)
-            self.assertEqual(raw_a, snapshot.read_bytes())
 
 
 if __name__ == '__main__':

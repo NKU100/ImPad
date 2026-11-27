@@ -30,6 +30,22 @@ class WeChatSemanticRulesTest {
         assertEquals("Lfixture/TabletDecision;", plan.hooks.first().configuration["monitorField"])
     }
     @Test
+    fun recognizedPlansCarryMachineReadableProvenWrapperBranch() {
+        val cases = listOf(
+            WeChatForwardRuleDexFixture.Options(reloadCachedResult = true, cachedWrapper = true) to "aggregate",
+        )
+        for ((options, expectedMode) in cases) withAggregate(options) { snapshot, session ->
+            val catalog = WeChatSemanticRules.catalog
+            val identity = BuildIdentity("com.tencent.mm", "test", 3200, "arm64-v8a", "a".repeat(64), catalog.policy.signerSha256)
+            val run = SemanticRuleResolver.resolveDetailed(identity, catalog, RecognitionContext(session, snapshot, catalog))
+            val plan = assertIs<CompletePlanSelection.Selected>(run.outcome).match.plan
+            val recognized = (run.results.getValue(WeChatSemanticRules.id) as io.github.nku100.impad.compat.rules.RecognitionResult.Plans)
+                .plans.single { it.plan == plan }
+            assertEquals(mapOf("wrapperMode" to expectedMode), recognized.behaviorFeatures, "expected $expectedMode for $options")
+        }
+    }
+
+    @Test
     fun innerAfterPlanContainsDecisionAndBothFieldBindings() = withAggregate(
         WeChatForwardRuleDexFixture.Options(reloadCachedResult = true, cachedWrapper = true),
     ) { snapshot, session ->
@@ -120,7 +136,13 @@ class WeChatSemanticRulesTest {
     fun inlineLegacyShapeAlsoTargetsTheProvedWrapper() {
         val apk = WeChatRuleDexFixture.apk(proveCallFlow = true)
         try { withInputs(listOf(CodeLoaderInput("ready", null, CodeDelegation.PARENT_FIRST, listOf(apk))), "ready") { snapshot, session ->
-            val selected = assertIs<CompletePlanSelection.Selected>(run(snapshot, session))
+            val catalog = WeChatSemanticRules.legacyCatalog
+            val identity = BuildIdentity("com.tencent.mm", "test", 3200, "arm64-v8a", "a".repeat(64), catalog.policy.signerSha256)
+            val context = RecognitionContext(session, snapshot, catalog)
+            val recognized = assertIs<io.github.nku100.impad.compat.rules.RecognitionResult.Plans>(WeChatSemanticRules.recognize(context))
+                .plans.single()
+            assertEquals(mapOf("wrapperMode" to "inline"), recognized.behaviorFeatures)
+            val selected = assertIs<CompletePlanSelection.Selected>(SemanticRuleResolver.resolveDetailed(identity, catalog, context).outcome)
             assertTrue(selected.match.plan.hooks.first().descriptor.contains("->tabletEnabled()Z"))
         } } finally { apk.delete() }
     }

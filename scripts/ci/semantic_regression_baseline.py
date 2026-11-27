@@ -1,12 +1,10 @@
-"""Combine immutable semantic migration expectations with verified v2 records."""
+"""Load verified acceptance records and check each selected APK against its saved report."""
 from dataclasses import dataclass, field
 import copy
 import hashlib
 import json
 from pathlib import Path
 
-from scripts.ci.semantic_migration import (SemanticMigrationBundle, compare_fixed_report,
-                                            load_migration_bundle)
 from scripts.ci.semantic_protocol import validate_check_report
 
 
@@ -19,208 +17,94 @@ def _case_content_sha256(cases):
     return _json_sha256(list(cases))
 
 
-def _case_ids(cases):
-    return [{'kind': case['kind'], 'recordId': case['recordId'],
-             'profileId': case['profileId'], 'appId': case['appId']}
-            for case in cases]
+def _assert_input_expectations_compatible(cases):
+    by_input = {}
+    by_input_features = {}
+    for case in cases:
+        input_identity = tuple((row['role'], row['sha256'].lower()) for row in case['apkFiles'])
+        report = case['savedStaticReport']
+        expected = (case['identity'], case['expectedPlan'],
+                    case['expectedExecutionSha256'], report['snapshot'])
+        previous = by_input.setdefault(input_identity, expected)
+        if previous != expected:
+            raise ValueError('Semantic regression cases with the same input have conflicting expectations')
+        features = report['selection'].get('behaviorFeatures')
+        if features and by_input_features.setdefault(input_identity, features) != features:
+            raise ValueError('Semantic regression cases with the same input have conflicting behavior evidence')
 
 
-def _baseline_sha256(bundle, app_id, v2_sha256, cases):
-    v2_source = {'state': 'MISSING'} if v2_sha256 is None else {
-        'state': 'PRESENT', 'sha256': v2_sha256,
+def _accepted_v2_case(record):
+    return {
+        'kind': 'ACCEPTED_V2',
+        'recordId': record['recordId'],
+        'appId': record['appId'],
+        'identity': copy.deepcopy(record['identity']),
+        'apkFiles': copy.deepcopy(record['apkFiles']),
+        'source': copy.deepcopy(record['source']),
+        'expectedPlan': copy.deepcopy(record['completePlan']),
+        'expectedExecutionSha256': record['executionSha256'],
+        'savedStaticReport': copy.deepcopy(record['staticReport']),
+        'acceptedAt': record['acceptedAt'],
     }
-    return _json_sha256({
-        'schemaVersion': 1,
-        'appId': app_id,
-        'migrationHistorySha256': bundle.history_sha256,
-        'migrationExpectationsSha256': bundle.expectations_sha256,
-        'v2Source': v2_source,
-        'caseIds': _case_ids(cases),
-        **({'innerAfterAuditSha256': next(case['innerAfterAuditSha256'] for case in cases if 'innerAfterAuditSha256' in case)} if any('innerAfterAuditSha256' in case for case in cases) else {}),
-    })
 
 
 @dataclass(frozen=True)
-class SemanticRegressionBaseline:
-    migration_bundle: SemanticMigrationBundle
+class VerifiedRegressionPool:
     app_id: str
     cases: tuple[dict, ...]
-    v2_path: Path
-    v2_raw_bytes: bytes | None
-    v2_sha256: str | None
-    sha256: str
-    _repository: Path = field(repr=False, compare=False)
-    _cases_sha256: str = field(repr=False, compare=False)
+    v2_raw_bytes: bytes
+    v2_sha256: str
+    _repository: Path = field(repr=False)
+    _cases_sha256: str = field(repr=False)
 
     def assert_unchanged(self):
         if _case_content_sha256(self.cases) != self._cases_sha256:
-            raise ValueError('Semantic regression baseline cases were mutated')
+            raise ValueError('Verified regression pool cases were mutated')
         try:
-            current = load_semantic_regression_baseline(self._repository, self.app_id)
+            current = load_verified_regression_pool(self._repository, self.app_id)
         except (OSError, ValueError) as error:
-            raise ValueError('Semantic regression baseline changed or became invalid') from error
-        if (current.sha256 != self.sha256 or current.v2_path != self.v2_path
-                or current.v2_raw_bytes != self.v2_raw_bytes or current.v2_sha256 != self.v2_sha256
-                or current.cases != self.cases
-                or current.migration_bundle.history_sha256 != self.migration_bundle.history_sha256
-                or current.migration_bundle.expectations_sha256 != self.migration_bundle.expectations_sha256):
-            raise ValueError('Semantic regression baseline changed during validation')
+            raise ValueError('Verified regression pool changed or became invalid') from error
+        if current.v2_raw_bytes != self.v2_raw_bytes or current.cases != self.cases:
+            raise ValueError('Verified regression pool changed during validation')
 
 
-def _input_identity(case):
-    return case['appId'], tuple(row['sha256'].lower() for row in case['apkFiles'])
-
-
-def _case_snapshot(case, bundle):
-    if case['kind'] == 'ACCEPTED_V2':
-        return case['savedStaticReport']['snapshot']
-    if 'expectedSnapshot' in case:
-        return case['expectedSnapshot']
-    profile = next((row for row in bundle.profiles
-                    if row['historicalRecordId'] == case['recordId']), None)
-    if profile is None:
-        raise ValueError('Migration regression case has no frozen snapshot')
-    return profile['snapshot']
-
-
-def _assert_input_expectations_compatible(cases, bundle):
-    by_input = {}
-    for case in cases:
-        expected = (case['identity'], case['expectedPlan'],
-                    case['expectedExecutionSha256'], _case_snapshot(case, bundle))
-        input_id = _input_identity(case)
-        previous = by_input.setdefault(input_id, expected)
-        if previous != expected:
-            raise ValueError('Semantic regression cases with the same input have conflicting expectations')
-
-
-def load_semantic_regression_baseline(repository, app_id, migration_bundle=None):
-    """Load fixed migration cases followed by every strictly validated accepted-v2 case."""
+def load_verified_regression_pool(repository, app_id):
+    """Load the v2 corpus and its exact archives without legacy migration inputs."""
     from scripts.ci.app_policy import get_policy
-    from scripts.ci.acceptance import read_semantic_acceptance_table, validate_semantic_acceptance_table
+    from scripts.ci.acceptance import assert_evidence_archive_unchanged, read_semantic_acceptance_table
 
     get_policy(app_id)
     repository = Path(repository).resolve()
-    current_bundle = load_migration_bundle(repository)
-    if migration_bundle is not None:
-        if (not isinstance(migration_bundle, SemanticMigrationBundle)
-                or migration_bundle.history_sha256 != current_bundle.history_sha256
-                or migration_bundle.expectations_sha256 != current_bundle.expectations_sha256
-                or migration_bundle.profiles_json != current_bundle.profiles_json
-                or migration_bundle.historical_records_json != current_bundle.historical_records_json):
-            raise ValueError('Supplied migration bundle differs from pinned repository inputs')
-        bundle = migration_bundle
-    else:
-        bundle = current_bundle
-
-    v2_path = repository / 'compatibility' / app_id / 'acceptance-v2.json'
-    v2_raw_bytes = read_semantic_acceptance_table(v2_path, app_id, repository)
-    v2_sha256 = hashlib.sha256(v2_raw_bytes).hexdigest() if v2_raw_bytes is not None else None
-    if v2_raw_bytes is None:
-        v2_records = []
-    else:
-        try:
-            table = json.loads(v2_raw_bytes.decode('utf-8'))
-        except (UnicodeDecodeError, json.JSONDecodeError) as error:
-            raise ValueError('Semantic v2 acceptance table is unreadable') from error
-        v2_records = validate_semantic_acceptance_table(table, app_id, repository)
-
-    from scripts.ci.wechat_inner_expectations import project_wechat_profiles
-    projection_sha, projected = project_wechat_profiles(repository, bundle) if app_id == 'wechat' else (None, {})
-    profiles = [projected.get(profile['historicalRecordId'], profile) for profile in bundle.profiles if profile['appId'] == app_id]
-    historical = {record['recordId']: record for record in bundle.historical_records
-                  if record.get('appId') == app_id}
+    path = repository / 'compatibility' / app_id / 'acceptance-v2.json'
+    raw = read_semantic_acceptance_table(path, app_id, repository)
+    if raw is None:
+        raise ValueError('Verified regression pool requires the v2 acceptance table')
+    records = json.loads(raw)['records']
+    if not records:
+        raise ValueError('Verified regression pool requires at least one accepted sample')
+    snapshot = hashlib.sha256(raw).hexdigest()
     cases = []
-    for profile in profiles:
-        record_id = profile['historicalRecordId']
-        record = historical.get(record_id)
-        if record is None:
-            raise ValueError('Frozen semantic migration source record is missing')
-        apk_files = copy.deepcopy(record.get('source', {}).get('apkFiles'))
-        if (not isinstance(apk_files, list) or
-                [row.get('sha256', '').lower() for row in apk_files]
-                != [digest.lower() for digest in profile['apkInputSha256']]):
-            raise ValueError('Frozen migration APK input identity differs from its source record')
-        cases.append({
-            'kind': 'MIGRATION',
-            'recordId': record_id,
-            'profileId': profile['profileId'],
-            'appId': app_id,
-            'identity': copy.deepcopy(profile['identity']),
-            'apkFiles': apk_files,
-            'source': copy.deepcopy(record['source']),
-            'expectedPlan': copy.deepcopy(profile['expectedPlan']),
-            'expectedExecutionSha256': profile['expectedExecutionSha256'],
-            'acceptanceSnapshotSha256': profile['historicalAcceptanceSha256'],
-            **({'innerAfterAuditSha256': projection_sha, 'trustedCatalog': copy.deepcopy(profile['ruleCatalog']), 'expectedSnapshot': copy.deepcopy(profile['snapshot'])} if profile['historicalRecordId'] in projected else {}),
-        })
-
-    for record in v2_records:
-        static = record['staticReport']
-        validate_check_report(static, expected_app_id=app_id, expected_identity=record['identity'])
-        if (static['selection']['plan'] != record['completePlan']
-                or static['selection']['executionSha256'] != record['executionSha256']
-                or [row['sha256'].lower() for row in static['inputHashes']]
-                != [row['sha256'].lower() for row in record['apkFiles']]):
-            raise ValueError('Accepted-v2 record differs from its saved static expectation')
-        cases.append({
-            'kind': 'ACCEPTED_V2',
-            'recordId': record['recordId'],
-            'profileId': None,
-            'appId': app_id,
-            'identity': copy.deepcopy(record['identity']),
-            'apkFiles': copy.deepcopy(record['apkFiles']),
-            'source': copy.deepcopy(record['source']),
-            'expectedPlan': copy.deepcopy(record['completePlan']),
-            'expectedExecutionSha256': record['executionSha256'],
-            'acceptanceSnapshotSha256': v2_sha256,
-            'savedStaticReport': copy.deepcopy(static),
-        })
-
-    record_ids = set()
-    for case in cases:
-        record_id = case['recordId']
-        if record_id in record_ids:
-            raise ValueError('Semantic regression baseline contains a conflicting recordId')
-        record_ids.add(record_id)
-    _assert_input_expectations_compatible(cases, bundle)
-
-    cases_tuple = tuple(cases)
-    return SemanticRegressionBaseline(
-        migration_bundle=bundle,
-        app_id=app_id,
-        cases=cases_tuple,
-        v2_path=v2_path,
-        v2_raw_bytes=v2_raw_bytes,
-        v2_sha256=v2_sha256,
-        sha256=_baseline_sha256(bundle, app_id, v2_sha256, cases_tuple),
-        _repository=repository,
-        _cases_sha256=_case_content_sha256(cases_tuple),
-    )
+    for record in records:
+        assert_evidence_archive_unchanged(repository, record['evidenceArchive'])
+        reference = record['rawStageEvidence']['static']
+        stored = json.loads((repository / reference['path']).read_bytes())
+        if stored != record['staticReport']:
+            raise ValueError('Verified regression static expectation differs from its archive')
+        cases.append(_accepted_v2_case(record))
+    _assert_input_expectations_compatible(cases)
+    cases = tuple(cases)
+    return VerifiedRegressionPool(app_id, cases, raw, snapshot, repository, _case_content_sha256(cases))
 
 
 def compare_baseline_report(baseline, record_id, report):
-    if not isinstance(baseline, SemanticRegressionBaseline):
-        raise ValueError('Expected a semantic regression baseline')
+    if not isinstance(baseline, VerifiedRegressionPool):
+        raise ValueError('Expected a verified regression pool')
     if _case_content_sha256(baseline.cases) != baseline._cases_sha256:
         raise ValueError('Semantic regression baseline cases were mutated')
     matches = [case for case in baseline.cases if case['recordId'] == record_id]
     if len(matches) != 1:
         raise ValueError('No unique case in semantic regression baseline')
     case = matches[0]
-    if case['kind'] == 'MIGRATION' and 'innerAfterAuditSha256' in case:
-        validate_check_report(report, expected_app_id=case['appId'], expected_identity=case['identity'], trusted_catalog=case['trustedCatalog'])
-        if (report['selection']['status'] != 'SELECTED' or report['selection']['plan'] != case['expectedPlan']
-                or report['selection']['executionSha256'] != case['expectedExecutionSha256']
-                or report['snapshot'] != case['expectedSnapshot']
-                or [r['sha256'].lower() for r in report['inputHashes']] != [r['sha256'].lower() for r in case['apkFiles']]):
-            raise ValueError('Inner-after fixed regression differs from audited expectations')
-        return True
-    if case['kind'] == 'MIGRATION':
-        return compare_fixed_report(baseline.migration_bundle, record_id, report)
-    if case['kind'] != 'ACCEPTED_V2':
-        raise ValueError('Unknown semantic regression baseline case kind')
-
     saved = case['savedStaticReport']
     validate_check_report(report, expected_app_id=case['appId'],
                           expected_identity=case['identity'],
@@ -229,6 +113,8 @@ def compare_baseline_report(baseline, record_id, report):
             or report['selection']['plan'] != case['expectedPlan']
             or report['selection']['executionSha256'] != case['expectedExecutionSha256']
             or report['snapshot'] != saved['snapshot']
+            or (saved['selection'].get('behaviorFeatures')
+                and report['selection'].get('behaviorFeatures') != saved['selection']['behaviorFeatures'])
             or [row['sha256'].lower() for row in report['inputHashes']]
             != [row['sha256'].lower() for row in case['apkFiles']]):
         raise ValueError('Accepted-v2 regression differs from its pinned plan, snapshot, execution, or APK inputs')

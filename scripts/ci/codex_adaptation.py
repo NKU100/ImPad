@@ -16,8 +16,12 @@ import shlex
 from scripts.ci.app_policy import get_policy, policy_for_report
 from scripts.ci.discover_latest_wechat import append_github_output
 from scripts.ci.download_url import validate_download_url
-from scripts.ci.static_regression import (HistoricalApkUnavailable, ensure_apk, record_apk_inputs,
-                                          regression_status, run_regression)
+from scripts.ci.static_regression import (cached_historical_apk, ensure_apk,
+    record_apk_inputs)
+from scripts.ci.grouped_static_regression import (badge_regression_rows,
+    regression_baseline_binding, regression_selection, run_group, run_grouped_regression,
+    verify_grouped_regression)
+from scripts.ci.semantic_regression_baseline import load_verified_regression_pool
 from scripts.ci.apk_inputs import resolve_apk_inputs
 
 
@@ -125,14 +129,13 @@ def _load_semantic_catalog(app_id, repository):
 
 
 def _rules_acceptance(repository, app_id):
-    from scripts.ci.semantic_regression_baseline import load_semantic_regression_baseline
-    baseline = load_semantic_regression_baseline(repository, app_id)
-    baseline.assert_unchanged()
-    if not baseline.cases:
-        raise ValueError(f'Rule adaptation requires existing accepted records for {app_id}')
+    pool = load_verified_regression_pool(repository, app_id)
+    pool.assert_unchanged()
+    if not pool.cases:
+        raise ValueError(f'Rule adaptation requires existing accepted-v2 records for {app_id}')
     catalog = _load_semantic_catalog(app_id, repository)
-    baseline.assert_unchanged()
-    return baseline.migration_bundle, catalog, baseline
+    pool.assert_unchanged()
+    return catalog, pool
 
 
 def _validate_candidate_static(report, artifact_root, expected_catalog=None):
@@ -167,77 +170,68 @@ def _validate_candidate_static(report, artifact_root, expected_catalog=None):
     return static_path, static
 
 
-def _validate_frozen_oracle(directory, state, policy):
-    bundle, _catalog, baseline = _rules_acceptance(directory, policy.app_id)
-    if (bundle.history_sha256 != state['migrationHistorySha256']
-            or bundle.expectations_sha256 != state['migrationExpectationsSha256']):
-        raise ValueError('Frozen semantic migration oracle changed during adaptation')
-    profile = next((row for row in bundle.profiles if row['appId'] == policy.app_id), None)
-    if profile is None or profile['historicalAcceptanceSha256'] != state['acceptanceSnapshotSha256']:
-        raise ValueError('Original acceptance snapshot changed during adaptation')
-    baseline_binding = {
-        'sha256': baseline.sha256,
-        'appId': baseline.app_id,
-        'migrationHistorySha256': bundle.history_sha256,
-        'migrationExpectationsSha256': bundle.expectations_sha256,
-        'v2Path': baseline.v2_path.relative_to(Path(directory).resolve()).as_posix(),
-        'v2SnapshotSha256': baseline.v2_sha256,
-        'regressionRecordIds': [case['recordId'] for case in baseline.cases],
-        'sourceCases': [{'kind': case['kind'], 'recordId': case['recordId'],
-                         'profileId': case['profileId'],
-                         'sourceSha256': case['acceptanceSnapshotSha256']}
-                        for case in baseline.cases],
-    }
-    if (baseline.sha256 != state['baselineSha256']
-            or baseline.v2_sha256 != state['v2SnapshotSha256']
-            or [case['recordId'] for case in baseline.cases] != state['regressionRecordIds']
-            or baseline_binding != state.get('regressionBaseline')):
-        raise ValueError('Semantic regression baseline changed during adaptation')
-    baseline.assert_unchanged()
-    return bundle
+def _protected_v2_paths(repository, pool):
+    table_path = Path('compatibility') / pool.app_id / 'acceptance-v2.json'
+    table = json.loads((Path(repository) / table_path).read_bytes())
+    paths = {table_path.as_posix()}
+    for record in table['records']:
+        archive = record['evidenceArchive']
+        paths.add(archive['manifestPath'])
+        paths.update(item['path'] for item in archive['files'])
+    return paths
 
 
-def _validate_frozen_oracle_tree(repository, base, proposed_tree, app_id,
-                                 expected_v2_sha256=None):
-    history_path = Path(repository) / 'compatibility/semantic-migration/history.json'
-    expectations_path = Path(repository) / 'compatibility/semantic-migration/expectations.json'
-    history = json.loads(history_path.read_text())
-    expectations = json.loads(expectations_path.read_text())
-    if app_id not in {table['appId'] for table in history['tables']}:
-        raise ValueError(f'Historical migration has no acceptance table for {app_id}')
-    paths = {
-        *(table['path'] for table in history['tables']),
-        'compatibility/semantic-migration/history.json',
-        'compatibility/semantic-migration/expectations.json',
-        expectations['analysisEvidence']['path'],
-        *(row['catalog']['path'] for table in history['tables'] for row in table['records']),
-    }
-    inner_audit = 'compatibility/wechat/inner-after-audit.json'
-    if app_id == 'wechat' and (Path(repository) / inner_audit).is_file():
-        paths.add(inner_audit)
-    for revision in (base, proposed_tree):
-        for path in paths:
+def _validate_v2_tree(repository, base, proposed_tree, pool):
+    pool.assert_unchanged()
+    for path in _protected_v2_paths(repository, pool):
+        source_bytes = (Path(repository) / path).read_bytes()
+        for revision in (base, proposed_tree):
             subprocess.run(['git', 'cat-file', '-e', f'{revision}:{path}'], cwd=repository,
                 stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, check=True)
-    for path in paths:
-        baseline = subprocess.check_output(['git', 'show', f'{base}:{path}'], cwd=repository)
+        original = subprocess.check_output(['git', 'show', f'{base}:{path}'], cwd=repository)
         proposed = subprocess.check_output(['git', 'show', f'{proposed_tree}:{path}'], cwd=repository)
-        if proposed != baseline:
-            raise ValueError(f'Frozen acceptance or semantic migration artifact changed: {path}')
-    v2_path = f'compatibility/{app_id}/acceptance-v2.json'
-    base_has_v2 = subprocess.run(['git', 'cat-file', '-e', f'{base}:{v2_path}'], cwd=repository,
-                                 stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL).returncode == 0
-    proposed_has_v2 = subprocess.run(['git', 'cat-file', '-e', f'{proposed_tree}:{v2_path}'], cwd=repository,
-                                     stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL).returncode == 0
-    if base_has_v2 != proposed_has_v2:
-        raise ValueError('Accepted-v2 table presence changed in the proposed adaptation tree')
-    base_v2 = (subprocess.check_output(['git', 'show', f'{base}:{v2_path}'], cwd=repository)
-               if base_has_v2 else None)
-    proposed_v2 = (subprocess.check_output(['git', 'show', f'{proposed_tree}:{v2_path}'], cwd=repository)
-                   if proposed_has_v2 else None)
-    actual_v2_sha256 = hashlib.sha256(base_v2).hexdigest() if base_v2 is not None else None
-    if actual_v2_sha256 != expected_v2_sha256 or proposed_v2 != base_v2:
-        raise ValueError('Accepted-v2 table bytes changed in the proposed adaptation tree')
+        if original != source_bytes or proposed != source_bytes:
+            raise ValueError(f'Accepted-v2 table or evidence archive changed: {path}')
+    table = Path(repository) / 'compatibility' / pool.app_id / 'acceptance-v2.json'
+    if hashlib.sha256(table.read_bytes()).hexdigest() != pool.v2_sha256:
+        raise ValueError('Accepted-v2 table differs from the verified regression pool')
+
+
+def _stage_regression_apks(pool, cache, apk_dir):
+    selection = regression_selection(pool)
+    staged_cases = {}
+
+    def record_for(case):
+        return {'identity': case['identity'],
+                'source': dict(case['source'], apkFiles=case['apkFiles'])}
+
+    def stage_sample(case, apk):
+        identity = case['identity']
+        inputs = record_apk_inputs(record_for(case), cache, apk)
+        staged_base = apk_dir / f"{identity['versionCode']}-{identity['apkSha256'].lower()}.apk"
+        shutil.copyfile(apk, staged_base)
+        shutil.copyfile(apk, apk_dir / f"{identity['apkSha256'].lower()}.apk")
+        for split in inputs[1:]:
+            shutil.copyfile(split, apk_dir / split.name)
+        staged_cases[case['recordId']] = (identity['versionName'],
+            str(staged_base.relative_to(apk_dir.parent.parent)), identity['apkSha256'].lower())
+        return {'inputSha256': [sha256(path) for path in inputs]}
+
+    def fetch(case):
+        return ensure_apk(record_for(case), cache, pool.app_id)
+
+    apks = []
+    for group in selection['selectedGroups']:
+        staged = run_group(group,
+            lambda case: cached_historical_apk(record_for(case), cache, pool.app_id),
+            fetch, stage_sample)
+        if staged['status'] == 'PASSED':
+            apks.append(staged_cases[staged['recordId']])
+        elif staged['status'] == 'SKIPPED':
+            print(f"Skipping unavailable regression group {group['groupId']}", file=sys.stderr)
+        else:
+            raise ValueError(f"Could not stage regression group {group['groupId']}")
+    return selection, apks
 
 
 def copy_runtime_failure(report, artifact_root, analysis):
@@ -268,15 +262,11 @@ def prepare_rules(repository, report_path, candidate_apk, directory):
         raise ValueError('Candidate APK does not match the exact incompatible report')
     source_url = report.get('sourceUrl', '')
     validate_download_url(source_url)
-    bundle, catalog, baseline = _rules_acceptance(repository, policy.app_id)
-    records = [dict(case, source=dict(case['source'], apkFiles=case['apkFiles']))
-               for case in baseline.cases]
+    catalog, pool = _rules_acceptance(repository, policy.app_id)
+    records = list(pool.cases)
     if not eligible_candidate(report, records, policy.app_id):
         raise ValueError('Candidate is not an incompatible semantic adaptation input')
-    profile = next((row for row in bundle.profiles if row['appId'] == policy.app_id), None)
-    if profile is None:
-        raise ValueError(f'Frozen semantic expectations are missing for {policy.app_id}')
-    if report.get('acceptanceSnapshotSha256') not in (None, profile['historicalAcceptanceSha256']):
+    if report.get('acceptanceSnapshotSha256') not in (None, pool.v2_sha256):
         raise ValueError('Candidate report was analyzed against a different acceptance snapshot')
     static_path, static_document = _validate_candidate_static(
         report, Path(report_path).resolve().parent, expected_catalog=catalog)
@@ -298,19 +288,11 @@ def prepare_rules(repository, report_path, candidate_apk, directory):
     shutil.copyfile(candidate_apk, apk_dir / candidate_filename)
     apks = [(report['identity']['versionName'], f'work/apks/{candidate_filename}', digest)]
     cache = Path(repository) / '.cache' / f'{policy.app_id}-apks'
-    for accepted in records:
-        identity = accepted['identity']
-        try:
-            cached = ensure_apk(accepted, cache, policy.app_id)
-        except HistoricalApkUnavailable as error:
-            print(f"Skipping historical APK {identity['versionCode']}: {error}", file=sys.stderr)
-            continue
-        old_digest = identity['apkSha256'].lower()
-        destination = apk_dir / f"{identity['versionCode']}-{old_digest}.apk"
-        shutil.copyfile(cached, destination)
-        apks.append((identity['versionName'], str(destination.relative_to(worktree)), old_digest))
-        for split in record_apk_inputs(accepted, cache, cached)[1:]:
-            shutil.copyfile(split, apk_dir / split.name)
+    selection = regression_selection(pool)
+    regression_binding = regression_baseline_binding(pool)
+    _selection, historical_apks = _stage_regression_apks(pool, cache, apk_dir)
+    apks.extend(historical_apks)
+    pool.assert_unchanged()
 
     analysis = worktree / 'work/analysis'
     analysis.mkdir(parents=True)
@@ -356,32 +338,15 @@ def prepare_rules(repository, report_path, candidate_apk, directory):
             raise ValueError('Incompatible static report input escapes its exact artifact') from error
         if not input_path.is_file() or sha256(input_path) != row.get('sha256', '').lower():
             raise ValueError('Incompatible static report input changed after analysis')
-    baseline.assert_unchanged()
-    app_records = records
+    pool.assert_unchanged()
     state = {
         'appId': policy.app_id,
         'worktree': str(worktree), 'base': base, 'agent_base': agent_base,
         'report': report, 'static': static_document,
-        'acceptanceSnapshotSha256': profile['historicalAcceptanceSha256'],
-        'migrationHistorySha256': bundle.history_sha256,
-        'migrationExpectationsSha256': bundle.expectations_sha256,
-        'baselineSha256': baseline.sha256,
-        'v2SnapshotSha256': baseline.v2_sha256,
-        'regressionRecordIds': [case['recordId'] for case in baseline.cases],
-        'regressionBaseline': {
-            'sha256': baseline.sha256,
-            'appId': baseline.app_id,
-            'migrationHistorySha256': bundle.history_sha256,
-            'migrationExpectationsSha256': bundle.expectations_sha256,
-            'v2Path': baseline.v2_path.relative_to(Path(repository).resolve()).as_posix(),
-            'v2SnapshotSha256': baseline.v2_sha256,
-            'regressionRecordIds': [case['recordId'] for case in baseline.cases],
-            'sourceCases': [{'kind': case['kind'], 'recordId': case['recordId'],
-                             'profileId': case['profileId'],
-                             'sourceSha256': case['acceptanceSnapshotSha256']}
-                            for case in baseline.cases],
-        },
-        'acceptanceRecords': app_records,
+        'acceptanceSnapshotSha256': pool.v2_sha256,
+        'v2SnapshotSha256': pool.v2_sha256,
+        'regressionBaseline': regression_binding,
+        'regressionRecordIds': [group['groupId'] for group in selection['selectedGroups']],
         'apks': apks,
         'existing_tests': {str(path.relative_to(worktree)): sha256(path)
                            for module in ('app', 'compat-core', 'compat-rules', 'compat-checker')
@@ -484,11 +449,15 @@ def _validate_rules(directory, state, policy, worktree):
     if any((worktree / path).is_symlink() for path in paths):
         raise ValueError('Adaptation files must not be symbolic links')
     validate_existing_tests(worktree, state['existing_tests'])
-    bundle = _validate_frozen_oracle(worktree, state, policy)
+    _catalog, pool = _rules_acceptance(worktree, policy.app_id)
+    binding = regression_baseline_binding(pool)
+    if (pool.v2_sha256 != state['v2SnapshotSha256']
+            or binding != state['regressionBaseline']):
+        raise ValueError('Grouped v2 regression baseline changed during adaptation')
+    pool.assert_unchanged()
 
     proposed_tree = _worktree_tree(worktree, base)
-    _validate_frozen_oracle_tree(worktree, base, proposed_tree, policy.app_id,
-                                 state['v2SnapshotSha256'])
+    _validate_v2_tree(worktree, base, proposed_tree, pool)
 
     candidate_report = dict(state['report'])
     if candidate_report.get('status') != 'INCOMPATIBLE':
@@ -531,18 +500,19 @@ def _validate_rules(directory, state, policy, worktree):
         raise ValueError('Prepared candidate differs from the checker complete semantic plan')
 
     regression_root = runtime_root / 'regression'
-    regression_rows = run_regression(
-        policy.app_id, regression_root,
-        cache=worktree / '.cache' / f'{policy.app_id}-apks', repository=worktree)
-    expected_cases = state['regressionBaseline']['sourceCases']
-    if (regression_status(regression_rows) == 'FAILED'
-            or [row.get('recordId') for row in regression_rows] != state['regressionRecordIds']
-            or any(row.get('baselineSha256') != state['baselineSha256']
-                   or row.get('v2SnapshotSha256') != state['v2SnapshotSha256']
-                   or row.get('baselineSourceCase') != expected
-                   for row, expected in zip(regression_rows, expected_cases))):
-        raise ValueError('REGRESSION_FAILED: one or more fixed accepted representatives failed')
-    _validate_frozen_oracle(worktree, state, policy)
+    grouped_report = run_grouped_regression(
+        pool, regression_root, worktree / 'work/apks', worktree)
+    try:
+        verified = verify_grouped_regression(
+            pool, regression_root / 'results.json', static['executionIdentity'])
+    except (OSError, ValueError, subprocess.SubprocessError) as error:
+        raise ValueError(f'REGRESSION_FAILED: grouped v2 report did not verify: {error}') from error
+    badge_rows = badge_regression_rows(verified)
+    if (grouped_report != verified or badge_rows is None
+            or any(row.get('status') == 'FAILED' for row in badge_rows)):
+        raise ValueError('REGRESSION_FAILED: one or more selected v2 behavior groups failed')
+    pool.assert_unchanged()
+    _validate_v2_tree(worktree, base, _worktree_tree(worktree, base), pool)
 
     write_local_runtime_assets(prepared, policy.app_id, runtime_root)
     run_bounded(gradle_command(policy.app_id, runtime_root.relative_to(worktree)),
@@ -579,7 +549,6 @@ def _validate_rules(directory, state, policy, worktree):
         'recognitionSha256': prepared['recognitionSha256'],
         'ruleCatalogSha256': prepared['ruleCatalogSha256'],
         'acceptanceSnapshotSha256': state['acceptanceSnapshotSha256'],
-        'baselineSha256': state['baselineSha256'],
         'v2SnapshotSha256': state['v2SnapshotSha256'],
         'regressionRecordIds': state['regressionRecordIds'],
         'regressionBaseline': state['regressionBaseline'],
@@ -627,10 +596,9 @@ def main():
     if args.stage == "eligibility":
         report = json.loads(args.report.read_text())
         policy = get_policy(args.app_id)
-        bundle, _ = _rules_acceptance(args.repository.resolve(), policy.app_id)
+        _catalog, pool = _rules_acceptance(args.repository.resolve(), policy.app_id)
         _validate_candidate_static(report, args.report.resolve().parent)
-        records = [row for row in bundle.historical_records if row.get('appId') == policy.app_id]
-        eligible = eligible_candidate(report, records, policy.app_id)
+        eligible = eligible_candidate(report, pool.cases, policy.app_id)
         append_github_output(Path(os.environ["GITHUB_OUTPUT"]), {
             "adaptation_eligible": str(eligible).lower(),
             "routing_review_required": "false",

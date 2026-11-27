@@ -11,7 +11,7 @@ import uuid
 
 from scripts.ci.app_policy import get_policy, policy_for_report
 from scripts.ci.download_url import validate_download_url
-from scripts.ci.static_regression import is_unavailable_regression, regression_status
+from scripts.ci.static_regression import regression_status
 
 
 def _sha256(path):
@@ -20,81 +20,6 @@ def _sha256(path):
         for block in iter(lambda: source.read(1024 * 1024), b''):
             digest.update(block)
     return digest.hexdigest()
-
-
-def _regression_baseline_binding(baseline):
-    bundle = baseline.migration_bundle
-    return {
-        'sha256': baseline.sha256,
-        'appId': baseline.app_id,
-        'migrationHistorySha256': bundle.history_sha256,
-        'migrationExpectationsSha256': bundle.expectations_sha256,
-        'v2Path': f'compatibility/{baseline.app_id}/acceptance-v2.json',
-        'v2SnapshotSha256': baseline.v2_sha256,
-        'regressionRecordIds': [case['recordId'] for case in baseline.cases],
-        'sourceCases': [{'kind': case['kind'], 'recordId': case['recordId'],
-                         'profileId': case['profileId'],
-                         'sourceSha256': case['acceptanceSnapshotSha256']}
-                        for case in baseline.cases],
-    }
-
-
-def _verify_regression_snapshot(rows, snapshot, app_id, initial_migration,
-                                catalog, repository):
-    from scripts.ci.acceptance import (
-        AcceptanceSnapshot, select_representatives, validate_acceptance_snapshot,
-    )
-
-    if (not isinstance(snapshot, AcceptanceSnapshot)
-            or snapshot.initial_migration is not bool(initial_migration)):
-        raise ValueError('Regression validation requires its verified acceptance snapshot')
-    records = validate_acceptance_snapshot(snapshot, app_id, initial_migration,
-                                           catalog=catalog, repository=repository)
-    binding = {'path': str(snapshot.path), 'sha256': snapshot.sha256,
-               'recordIds': [record.get('recordId') for record in records],
-               'initialMigration': bool(initial_migration)}
-    representatives = select_representatives(records)
-    if not representatives:
-        if not initial_migration:
-            raise ValueError('NO_HISTORICAL_SAMPLES requires an explicit initial migration')
-        if (len(rows) != 1 or not isinstance(rows[0], dict)
-                or rows[0].get('appId') != app_id
-                or rows[0].get('status') != 'NO_HISTORICAL_SAMPLES'
-                or rows[0].get('acceptanceSnapshotSha256') != snapshot.sha256
-                or rows[0].get('initialMigration') is not True):
-            raise ValueError('Empty acceptance history requires exactly one bound NO_HISTORICAL_SAMPLES row')
-        return 'NO_HISTORICAL_SAMPLES', binding
-
-    if len(rows) != len(representatives):
-        raise ValueError('Regression rows do not exactly match the acceptance representatives')
-    expected = {}
-    for record in representatives:
-        record_id = record.get('recordId')
-        if not isinstance(record_id, str) or not record_id or record_id in expected:
-            raise ValueError('Acceptance representatives contain a missing or duplicate recordId')
-        expected[record_id] = record
-
-    seen = set()
-    statuses = []
-    for row in rows:
-        if not isinstance(row, dict):
-            raise ValueError('Regression representative row is malformed')
-        record_id = row.get('recordId')
-        if (record_id not in expected or record_id in seen
-                or row.get('appId') != app_id
-                or row.get('identity') != expected[record_id].get('identity')
-                or row.get('expectedPlan') != expected[record_id].get('expectedPlan')):
-            raise ValueError('Regression rows differ from the fixed acceptance representative set')
-        if (row.get('acceptanceSnapshotSha256') != snapshot.sha256
-                or row.get('initialMigration') is not bool(initial_migration)):
-            raise ValueError('Regression rows are not bound to the verified acceptance snapshot')
-        if row.get('status') not in {'PASSED', 'FAILED'}:
-            raise ValueError('Historical acceptance representatives cannot be reported as NO_HISTORICAL_SAMPLES')
-        seen.add(record_id)
-        statuses.append(row['status'])
-    if seen != set(expected):
-        raise ValueError('Regression rows omit a fixed acceptance representative')
-    return ('PASSED' if all(status == 'PASSED' for status in statuses) else 'FAILED'), binding
 
 
 def _resolve_child(root, value, label):
@@ -124,60 +49,41 @@ def _read_json(path, label):
 
 
 def _semantic_stage_context(candidate, module, static, regression, repository,
-                            acceptance_path=None, migration_bundle=None,
-                            regression_baseline=None):
-    from scripts.ci.semantic_migration import load_migration_bundle
-    from scripts.ci.semantic_regression_baseline import load_semantic_regression_baseline
+                            acceptance_path=None, regression_baseline=None):
+    from scripts.ci.grouped_static_regression import badge_regression_rows
+    from scripts.ci.semantic_regression_baseline import load_verified_regression_pool
     from scripts.ci.semantic_validation import validate_semantic_stage_models
 
     repository = Path(repository).resolve()
-    bundle = migration_bundle or load_migration_bundle(repository)
-    baseline = regression_baseline or load_semantic_regression_baseline(
-        repository, candidate['appId'], bundle)
-    baseline.assert_unchanged()
-    expected_acceptance = repository / 'compatibility' / candidate['appId'] / 'acceptance.json'
-    supplied_acceptance = Path(acceptance_path or expected_acceptance).resolve()
-    if supplied_acceptance != expected_acceptance.resolve():
-        raise ValueError('Acceptance path must be the pinned v1 history for this application')
-    profiles = [row for row in bundle.profiles if row['appId'] == candidate['appId']]
-    pinned_hashes = {row['historicalAcceptanceSha256'] for row in profiles}
-    if len(pinned_hashes) != 1 or _sha256(supplied_acceptance) not in pinned_hashes:
-        raise ValueError('Acceptance history bytes differ from the pinned migration bundle')
-
-    records = regression.get('records')
-    if not isinstance(records, list):
-        raise ValueError('Regression report must contain fixed profile rows')
+    expected = repository / 'compatibility' / candidate['appId'] / 'acceptance-v2.json'
+    supplied = Path(acceptance_path or expected).resolve()
+    if supplied != expected.resolve():
+        raise ValueError('Grouped regression requires the pinned v2 acceptance table')
+    if not isinstance(regression, dict) or not isinstance(regression.get('groupingVersion'), int):
+        raise ValueError('Regression report must use the grouped results schema')
+    pool = regression_baseline or load_verified_regression_pool(repository, candidate['appId'])
+    pool.assert_unchanged()
     evidence_ref = regression.get('evidence')
     if not isinstance(evidence_ref, dict) or not isinstance(evidence_ref.get('path'), str):
-        raise ValueError('Regression report file reference is missing')
-    regression_file = Path(evidence_ref['path']).resolve()
-    raw_regression = regression_file.read_bytes() if regression_file.is_file() else None
-    if raw_regression is None or hashlib.sha256(raw_regression).hexdigest() != evidence_ref.get('sha256', '').lower():
-        raise ValueError('Regression report changed after generation')
-    if any(is_unavailable_regression(row) for row in records) and json.loads(raw_regression) != records:
-        raise ValueError('Skipped regression rows do not match the hashed report')
-    regression_root = regression_file.parent
-    fixed_reports = {}
-    for row in records:
-        if is_unavailable_regression(row):
-            continue
-        reference = row.get('staticEvidence') if isinstance(row, dict) else None
-        if (not isinstance(reference, dict) or not isinstance(reference.get('path'), str)
-                or not re.fullmatch(r'[a-fA-F0-9]{64}', str(reference.get('sha256', '')))):
-            raise ValueError('Fixed regression row has no hashed static report reference')
-        report_path = _resolve_child(regression_root, reference['path'], 'Fixed regression static report')
-        if _sha256(report_path) != reference['sha256'].lower():
-            raise ValueError('Fixed regression static report changed')
-        report = _read_json(report_path, 'Fixed regression static report')
-        if not isinstance(report, dict):
-            raise ValueError('Fixed regression static report has an invalid schema')
-        fixed_reports[row.get('recordId')] = report
-
-    gate = validate_semantic_stage_models(candidate, module, static, records, bundle,
-                                          fixed_reports, repository=repository,
-                                          baseline=baseline)
-    baseline.assert_unchanged()
-    return bundle, gate, baseline
+        raise ValueError('Grouped regression report file reference is missing')
+    report_path = Path(evidence_ref['path']).resolve()
+    if not report_path.is_file() or _sha256(report_path) != evidence_ref.get('sha256', '').lower():
+        raise ValueError('Grouped regression report changed after generation')
+    from scripts.ci.grouped_static_regression import verify_grouped_regression
+    verified_report = verify_grouped_regression(pool, report_path, static['executionIdentity'])
+    if verified_report != {key: value for key, value in regression.items()
+                           if key not in {'evidence', 'status'}}:
+        raise ValueError('Grouped regression report differs from its hashed file')
+    rows = badge_regression_rows(verified_report)
+    if not rows:
+        raise ValueError('Grouped regression report has invalid result statuses')
+    status = regression_status(rows)
+    gate = validate_semantic_stage_models(
+        candidate, module, static, verified_report, repository=repository,
+        baseline=pool, grouped_report_path=report_path)
+    if status != gate['regressionStatus']:
+        raise ValueError('Grouped regression statuses differ from their verified groups')
+    return gate, pool
 
 
 def _validate_qq_raw_evidence(smoke, evidence_root, candidate, module, *, allow_app_id_mismatch=False):
@@ -593,21 +499,22 @@ def verify_validation_files(candidate_path, module_apk, regression_path, smoke_p
                             regression_baseline=None):
     """Reopen stage artifacts, recompute identities, and invoke the shared evaluator."""
     from scripts.ci.candidate_selection import prepare_module
-    from scripts.ci.semantic_migration import load_migration_bundle
-    from scripts.ci.semantic_regression_baseline import load_semantic_regression_baseline
+    from scripts.ci.semantic_regression_baseline import load_verified_regression_pool
 
     repository = Path(repository).resolve()
-    if initial_migration:
-        raise ValueError('Semantic verification requires the pinned historical migration bundle')
-    migration_bundle = load_migration_bundle(repository)
-    regression_baseline = regression_baseline or load_semantic_regression_baseline(
-        repository, _read_json(candidate_path, 'Candidate').get('appId'), migration_bundle)
-    regression_baseline.assert_unchanged()
+    if initial_migration or acceptance_snapshot is not None:
+        raise ValueError('Runtime verification accepts grouped v2 regression evidence only')
     candidate_path = Path(candidate_path).resolve()
     candidate_root = candidate_path.parent
     candidate = _read_json(candidate_path, 'Candidate')
     if not isinstance(candidate, dict) or candidate.get('schemaVersion') != 2:
         raise ValueError('Candidate report schema is invalid')
+    app_id = get_policy(candidate.get('appId')).app_id
+    expected_acceptance = repository / 'compatibility' / app_id / 'acceptance-v2.json'
+    if Path(acceptance_path).resolve() != expected_acceptance.resolve():
+        raise ValueError('Acceptance path must be the v2 table for this application')
+    regression_baseline = regression_baseline or load_verified_regression_pool(repository, app_id)
+    regression_baseline.assert_unchanged()
     candidate['_root'] = str(candidate_root)
     static_path = _resolve_child(candidate_root, candidate.get('staticReport', ''), 'Static report')
     static_digest = _sha256(static_path)
@@ -661,11 +568,14 @@ def verify_validation_files(candidate_path, module_apk, regression_path, smoke_p
 
     regression_path = Path(regression_path).resolve()
     regression_raw = _read_json(regression_path, 'Regression')
-    if not isinstance(regression_raw, list) or not regression_raw:
-        raise ValueError('Regression report must contain per-record results')
-    regression = {'status': regression_status(regression_raw), 'records': regression_raw,
-                  'evidence': {'path': str(regression_path),
-                               'sha256': _sha256(regression_path)}}
+    if not isinstance(regression_raw, dict):
+        raise ValueError('Regression report must use the grouped results object')
+    from scripts.ci.grouped_static_regression import badge_regression_rows
+    rows = badge_regression_rows(regression_raw)
+    if not rows:
+        raise ValueError('Grouped regression report has invalid result statuses')
+    regression = dict(regression_raw, status=regression_status(rows),
+                      evidence={'path': str(regression_path), 'sha256': _sha256(regression_path)})
 
     evidence_root = Path(evidence_root).resolve()
     smoke_path = _resolve_child(evidence_root, Path(smoke_path).resolve().relative_to(evidence_root).as_posix(),
@@ -707,7 +617,7 @@ def verify_validation_files(candidate_path, module_apk, regression_path, smoke_p
 
     result = evaluate_validation(candidate, module, static, regression, smoke, conclusion,
                                  runtime_rejection=runtime_rejection, repository=repository,
-                                 acceptance_path=acceptance_path, migration_bundle=migration_bundle,
+                                 acceptance_path=acceptance_path,
                                  regression_baseline=regression_baseline)
     result['candidate'].pop('_root', None)
     result['runtime'].pop('_verifiedEvidenceFiles', None)
@@ -721,12 +631,7 @@ def verify_validation_files(candidate_path, module_apk, regression_path, smoke_p
         'runtime': {'path': runtime_ref_path,
                     'sha256': smoke['evidenceReport']['sha256']},
     }
-    reloaded_bundle = load_migration_bundle(repository)
-    if (reloaded_bundle.history_sha256 != migration_bundle.history_sha256
-            or reloaded_bundle.expectations_sha256 != migration_bundle.expectations_sha256):
-        raise ValueError('Semantic migration bundle changed during runtime verification')
     regression_baseline.assert_unchanged()
-    result['_migrationBundleObject'] = migration_bundle
     result['_regressionBaselineObject'] = regression_baseline
     result['inputPaths'] = {'candidate': str(candidate_path), 'moduleApk': str(module_apk),
                             'regression': str(regression_path), 'smoke': str(smoke_path),
@@ -735,8 +640,7 @@ def verify_validation_files(candidate_path, module_apk, regression_path, smoke_p
 
 
 def evaluate_validation(candidate, module, static, regression, smoke, conclusion, *, runtime_rejection=False,
-                        repository=None, acceptance_path=None, migration_bundle=None,
-                        regression_baseline=None):
+                        repository=None, acceptance_path=None, regression_baseline=None):
     """Validate semantic stage models and runtime acceptance evidence."""
     candidate = candidate if isinstance(candidate, dict) else {}
     module = module if isinstance(module, dict) else {}
@@ -796,28 +700,20 @@ def evaluate_validation(candidate, module, static, regression, smoke, conclusion
         result.update(outcome='CANDIDATE_REJECTED', failedStage='candidate',
                       diagnostics=['Candidate APK identity or expected complete plan is invalid'])
         return result
-    if regression.get('status') == 'FAILED' or any(
-            isinstance(row, dict) and row.get('status') == 'FAILED'
-            for row in regression.get('records', [])):
+    if regression.get('status') == 'FAILED':
         result.update(outcome='REGRESSION_FAILED', failedStage='regression',
-                      diagnostics=['A fixed semantic regression representative failed'])
+                      diagnostics=['A grouped semantic regression failed'])
         return result
     repository = Path(repository or Path.cwd()).resolve()
     try:
-        bundle, gate, regression_baseline = _semantic_stage_context(
+        gate, regression_baseline = _semantic_stage_context(
             candidate, module, static, regression, repository, acceptance_path,
-            migration_bundle, regression_baseline)
+            regression_baseline)
     except (OSError, TypeError, ValueError, KeyError) as error:
         result.update(outcome='CANDIDATE_REJECTED', failedStage='static', diagnostics=[str(error)])
         return result
-    result['migrationBundle'] = {
-        'historySha256': gate['migrationHistorySha256'],
-        'expectationsSha256': gate['migrationExpectationsSha256'],
-        'recordIds': gate['recordIds'],
-    }
     result['regressionBaseline'] = gate['regressionBaseline']
     result['regressionRecordIds'] = gate['regressionRecordIds']
-    result['baselineSha256'] = gate['baselineSha256']
     result['v2SnapshotSha256'] = gate['v2SnapshotSha256']
     result['_regressionBaselineObject'] = regression_baseline
     required_module = ('sha256', 'sourceTreeSha256', 'ruleCatalogSha256', 'recognitionSha256',
@@ -903,13 +799,7 @@ def evaluate_validation(candidate, module, static, regression, smoke, conclusion
         result.update(outcome='ERROR', failedStage='evidence',
                       diagnostics=['Static, regression, and runtime report references are required'])
         return result
-    from scripts.ci.semantic_migration import load_migration_bundle
-    latest_bundle = load_migration_bundle(repository)
-    if (latest_bundle.history_sha256 != bundle.history_sha256
-            or latest_bundle.expectations_sha256 != bundle.expectations_sha256):
-        result.update(outcome='ERROR', failedStage='static',
-                      diagnostics=['Semantic migration bundle changed during verification'])
-        return result
+    regression_baseline.assert_unchanged()
     result.update(outcome='VERIFIED', failedStage=None, stageEvidence=stage_evidence,
                   regression=dict(regression, status=regression['status']))
     return result
@@ -969,13 +859,11 @@ def verify_cli(argv):
     args = parser.parse_args(argv)
     report = verify_validation_files(args.candidate, args.module_apk, args.regression,
                                      args.smoke, args.evidence_root, args.conclusion,
-                                     args.repository, args.acceptance, False)
+                                     args.repository, args.acceptance)
     if report['candidate'].get('appId') != args.app_id:
         raise ValueError('Candidate appId does not match the explicit verifier appId')
     args.output.parent.mkdir(parents=True, exist_ok=True)
     output_report = dict(report)
-    output_report.pop('_acceptanceSnapshotObject', None)
-    output_report.pop('_migrationBundleObject', None)
     output_report.pop('_regressionBaselineObject', None)
     args.output.write_text(json.dumps(output_report, indent=2) + '\n')
     print(json.dumps({'schemaVersion': report['schemaVersion'], 'outcome': report['outcome'],
@@ -1015,13 +903,13 @@ def register_cli(argv):
         acceptance_relative = Path(args.acceptance).resolve().relative_to(repository).as_posix()
     except ValueError as error:
         raise ValueError('Acceptance path must be inside the trusted source checkout') from error
-    if acceptance_relative != f'compatibility/{args.app_id}/acceptance.json':
+    if acceptance_relative != f'compatibility/{args.app_id}/acceptance-v2.json':
         raise ValueError('Acceptance path does not match the explicit app policy')
     from scripts.ci.acceptance import (
         SEMANTIC_ACCEPTANCE_FILENAME, read_semantic_acceptance_table,
     )
-    from scripts.ci.semantic_regression_baseline import load_semantic_regression_baseline
-    regression_baseline = load_semantic_regression_baseline(repository, args.app_id)
+    from scripts.ci.semantic_regression_baseline import load_verified_regression_pool
+    regression_baseline = load_verified_regression_pool(repository, args.app_id)
     regression_baseline.assert_unchanged()
     semantic_acceptance_path = repository / 'compatibility' / args.app_id / SEMANTIC_ACCEPTANCE_FILENAME
     if not semantic_acceptance_path.parent.resolve().is_relative_to(repository):
@@ -1034,23 +922,23 @@ def register_cli(argv):
         parser.error(str(error))
     report = verify_validation_files(args.candidate, args.module_apk, args.regression,
                                      args.smoke, args.evidence_root, args.conclusion,
-                                     repository, args.acceptance, False,
+                                     repository, args.acceptance,
                                      regression_baseline=regression_baseline)
     if (report.get('outcome') != 'VERIFIED'
             or report.get('candidate', {}).get('appId') != args.app_id):
         raise ValueError('Current file-backed validation is not VERIFIED for the requested app')
-    if report.get('regressionBaseline') != _regression_baseline_binding(regression_baseline):
+    from scripts.ci.grouped_static_regression import regression_baseline_binding
+    expected_binding = regression_baseline_binding(regression_baseline)
+    if not isinstance(expected_binding, dict) or report.get('regressionBaseline') != expected_binding:
         raise ValueError('Current validation does not bind the complete regression baseline')
     revalidated = verify_validation_files(
         args.candidate, args.module_apk, args.regression, args.smoke,
-        args.evidence_root, args.conclusion, repository, args.acceptance, False,
-        acceptance_snapshot=report.get('_acceptanceSnapshotObject'),
+        args.evidence_root, args.conclusion, repository, args.acceptance,
         regression_baseline=regression_baseline,
     )
     compared_fields = ('outcome', 'candidate', 'module', 'static', 'regression', 'runtime',
-                       'stageEvidence', 'acceptanceSnapshot', 'migrationBundle', 'inputPaths',
-                       'regressionBaseline', 'regressionRecordIds', 'baselineSha256',
-                       'v2SnapshotSha256')
+                       'stageEvidence', 'inputPaths', 'regressionBaseline',
+                       'regressionRecordIds', 'v2SnapshotSha256')
     if any(report.get(field) != revalidated.get(field) for field in compared_fields):
         raise ValueError('File-backed validation changed during acceptance registration')
     from scripts.ci.acceptance import (

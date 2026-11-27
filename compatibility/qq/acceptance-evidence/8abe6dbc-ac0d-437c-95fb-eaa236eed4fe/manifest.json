@@ -1,0 +1,161 @@
+{
+  "schemaVersion": 1,
+  "recordId": "8abe6dbc-ac0d-437c-95fb-eaa236eed4fe",
+  "files": [
+    {
+      "sourcePath": "/private/tmp/impad-historical-acceptance.YTYRsD/46064035178/inputs/static-check.json",
+      "path": "compatibility/qq/acceptance-evidence/8abe6dbc-ac0d-437c-95fb-eaa236eed4fe/static-report.json",
+      "sha256": "40a4848addf672c1ffa9b3a7f726b9c1cca94fcb391307f0e6e5a348a4551424"
+    },
+    {
+      "sourcePath": "/private/tmp/impad-historical-acceptance.YTYRsD/46064035178/inputs/regression/results.json",
+      "path": "compatibility/qq/acceptance-evidence/8abe6dbc-ac0d-437c-95fb-eaa236eed4fe/regression-report.json",
+      "sha256": "64896115c86539b98cc8767121c4ddd935cf8fe44f993fdf464ce0010891c15d"
+    },
+    {
+      "sourcePath": "/private/tmp/impad-historical-acceptance.YTYRsD/46064035178/evidence/runtime-smoke/evidence/smoke-report.json",
+      "path": "compatibility/qq/acceptance-evidence/8abe6dbc-ac0d-437c-95fb-eaa236eed4fe/runtime-report.json",
+      "sha256": "93402e54dd300bd7af739b872030ed951648a7ac14879c91032f42ca512f5a7d"
+    },
+    {
+      "sourcePath": "/private/tmp/impad-historical-acceptance.YTYRsD/46064035178/evidence/runtime-smoke/apps/qq/capture-disabled.json",
+      "path": "compatibility/qq/acceptance-evidence/8abe6dbc-ac0d-437c-95fb-eaa236eed4fe/raw/raw-0000-capture-disabled.json",
+      "sha256": "584c0be43d472b3fb3f122d25be5956c70fe0cc1e0978a89045b837136329607"
+    },
+    {
+      "sourcePath": "/private/tmp/impad-historical-acceptance.YTYRsD/46064035178/evidence/runtime-smoke/apps/qq/capture-enabled.json",
+      "path": "compatibility/qq/acceptance-evidence/8abe6dbc-ac0d-437c-95fb-eaa236eed4fe/raw/raw-0001-capture-enabled.json",
+      "sha256": "a07989392c934c76f4579d59bbef1ec526d717ee48f24d0d5c962397fb1b29c3"
+    },
+    {
+      "sourcePath": "/private/tmp/impad-historical-acceptance.YTYRsD/46064035178/evidence/runtime-smoke/apps/qq/collector-disabled.txt",
+      "path": "compatibility/qq/acceptance-evidence/8abe6dbc-ac0d-437c-95fb-eaa236eed4fe/raw/raw-0002-collector-disabled.txt",
+      "sha256": "4ac964407f667217b053b5eb9e7357d66f63ec6053c92685cf5e155653caa989"
+    },
+    {
+      "sourcePath": "/private/tmp/impad-historical-acceptance.YTYRsD/46064035178/evidence/runtime-smoke/apps/qq/collector-enabled.txt",
+      "path": "compatibility/qq/acceptance-evidence/8abe6dbc-ac0d-437c-95fb-eaa236eed4fe/raw/raw-0003-collector-enabled.txt",
+      "sha256": "c2e494e186a58ad70f4f4f68b242f03abccfaa9bc9a634993ebf60c055af037e"
+    },
+    {
+      "sourcePath": "/private/tmp/impad-historical-acceptance.YTYRsD/46064035178/evidence/runtime-smoke/apps/qq/events-disabled.jsonl",
+      "path": "compatibility/qq/acceptance-evidence/8abe6dbc-ac0d-437c-95fb-eaa236eed4fe/raw/raw-0004-events-disabled.jsonl",
+      "sha256": "5a5472b941ee080418776a92720fc383357df28ffba3976bf80cd969de3eee91"
+    },
+    {
+      "sourcePath": "/private/tmp/impad-historical-acceptance.YTYRsD/46064035178/evidence/runtime-smoke/apps/qq/events-enabled.jsonl",
+      "path": "compatibility/qq/acceptance-evidence/8abe6dbc-ac0d-437c-95fb-eaa236eed4fe/raw/raw-0005-events-enabled.jsonl",
+      "sha256": "5fb58a8af6ef2d440c207091e4c7294ab20054a5bd39352d8134586e5c005281"
+    },
+    {
+      "sourcePath": "/private/tmp/impad-historical-acceptance.YTYRsD/46064035178/evidence/runtime-smoke/apps/qq/logcat-disabled.txt",
+      "path": "compatibility/qq/acceptance-evidence/8abe6dbc-ac0d-437c-95fb-eaa236eed4fe/raw/raw-0006-logcat-disabled.txt",
+      "sha256": "9d6056d4050179f9c66f27fe985131ff660db4524c06a55f4bc94a4eac891c6e"
+    },
+    {
+      "sourcePath": "/private/tmp/impad-historical-acceptance.YTYRsD/46064035178/evidence/runtime-smoke/apps/qq/logcat-enabled.txt",
+      "path": "compatibility/qq/acceptance-evidence/8abe6dbc-ac0d-437c-95fb-eaa236eed4fe/raw/raw-0007-logcat-enabled.txt",
+      "sha256": "a8c9193a5d3f5127fd47c9a9273d09137cd138b4df6eb1fc4333616ca505231c"
+    },
+    {
+      "sourcePath": "/private/tmp/impad-historical-acceptance.YTYRsD/46064035178/evidence/runtime-smoke/apps/qq/login-click.txt",
+      "path": "compatibility/qq/acceptance-evidence/8abe6dbc-ac0d-437c-95fb-eaa236eed4fe/raw/raw-0008-login-click.txt",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "sourcePath": "/private/tmp/impad-historical-acceptance.YTYRsD/46064035178/evidence/runtime-smoke/apps/qq/login-ready-activity.txt",
+      "path": "compatibility/qq/acceptance-evidence/8abe6dbc-ac0d-437c-95fb-eaa236eed4fe/raw/raw-0009-login-ready-activity.txt",
+      "sha256": "8d42630baa955c885118a7e81bce04822ab8ea572097ac4d37eeab44e0823408"
+    },
+    {
+      "sourcePath": "/private/tmp/impad-historical-acceptance.YTYRsD/46064035178/evidence/runtime-smoke/apps/qq/login-ready-current-activity.txt",
+      "path": "compatibility/qq/acceptance-evidence/8abe6dbc-ac0d-437c-95fb-eaa236eed4fe/raw/raw-0010-login-ready-current-activity.txt",
+      "sha256": "7a6c75da67246a193f11b1b912c2cbb8a279d8212aa4b03b1d1e837eb2520455"
+    },
+    {
+      "sourcePath": "/private/tmp/impad-historical-acceptance.YTYRsD/46064035178/evidence/runtime-smoke/apps/qq/login-ready-current-dump.txt",
+      "path": "compatibility/qq/acceptance-evidence/8abe6dbc-ac0d-437c-95fb-eaa236eed4fe/raw/raw-0011-login-ready-current-dump.txt",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "sourcePath": "/private/tmp/impad-historical-acceptance.YTYRsD/46064035178/evidence/runtime-smoke/apps/qq/login-ready-current.png",
+      "path": "compatibility/qq/acceptance-evidence/8abe6dbc-ac0d-437c-95fb-eaa236eed4fe/raw/raw-0012-login-ready-current.png",
+      "sha256": "887c837987eea1913194de7e66fea024e2952544a58576855cbdd389835b4891"
+    },
+    {
+      "sourcePath": "/private/tmp/impad-historical-acceptance.YTYRsD/46064035178/evidence/runtime-smoke/apps/qq/login-ready-current.xml",
+      "path": "compatibility/qq/acceptance-evidence/8abe6dbc-ac0d-437c-95fb-eaa236eed4fe/raw/raw-0013-login-ready-current.xml",
+      "sha256": "df4e185bad3efce31e51da822406bdd1648d7619e511fcbf07bb6da5292209fd"
+    },
+    {
+      "sourcePath": "/private/tmp/impad-historical-acceptance.YTYRsD/46064035178/evidence/runtime-smoke/apps/qq/login-ready-dump.txt",
+      "path": "compatibility/qq/acceptance-evidence/8abe6dbc-ac0d-437c-95fb-eaa236eed4fe/raw/raw-0014-login-ready-dump.txt",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "sourcePath": "/private/tmp/impad-historical-acceptance.YTYRsD/46064035178/evidence/runtime-smoke/apps/qq/login-ready.png",
+      "path": "compatibility/qq/acceptance-evidence/8abe6dbc-ac0d-437c-95fb-eaa236eed4fe/raw/raw-0015-login-ready.png",
+      "sha256": "887c837987eea1913194de7e66fea024e2952544a58576855cbdd389835b4891"
+    },
+    {
+      "sourcePath": "/private/tmp/impad-historical-acceptance.YTYRsD/46064035178/evidence/runtime-smoke/apps/qq/login-ready.xml",
+      "path": "compatibility/qq/acceptance-evidence/8abe6dbc-ac0d-437c-95fb-eaa236eed4fe/raw/raw-0016-login-ready.xml",
+      "sha256": "df4e185bad3efce31e51da822406bdd1648d7619e511fcbf07bb6da5292209fd"
+    },
+    {
+      "sourcePath": "/private/tmp/impad-historical-acceptance.YTYRsD/46064035178/evidence/runtime-smoke/apps/qq/manager-current-activity.txt",
+      "path": "compatibility/qq/acceptance-evidence/8abe6dbc-ac0d-437c-95fb-eaa236eed4fe/raw/raw-0017-manager-current-activity.txt",
+      "sha256": "0aec09eced24308a610212832c7ca89f60534049e2f9fb9d0103c80862f627ad"
+    },
+    {
+      "sourcePath": "/private/tmp/impad-historical-acceptance.YTYRsD/46064035178/evidence/runtime-smoke/apps/qq/manager-current-dump.txt",
+      "path": "compatibility/qq/acceptance-evidence/8abe6dbc-ac0d-437c-95fb-eaa236eed4fe/raw/raw-0018-manager-current-dump.txt",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "sourcePath": "/private/tmp/impad-historical-acceptance.YTYRsD/46064035178/evidence/runtime-smoke/apps/qq/manager-current-ocr.tsv",
+      "path": "compatibility/qq/acceptance-evidence/8abe6dbc-ac0d-437c-95fb-eaa236eed4fe/raw/raw-0019-manager-current-ocr.tsv",
+      "sha256": "d008966373932d535ce069479f0aedf0b1e41c86b41f553c894d1b8fffa6152e"
+    },
+    {
+      "sourcePath": "/private/tmp/impad-historical-acceptance.YTYRsD/46064035178/evidence/runtime-smoke/apps/qq/manager-current.png",
+      "path": "compatibility/qq/acceptance-evidence/8abe6dbc-ac0d-437c-95fb-eaa236eed4fe/raw/raw-0020-manager-current.png",
+      "sha256": "3a79090fa193339f80136f8b169660d266ad1f83a68179f6401c3580c05c00dc"
+    },
+    {
+      "sourcePath": "/private/tmp/impad-historical-acceptance.YTYRsD/46064035178/evidence/runtime-smoke/apps/qq/manager-current.xml",
+      "path": "compatibility/qq/acceptance-evidence/8abe6dbc-ac0d-437c-95fb-eaa236eed4fe/raw/raw-0021-manager-current.xml",
+      "sha256": "4c557e09d44242e6adf37cbd553eb65af809bbc6e1931108bb497474694ac2b3"
+    },
+    {
+      "sourcePath": "/private/tmp/impad-historical-acceptance.YTYRsD/46064035178/evidence/runtime-smoke/apps/qq/manager-enable-requested-activity.txt",
+      "path": "compatibility/qq/acceptance-evidence/8abe6dbc-ac0d-437c-95fb-eaa236eed4fe/raw/raw-0022-manager-enable-requested-activity.txt",
+      "sha256": "c5fe4aeca3627075233ca4244e0b8dc2ad1721fd58993d6d938055eb85d99e85"
+    },
+    {
+      "sourcePath": "/private/tmp/impad-historical-acceptance.YTYRsD/46064035178/evidence/runtime-smoke/apps/qq/manager-enable-requested-dump.txt",
+      "path": "compatibility/qq/acceptance-evidence/8abe6dbc-ac0d-437c-95fb-eaa236eed4fe/raw/raw-0023-manager-enable-requested-dump.txt",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "sourcePath": "/private/tmp/impad-historical-acceptance.YTYRsD/46064035178/evidence/runtime-smoke/apps/qq/manager-enable-requested.png",
+      "path": "compatibility/qq/acceptance-evidence/8abe6dbc-ac0d-437c-95fb-eaa236eed4fe/raw/raw-0024-manager-enable-requested.png",
+      "sha256": "68ebb172c4da4e44a65817db2ef6bd76a12317e5fee62d2305425b0cb16c1a41"
+    },
+    {
+      "sourcePath": "/private/tmp/impad-historical-acceptance.YTYRsD/46064035178/evidence/runtime-smoke/apps/qq/manager-enable-requested.xml",
+      "path": "compatibility/qq/acceptance-evidence/8abe6dbc-ac0d-437c-95fb-eaa236eed4fe/raw/raw-0025-manager-enable-requested.xml",
+      "sha256": "4c557e09d44242e6adf37cbd553eb65af809bbc6e1931108bb497474694ac2b3"
+    },
+    {
+      "sourcePath": "/private/tmp/impad-historical-acceptance.YTYRsD/46064035178/evidence/runtime-smoke/apps/qq/manager-module-state.json",
+      "path": "compatibility/qq/acceptance-evidence/8abe6dbc-ac0d-437c-95fb-eaa236eed4fe/raw/raw-0026-manager-module-state.json",
+      "sha256": "501a11c33ad8759cbd2d539b4078deee8e930fff335dec7af5cd14066acf72a5"
+    },
+    {
+      "sourcePath": "/private/tmp/impad-historical-acceptance.YTYRsD/46064035178/evidence/runtime-smoke/apps/qq/processes-enabled.txt",
+      "path": "compatibility/qq/acceptance-evidence/8abe6dbc-ac0d-437c-95fb-eaa236eed4fe/raw/raw-0027-processes-enabled.txt",
+      "sha256": "d729ce955bb576ceebccfebdecd00205e374a6960172b66c0f9d5a1452e95116"
+    }
+  ]
+}

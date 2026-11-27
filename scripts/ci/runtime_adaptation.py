@@ -15,7 +15,9 @@ from scripts.ci.redroid_environment_probe import Probe, SERIAL
 from scripts.ci.redroid_app_smoke import AppSmoke, query_target
 from scripts.ci.candidate_selection import prepare_module, verify_module_identity
 from scripts.ci.runtime_task import _resolve_child, evaluate_validation
-from scripts.ci.static_regression import regression_status, run_regression
+from scripts.ci.grouped_static_regression import badge_regression_rows, run_grouped_regression
+from scripts.ci.semantic_regression_baseline import load_verified_regression_pool
+from scripts.ci.static_regression import regression_status
 from scripts.ci.adb_relay import normalize_adb_server_socket
 from scripts.ci.apk_inputs import resolve_apk_inputs
 from scripts.ci.semantic_protocol import validate_check_report
@@ -253,13 +255,15 @@ def verify_runtime(directory):
         if module_identity['sha256'] != module_sha:
             raise ValueError('Module identity was prepared for different APK bytes')
         (root / 'module-identity.json').write_text(json.dumps(module_identity, indent=2) + '\n')
-        regression_rows = run_regression(policy.app_id, root / 'regression', repository=workspace)
-        status = regression_status(regression_rows)
+        pool = load_verified_regression_pool(workspace, policy.app_id)
+        grouped = run_grouped_regression(pool, root / 'regression',
+                                         workspace / '.cache' / f'{policy.app_id}-apks', workspace)
+        status = regression_status(badge_regression_rows(grouped))
         if status == 'FAILED':
             raise ValueError('Fixed acceptance regression failed; runtime acceptance is blocked')
         regression_path = root / 'regression/results.json'
-        regression = {'status': status, 'records': regression_rows,
-                      'evidence': {'path': str(regression_path), 'sha256': sha256(regression_path)}}
+        regression = dict(grouped, status=status,
+                          evidence={'path': str(regression_path), 'sha256': sha256(regression_path)})
         smoke.adb('install', '-r', '-g', str(runtime_apk), timeout=240)
         result = smoke.adb('install', '-r', str(module_apk), timeout=120)
         (smoke.EVIDENCE / 'module-install.txt').write_bytes(result.stdout + result.stderr)

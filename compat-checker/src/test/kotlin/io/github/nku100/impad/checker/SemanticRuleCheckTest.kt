@@ -73,13 +73,15 @@ class SemanticRuleCheckTest {
         try {
             val checker = checker(apk, sessionOpener = { snapshotSession(it) }, query = { context ->
                 val method = RuleMethod("Lfixture/Probe;->hit()V", "fixture.Probe", emptyList(), "void", true, 1, emptySet(), emptyList(), emptyList())
-                RecognitionResult.Plans(listOf(context.plan("strategy", mapOf("entry" to method), listOf("anchor found"))))
+                RecognitionResult.Plans(listOf(context.plan("strategy", mapOf("entry" to method), listOf("anchor found"),
+                    behaviorFeatures = mapOf("wrapperMode" to "aggregate"))))
             })
             val report = checker.check("wechat", listOf(apk))
             assertEquals("SELECTED", report.selection.status)
             assertNotNull(report.selection.plan)
             assertEquals(report.selection.plan.executionSha256(), report.selection.executionSha256)
             assertEquals(listOf("anchor found"), report.selection.evidenceByRecognizer.getValue("recognizer"))
+            assertEquals(mapOf("wrapperMode" to "aggregate"), report.selection.behaviorFeatures)
             val json = Json.parseToJsonElement(semanticRuleCheckReportJson(report)).jsonObject
             assertEquals(2, json.getValue("schemaVersion").jsonPrimitive.content.toInt())
             assertTrue("snapshot" in json && "selection" in json && "ruleCatalog" in json)

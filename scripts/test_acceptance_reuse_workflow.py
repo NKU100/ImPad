@@ -14,7 +14,9 @@ class AcceptanceReuseWorkflowTest(unittest.TestCase):
         reuse = self.workflow.split('id: acceptance-reuse\n')[1].split('      - ', 1)[0]
         for guard in ("github.event_name == 'schedule'", "inputs.apk_url == ''", "inputs.module_run_id == ''", "inputs.candidate_mode == 'latest'"):
             self.assertIn(guard, reuse)
-        self.assertGreater(self.workflow.index('id: acceptance-reuse'), self.workflow.index('name: Run fixed-record static regression'))
+        self.assertGreater(self.workflow.index('name: Run grouped static regression'),
+                           self.workflow.index('name: Recheck exact candidate artifact'))
+        self.assertGreater(self.workflow.index('id: acceptance-reuse'), self.workflow.index('name: Run grouped static regression'))
 
     def test_reuse_skips_build_runtime_and_pure_verification(self):
         build = self.workflow.split('id: module-build\n')[1].split('        run:', 1)[0]

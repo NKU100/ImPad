@@ -107,10 +107,10 @@ jobs:
             .cache/wechat-apks
             .cache/qq-apks
             .cache/wecom-apks
-          key: impad-static-apks-v2-${{ hashFiles('compatibility/*/acceptance.json', 'compat-rules/src/main/**') }}
+          key: impad-static-apks-v2-${{ hashFiles('compatibility/*/acceptance-v2.json', 'compat-rules/src/main/**') }}
           restore-keys: impad-static-apks-v2-
 
-      - name: Run registered-build static regression
+      - name: Run grouped static regression
         run: python3 -m scripts.ci.static_regression --all-apps
 
       - name: Upload static regression diagnostics
