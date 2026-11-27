@@ -1,0 +1,60 @@
+{
+  "schemaVersion": 1,
+  "groupingVersion": 1,
+  "appId": "wechat",
+  "acceptanceSha256": "41315341c02f9da01c9eda2cddaf65e2134d0030d108de57fe163e81e3ef5421",
+  "excludedGroupIds": [],
+  "groups": [
+    {
+      "groupId": "rg1-cb03c7536dc03bad",
+      "candidateRecordIds": [
+        "2b3d8493-7bed-4c21-9d76-dcce1ecbd3fe"
+      ],
+      "cacheMissRecordIds": [
+        "2b3d8493-7bed-4c21-9d76-dcce1ecbd3fe"
+      ],
+      "unavailable": [],
+      "status": "PASSED",
+      "recordId": "2b3d8493-7bed-4c21-9d76-dcce1ecbd3fe",
+      "apkSource": "download",
+      "staticEvidence": {
+        "path": "3b7028d2ce37fd78c0d88f3dbc368c24455748a8c4a5725258bdb59ea075c383.json",
+        "sha256": "43208d33d424e6b672d61ef9de73f63c89e321c85809eaf5c6f24eff39d2bd20"
+      }
+    },
+    {
+      "groupId": "rg1-b98993d7299822bd",
+      "candidateRecordIds": [
+        "26bc2927-b3c4-4c5e-a7d2-30d0cad17a89"
+      ],
+      "cacheMissRecordIds": [
+        "26bc2927-b3c4-4c5e-a7d2-30d0cad17a89"
+      ],
+      "unavailable": [],
+      "status": "PASSED",
+      "recordId": "26bc2927-b3c4-4c5e-a7d2-30d0cad17a89",
+      "apkSource": "download",
+      "staticEvidence": {
+        "path": "0df159e8d4c5e91262389309876ea83d56cb41c2a0d8981be6a2b5073d8fd03a.json",
+        "sha256": "4c8c362119be8024b6b922513cb1627a4b478a07b731d9b65f5582ba7bacbc05"
+      }
+    },
+    {
+      "groupId": "rg1-6289dae6d52df527",
+      "candidateRecordIds": [
+        "99c45278-5b8d-45d2-b085-587a3f0a7712"
+      ],
+      "cacheMissRecordIds": [
+        "99c45278-5b8d-45d2-b085-587a3f0a7712"
+      ],
+      "unavailable": [],
+      "status": "PASSED",
+      "recordId": "99c45278-5b8d-45d2-b085-587a3f0a7712",
+      "apkSource": "download",
+      "staticEvidence": {
+        "path": "aaec422031b6bda89f1424e2601f22c5471fd6bcb54757c965d49374ab4a5a78.json",
+        "sha256": "030a8112234703969631cf5203bf9de1cf47802b09471b63500e6881c9a33116"
+      }
+    }
+  ]
+}
