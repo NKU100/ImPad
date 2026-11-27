@@ -1,0 +1,19 @@
+{
+  "schemaVersion": 1,
+  "module": "io.github.nku100.impad",
+  "packageName": "com.tencent.wework",
+  "moduleStateRows": [
+    {
+      "modulePackage": "io.github.nku100.impad",
+      "userId": 0,
+      "enabled": 0
+    }
+  ],
+  "scopeRows": [
+    {
+      "modulePackage": "io.github.nku100.impad",
+      "appPackage": "com.tencent.wework",
+      "userId": 0
+    }
+  ]
+}
