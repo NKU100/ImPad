@@ -1,0 +1,270 @@
+{
+    "schemaVersion": 2,
+    "analysisScope": "APK_FILE_SNAPSHOT",
+    "appId": "qq",
+    "identity": {
+        "packageName": "com.tencent.mobileqq",
+        "versionName": "9.3.90",
+        "versionCode": 17090,
+        "abi": "arm64-v8a",
+        "apkSha256": "638b2b6fe53b7c363b8f225e172259641b4af005a5410f4f3c010cbcb291563c",
+        "signerSha256": "ea6e97ad6c34f7039a9c6daba732c97d0e098e83ede2b4d52c76eb0184ac7a38"
+    },
+    "inputHashes": [
+        {
+            "path": "/home/runner/work/ImPad/ImPad/.cache/qq-apks/638b2b6fe53b7c363b8f225e172259641b4af005a5410f4f3c010cbcb291563c.apk",
+            "sha256": "638b2b6fe53b7c363b8f225e172259641b4af005a5410f4f3c010cbcb291563c"
+        }
+    ],
+    "ruleCatalog": {
+        "schemaVersion": 2,
+        "appId": "qq",
+        "ruleCatalogSha256": "69f24b9da20a1ac55ebb67da428943f92b6b9d5a664b4df2cab1bc1ca2ec409d",
+        "contractId": "qq_tablet_device_type",
+        "contractRevision": 1,
+        "requiredRoles": [
+            "device_type"
+        ],
+        "recognizerIds": [
+            "qq_cached_device_enum"
+        ],
+        "strategies": [
+            {
+                "id": "qq_tablet_enum",
+                "revision": 1,
+                "roles": [
+                    {
+                        "role": "device_type",
+                        "phase": "AROUND",
+                        "configuration": {
+                            "enum": "TABLET"
+                        }
+                    }
+                ]
+            }
+        ],
+        "versionHints": []
+    },
+    "executionIdentity": {
+        "ruleCatalogSha256": "69f24b9da20a1ac55ebb67da428943f92b6b9d5a664b4df2cab1bc1ca2ec409d",
+        "ruleImplementationSha256": "b5b0df2c04fbc6558ebc0f260786ca9bf0656e902f8fe6d2b6f7d30a945b8201",
+        "sharedResolverImplementationSha256": "e356817a9ebd111fa0b284b83e8bd546f33cf7da644f0cf578b0d396739d77e0",
+        "dexkitLockSha256": "e79052203ac5834a2ae2f508b9d184ae0765159337a85e6a5cef250ae51dfbac",
+        "dexkitSourceCommit": "c9cd12a14b75409bebd2f73e4dfc5ff575df3eb8",
+        "dexkitApiSha256": "34a8c16d548aa7d8562128f4d2293cec4e0f9896bb1f46224dcd532e878900f5",
+        "dexkitNativeSha256": "9c085b60c6aed18fa65026837f024167b21bfd5b60439c3e6ba4db98901c2ed1",
+        "dexkitPlatform": "linux-x86_64",
+        "dexkitAndroidApiSha256": "8df532c4126b58490667f71127dc57aef62ccf3578d1d17330f2a1cb8836218e",
+        "dexkitLinuxAarch64NativeSha256": "f23e51a19c10dcf1c395f6bef168af72aab3c9e06edae9446ad8368eb7f5495f",
+        "dexkitLinuxX8664NativeSha256": "9c085b60c6aed18fa65026837f024167b21bfd5b60439c3e6ba4db98901c2ed1",
+        "dexkitAndroidArm64NativeSha256": "0444cf15146c256e8bbd2154ae8b120130dab47e9226c7e853a7d653737a95cd",
+        "strategyImplementationSha256": "b1babe44b395ca5d25a93da5c69b543cee43cfba420909962a99f3a9384b3183",
+        "cacheIdentitySha256": "4c9440b2a34cd3b958e4b0889a4cadf1a6b6e535bb6453c2ee0388814e133461",
+        "sourceTreeSha256": "62da52d0cea6a5d564799c5ef120df455238661b115599d2ff5aed72fc376d80",
+        "routeConfigurationSha256": "dd93428a80e753114672eb53996ead7db125d2758ec6756a0481570abf695dff",
+        "dependencyLockSha256": "c4178fd20cd8c2749e7525323a662bd2054ff73523a19a2e129bc8b6b667937a",
+        "fingerprintFileSha256": "8c7b014fce7c8d6b2cb74c8215200903f4d292635d58463b179b5f16e7df5e99"
+    },
+    "snapshot": {
+        "protocolVersion": 1,
+        "readyLoaderId": "loader-0",
+        "loaders": [
+            {
+                "id": "loader-0",
+                "parentId": null,
+                "delegation": "PARENT_FIRST",
+                "dexSha256": [
+                    "76df1da31b0aa397d7cb6efc80f08b56c16b633a00dff610f6b2752a0369aeb1",
+                    "f419fc0b5e4da0455fbb615adb8000da60f9217a635073db372cd3d95807d050",
+                    "0576cbfceadcdb165b4201884fa6e683fddba881e0c7f268ed099f5cb25dc299",
+                    "54b066b66c887fbe0f4654f7b7bbd21a7e3a3d737f90abbb6368b41a27eb950c",
+                    "f5ce70577f66525fdf6251a130f878f2558d0d553fd2ea0f1801e0812fc86988",
+                    "3a4ab40614d4b0a495fd95be22c70fc7dfbe2d1a2379882b06580ed327c27a78",
+                    "bac36c440a3e556a259624f0d74e0ac3d0da790ebc07ec28775a69dcbac994d5",
+                    "4dd2e9499bece00d32a5f131d3145ce088648f42c5c0d86a23003b701133a8e7",
+                    "a42fa36cf0ef4273b2cff8c6d605c0566b813f8829fba08a84577c88981b396b",
+                    "9f269dd205176748849ca33d98e0607d4b13e066c9735eca30f278cf248d120c",
+                    "3960d261e618c46e62b4861588da55f4807d47d2604cff63952eeb5c86e93757",
+                    "dd81c02e12ef880834ca8a870b29fa212139573792e5fc3ca936b3b5f8558c4d",
+                    "b1ddb5c3d05cbd8d03092b8e0e36d5003362de1b92929285d5513c7e3c9165d4",
+                    "6c86885e2ee009c68ac7fba2c7e929a078fd7915faf4e2b5acc824ba7fb72d5e",
+                    "2cfbaa52dd696b109421ad077c2d98e111cd940f508625839a76880fec8ad654",
+                    "f2e85f2b059750f3efeb12323f806d3fb848590d58760cce9aa3d66ef1ad15aa",
+                    "7f35175c48ab312d2c93baadae5be22a7741e0ecfef0fc4d17e733f1e6b80ed9",
+                    "9c092ab642639a9ece0bb9cf3ba1e2f74ddf0ca2d7c939310b1849efe10c382a",
+                    "e164e989adabf5e8901a1910f47d884122cc9f149081d4d819b7b28d5796b164",
+                    "49e56444ebc53e5d73734be2fe0d9711d5e1bf2436352dadacd38cd7bfdbe5a8",
+                    "bc1beff3cba390de34d65da533d21d65f77ebb72449862da0217b4ea8aaf8a88",
+                    "f76b4e20525b6350fe00188e6fd86e3415f65ce59fd38734485032b38e4aa157",
+                    "f988de7eb063fbdd228cd12443e50409c4850f0ac355afa33a456a64ca866d8d",
+                    "46cf63e112a5944152b06055b9d80c7d428b55c3f511301c2e5f2fda3b7e1f80",
+                    "cf62c1484edaf5ad73d0eb931479be122775fce2b88018fd060fc5b5413521d8",
+                    "d81baccc6c8178c7a19f5e7167dd9d2ba8f70ea9a5fd541f19a90152a32e2eb5",
+                    "81a71cd6918af4b2d089d071220abf2500ab20528658f6427fa462c9f4082ed5",
+                    "c1147046984ba9010a7d789925e70195b3a8e74b6553bd4e352fc4b8d8494107",
+                    "eb1873fdd05d9ba222dc5a9c651a4b5bd0781b93e29fb26ab065a08b98be0068",
+                    "72182beee0e749246a6e33e65d3176af6c074b1ba5ac63717a32564f7b53605f",
+                    "fe2a303f31e13e06be5ef8f2df2a718bc28c0815dbf0460c635bbf13848cd3dd",
+                    "6bb29f6760ed8eaab75b5f8c35058c1867d78abee0bb7dc8f96f42d24a433867",
+                    "f51ec896e55d6fefd020de3113957f9b53e5fdb051ebaa055f119bf51ab959b6",
+                    "2fd35b8934e44a3b8e88869c8507ea3790f12caae409fe6e753fe50b85bcb2f5",
+                    "cbb837f80c140d7bfc71a99931a0f8c4c00bec448d7543397ec2fe209e084bf8",
+                    "17b05bd96c0857fa056d71b3483ef9abb33bf662cfeb235fd8389663ca27c92d",
+                    "4250b1ec6155e43b5d1cab8b0972eb3e9c3673e82c0dce0fdfaf46c9e5d4daed",
+                    "56c0f44fccc941f995d02aa852ba6b666cd05448f986787c3b891462b672819f",
+                    "2068e932b979ede8fd6e7b1d2a75a29d353fc4e19f908d64168b00c86b1b4ff6",
+                    "371be75a49077cfc910842290f03abee28d2c87597fc33c7dd2a863445aefd4b",
+                    "2fc16bc024433892aef03f9606b2c3ef69eb780f2ba318b8545ec1041c1d965b",
+                    "04af62e559d80abc814524e840a2e8ec51b7b8a003580ba7dfdb20e23f8d60b4"
+                ]
+            }
+        ],
+        "archives": [
+            {
+                "loaderId": "loader-0",
+                "containerIndex": 0,
+                "kind": "ZIP",
+                "containerSha256": "638b2b6fe53b7c363b8f225e172259641b4af005a5410f4f3c010cbcb291563c",
+                "dexSha256": [
+                    "76df1da31b0aa397d7cb6efc80f08b56c16b633a00dff610f6b2752a0369aeb1",
+                    "f419fc0b5e4da0455fbb615adb8000da60f9217a635073db372cd3d95807d050",
+                    "0576cbfceadcdb165b4201884fa6e683fddba881e0c7f268ed099f5cb25dc299",
+                    "54b066b66c887fbe0f4654f7b7bbd21a7e3a3d737f90abbb6368b41a27eb950c",
+                    "f5ce70577f66525fdf6251a130f878f2558d0d553fd2ea0f1801e0812fc86988",
+                    "3a4ab40614d4b0a495fd95be22c70fc7dfbe2d1a2379882b06580ed327c27a78",
+                    "bac36c440a3e556a259624f0d74e0ac3d0da790ebc07ec28775a69dcbac994d5",
+                    "4dd2e9499bece00d32a5f131d3145ce088648f42c5c0d86a23003b701133a8e7",
+                    "a42fa36cf0ef4273b2cff8c6d605c0566b813f8829fba08a84577c88981b396b",
+                    "9f269dd205176748849ca33d98e0607d4b13e066c9735eca30f278cf248d120c",
+                    "3960d261e618c46e62b4861588da55f4807d47d2604cff63952eeb5c86e93757",
+                    "dd81c02e12ef880834ca8a870b29fa212139573792e5fc3ca936b3b5f8558c4d",
+                    "b1ddb5c3d05cbd8d03092b8e0e36d5003362de1b92929285d5513c7e3c9165d4",
+                    "6c86885e2ee009c68ac7fba2c7e929a078fd7915faf4e2b5acc824ba7fb72d5e",
+                    "2cfbaa52dd696b109421ad077c2d98e111cd940f508625839a76880fec8ad654",
+                    "f2e85f2b059750f3efeb12323f806d3fb848590d58760cce9aa3d66ef1ad15aa",
+                    "7f35175c48ab312d2c93baadae5be22a7741e0ecfef0fc4d17e733f1e6b80ed9",
+                    "9c092ab642639a9ece0bb9cf3ba1e2f74ddf0ca2d7c939310b1849efe10c382a",
+                    "e164e989adabf5e8901a1910f47d884122cc9f149081d4d819b7b28d5796b164",
+                    "49e56444ebc53e5d73734be2fe0d9711d5e1bf2436352dadacd38cd7bfdbe5a8",
+                    "bc1beff3cba390de34d65da533d21d65f77ebb72449862da0217b4ea8aaf8a88",
+                    "f76b4e20525b6350fe00188e6fd86e3415f65ce59fd38734485032b38e4aa157",
+                    "f988de7eb063fbdd228cd12443e50409c4850f0ac355afa33a456a64ca866d8d",
+                    "46cf63e112a5944152b06055b9d80c7d428b55c3f511301c2e5f2fda3b7e1f80",
+                    "cf62c1484edaf5ad73d0eb931479be122775fce2b88018fd060fc5b5413521d8",
+                    "d81baccc6c8178c7a19f5e7167dd9d2ba8f70ea9a5fd541f19a90152a32e2eb5",
+                    "81a71cd6918af4b2d089d071220abf2500ab20528658f6427fa462c9f4082ed5",
+                    "c1147046984ba9010a7d789925e70195b3a8e74b6553bd4e352fc4b8d8494107",
+                    "eb1873fdd05d9ba222dc5a9c651a4b5bd0781b93e29fb26ab065a08b98be0068",
+                    "72182beee0e749246a6e33e65d3176af6c074b1ba5ac63717a32564f7b53605f",
+                    "fe2a303f31e13e06be5ef8f2df2a718bc28c0815dbf0460c635bbf13848cd3dd",
+                    "6bb29f6760ed8eaab75b5f8c35058c1867d78abee0bb7dc8f96f42d24a433867",
+                    "f51ec896e55d6fefd020de3113957f9b53e5fdb051ebaa055f119bf51ab959b6",
+                    "2fd35b8934e44a3b8e88869c8507ea3790f12caae409fe6e753fe50b85bcb2f5",
+                    "cbb837f80c140d7bfc71a99931a0f8c4c00bec448d7543397ec2fe209e084bf8",
+                    "17b05bd96c0857fa056d71b3483ef9abb33bf662cfeb235fd8389663ca27c92d",
+                    "4250b1ec6155e43b5d1cab8b0972eb3e9c3673e82c0dce0fdfaf46c9e5d4daed",
+                    "56c0f44fccc941f995d02aa852ba6b666cd05448f986787c3b891462b672819f",
+                    "2068e932b979ede8fd6e7b1d2a75a29d353fc4e19f908d64168b00c86b1b4ff6",
+                    "371be75a49077cfc910842290f03abee28d2c87597fc33c7dd2a863445aefd4b",
+                    "2fc16bc024433892aef03f9606b2c3ef69eb780f2ba318b8545ec1041c1d965b",
+                    "04af62e559d80abc814524e840a2e8ec51b7b8a003580ba7dfdb20e23f8d60b4"
+                ]
+            }
+        ],
+        "contentSha256": "a97cfa3e15691f6318836dd1e5185fec7beb5c6b1ed98533605218b69a1b699b"
+    },
+    "evaluatedRecognizerIds": [
+        "qq_cached_device_enum"
+    ],
+    "recognizers": [
+        {
+            "recognizerId": "qq_cached_device_enum",
+            "status": "PLANS",
+            "plans": [
+                {
+                    "plan": {
+                        "snapshotSha256": "a97cfa3e15691f6318836dd1e5185fec7beb5c6b1ed98533605218b69a1b699b",
+                        "contractId": "qq_tablet_device_type",
+                        "contractRevision": 1,
+                        "strategyId": "qq_tablet_enum",
+                        "strategyRevision": 1,
+                        "hooks": [
+                            {
+                                "role": "device_type",
+                                "descriptor": "Lcom/tencent/common/config/pad/PadUtil;->a(Landroid/content/Context;)Lcom/tencent/common/config/pad/DeviceType;",
+                                "shape": {
+                                    "parameters": [
+                                        "android.content.Context"
+                                    ],
+                                    "returnType": "com.tencent.common.config.pad.DeviceType",
+                                    "isStatic": true
+                                },
+                                "source": {
+                                    "loaderId": "loader-0",
+                                    "dexIndex": 0,
+                                    "dexSha256": "76df1da31b0aa397d7cb6efc80f08b56c16b633a00dff610f6b2752a0369aeb1"
+                                },
+                                "phase": "AROUND",
+                                "configuration": {
+                                    "enum": "TABLET"
+                                }
+                            }
+                        ],
+                        "schemaVersion": 1
+                    },
+                    "executionSha256": "7ab899271d3a8df18edc15dabdc0dcc002c453f1b793777ce3287c9a3dcfaeb9",
+                    "evidence": [
+                        "namespace=loader-0",
+                        "device_type=loader-0:Lcom/tencent/common/config/pad/PadUtil;->a(Landroid/content/Context;)Lcom/tencent/common/config/pad/DeviceType;"
+                    ]
+                }
+            ],
+            "diagnostics": [],
+            "reason": null
+        }
+    ],
+    "selection": {
+        "status": "SELECTED",
+        "plan": {
+            "snapshotSha256": "a97cfa3e15691f6318836dd1e5185fec7beb5c6b1ed98533605218b69a1b699b",
+            "contractId": "qq_tablet_device_type",
+            "contractRevision": 1,
+            "strategyId": "qq_tablet_enum",
+            "strategyRevision": 1,
+            "hooks": [
+                {
+                    "role": "device_type",
+                    "descriptor": "Lcom/tencent/common/config/pad/PadUtil;->a(Landroid/content/Context;)Lcom/tencent/common/config/pad/DeviceType;",
+                    "shape": {
+                        "parameters": [
+                            "android.content.Context"
+                        ],
+                        "returnType": "com.tencent.common.config.pad.DeviceType",
+                        "isStatic": true
+                    },
+                    "source": {
+                        "loaderId": "loader-0",
+                        "dexIndex": 0,
+                        "dexSha256": "76df1da31b0aa397d7cb6efc80f08b56c16b633a00dff610f6b2752a0369aeb1"
+                    },
+                    "phase": "AROUND",
+                    "configuration": {
+                        "enum": "TABLET"
+                    }
+                }
+            ],
+            "schemaVersion": 1
+        },
+        "executionSha256": "7ab899271d3a8df18edc15dabdc0dcc002c453f1b793777ce3287c9a3dcfaeb9",
+        "evidenceByRecognizer": {
+            "qq_cached_device_enum": [
+                "device_type=loader-0:Lcom/tencent/common/config/pad/PadUtil;->a(Landroid/content/Context;)Lcom/tencent/common/config/pad/DeviceType;",
+                "namespace=loader-0"
+            ]
+        },
+        "alternatives": [],
+        "diagnostics": {},
+        "incompleteReasons": {},
+        "behaviorFeatures": {}
+    }
+}

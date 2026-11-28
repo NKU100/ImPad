@@ -1,0 +1,32 @@
+{
+  "schemaVersion": 1,
+  "groupingVersion": 1,
+  "appId": "qq",
+  "acceptanceSha256": "02b69d32cc3dec35050290d09642a70774ecf444a278bd6ca94fb3311d0629c8",
+  "excludedGroupIds": [],
+  "groups": [
+    {
+      "groupId": "rg1-74aebb299523a6d6",
+      "candidateRecordIds": [
+        "28de2379-3995-4d53-9180-a59a6e17ea3b",
+        "79517814-c46b-40ad-b862-9271a61d9a54",
+        "ad67d3de-5630-4e18-8812-124c24474d2d",
+        "8abe6dbc-ac0d-437c-95fb-eaa236eed4fe"
+      ],
+      "cacheMissRecordIds": [
+        "28de2379-3995-4d53-9180-a59a6e17ea3b",
+        "79517814-c46b-40ad-b862-9271a61d9a54",
+        "ad67d3de-5630-4e18-8812-124c24474d2d",
+        "8abe6dbc-ac0d-437c-95fb-eaa236eed4fe"
+      ],
+      "unavailable": [],
+      "status": "PASSED",
+      "recordId": "28de2379-3995-4d53-9180-a59a6e17ea3b",
+      "apkSource": "download",
+      "staticEvidence": {
+        "path": "481da822427ca77c4ea64005d197c8e2ad6f6a84fba1db164dc7b8cb624d4fcf.json",
+        "sha256": "a238a34417f3bb827e7103ffbc2b07e376e1e423178ae84c12117f7ffdef008b"
+      }
+    }
+  ]
+}
